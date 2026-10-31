@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 import json
 import logging
 import os
@@ -8,33 +7,20 @@ import re
 import subprocess
 import sys
 import time
-import types
-import zlib
 from pathlib import Path
 
 import numpy
 import pytest
+from fake_models import concept_vector
 
-from notes_vault_mcp import embed_worker, embedding, notes
+from notes_vault_mcp import embedding, notes
 from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.embedding import FastEmbedder, configured_embedder
+from notes_vault_mcp.embedding import MPNET, SharedEmbedder, configured_embedder
 from notes_vault_mcp.index import Index
 from notes_vault_mcp.schema import load_schema
 from notes_vault_mcp.search import render, search
 from notes_vault_mcp.vault import Vault, open_vault
 from notes_vault_mcp.vectors import chunks_of
-
-CONCEPTS = {"inloggning": 0, "oauth": 0, "token": 0, "login": 0, "backup": 1, "säkerhetskopia": 1, "kebbie": 2}
-DIMS = 32
-WORD_RE = re.compile(r"[^\W_]+")
-
-
-def concept_vector(text: str) -> numpy.ndarray:
-    vector = numpy.zeros(DIMS, dtype=numpy.float32)
-    for word in WORD_RE.findall(text.casefold()):
-        vector[CONCEPTS.get(word, 8 + zlib.crc32(word.encode()) % (DIMS - 8))] += 1.0
-    norm = numpy.linalg.norm(vector)
-    return vector / norm if norm else vector
 
 
 class FakeEmbedder:
@@ -282,64 +268,22 @@ def test_vectors_are_computed_in_the_background_for_the_server(root: Path, tmp_p
         opened.close()
 
 
-class CountingModel:
-    def __init__(self) -> None:
-        self.loads = 0
-        self.closed = 0
+class FailingEmbedder(FakeEmbedder):
+    def passages(self, texts):
+        raise RuntimeError("the embedding process went away")
 
-    def __call__(self, folder: Path):
-        self.loads += 1
-        return self
-
-    def embed(self, texts):
-        return [concept_vector(text) for text in texts]
-
-    def close(self) -> None:
-        self.closed += 1
+    def query(self, text):
+        raise RuntimeError("the embedding process went away")
 
 
-class Clock:
-    def __init__(self) -> None:
-        self.now = 1000.0
-
-    def __call__(self) -> float:
-        return self.now
-
-
-def test_the_model_loads_on_first_use_and_is_released_when_idle(tmp_path: Path):
-    model, clock = CountingModel(), Clock()
-    embedder = FastEmbedder(tmp_path / "models", idle_seconds=60, load=model, clock=clock)
-    assert not embedder.loaded and model.loads == 0
-    embedder.query("inloggning")
-    embedder.passages(["oauth token"])
-    assert embedder.loaded and model.loads == 1
-    clock.now += 30
-    assert not embedder.release_if_idle()
-    clock.now += 31
-    assert embedder.release_if_idle()
-    assert not embedder.loaded and model.closed == 1
-    embedder.query("igen")
-    assert model.loads == 2
-
-
-class FailingModel(CountingModel):
-    def embed(self, texts):
-        raise RuntimeError("worker died")
-
-
-def test_a_failing_model_is_dropped_and_search_falls_back_to_words(vault: Vault, tmp_path: Path):
-    model = FailingModel()
-    embedder = FastEmbedder(tmp_path / "models", load=model)
-    embedder.model_id = "fake-1"
-    vault.index.vectors.embedder = embedder
+def test_a_failing_embedder_leaves_search_by_words(vault: Vault):
+    vault.index.vectors.embedder = FailingEmbedder()
     result = search(vault.index, vault.schema, "kebbie-tasks")
     assert keys(result) == ["Areas/board.md"] and result.by_meaning == 0
-    assert not embedder.loaded and model.closed == 1
 
 
-def test_a_failing_model_leaves_sync_working_by_words(root: Path, tmp_path: Path):
-    embedder = FastEmbedder(tmp_path / "models", load=FailingModel())
-    opened = open_with(root, tmp_path / "failing.sqlite", embedder)
+def test_a_failing_embedder_leaves_sync_working_by_words(root: Path, tmp_path: Path):
+    opened = open_with(root, tmp_path / "failing.sqlite", FailingEmbedder())
     try:
         assert opened.index.vectors.count() == 0
         assert "Areas/board.md" in keys(search(opened.index, opened.schema, "kebbie-tasks"))
@@ -347,63 +291,14 @@ def test_a_failing_model_leaves_sync_working_by_words(root: Path, tmp_path: Path
         opened.close()
 
 
-def test_a_busy_model_lets_the_query_go_by_words(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(embedding, "QUERY_WAIT_SECONDS", 0.01)
-    embedder = FastEmbedder(tmp_path / "models", load=CountingModel())
-    with embedder._lock:
-        assert embedder.query("inloggning") is None
-
-
-def test_the_worker_answers_vectors_and_errors_over_its_pipe(monkeypatch: pytest.MonkeyPatch):
-    class TextEmbedding:
-        def __init__(self, model, cache_dir):
-            self.model = model
-
-        def embed(self, texts, batch_size):
-            if texts == ["boom"]:
-                raise ValueError("cannot embed boom")
-            return [concept_vector(text) for text in texts]
-
-    monkeypatch.setitem(sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=TextEmbedding))
-    requests = io.BytesIO()
-    embed_worker.write_message(requests, json.dumps(["oauth token", "backup"]).encode())
-    embed_worker.write_message(requests, json.dumps(["boom"]).encode())
-    requests.seek(0)
-    replies = io.BytesIO()
-    embed_worker.serve("/nowhere", "fake", requests, replies)
-    replies.seek(0)
-    first = embed_worker.read_message(replies)
-    rows, dims = embed_worker.HEADER.unpack_from(first)
-    vectors = numpy.frombuffer(first, dtype=numpy.float32, offset=embed_worker.HEADER.size).reshape(rows, dims)
-    assert (rows, dims) == (2, DIMS)
-    assert numpy.allclose(vectors[0], concept_vector("oauth token"))
-    second = embed_worker.read_message(replies)
-    assert embed_worker.HEADER.unpack_from(second) == (0, 0)
-    assert second[embed_worker.HEADER.size :] == b"cannot embed boom"
-    assert embed_worker.read_message(replies) is None
-
-
-def test_the_idle_timer_releases_the_model(tmp_path: Path):
-    embedder = FastEmbedder(tmp_path / "models", idle_seconds=0.05, load=CountingModel())
-    embedder.query("inloggning")
-    deadline = time.time() + 5
-    while embedder.loaded and time.time() < deadline:
-        time.sleep(0.02)
-    assert not embedder.loaded
-
-
-def test_a_session_with_nothing_new_to_embed_never_loads_the_model(root: Path, tmp_path: Path):
-    first = open_with(root, tmp_path / "shared.sqlite", FakeEmbedder())
-    first.close()
-    model = CountingModel()
-    embedder = FastEmbedder(tmp_path / "models", load=model)
-    embedder.model_id = "fake-1"
-    second = open_with(root, tmp_path / "shared.sqlite", embedder)
+def test_a_session_with_nothing_new_to_embed_never_asks_for_the_model(root: Path, tmp_path: Path):
+    open_with(root, tmp_path / "shared.sqlite", FakeEmbedder()).close()
+    quiet = FakeEmbedder()
+    quiet.query = lambda text: pytest.fail("asked for a query vector")
+    second = open_with(root, tmp_path / "shared.sqlite", quiet)
     try:
         second.index.sync(force=True)
-        assert model.loads == 0
-        search(second.index, second.schema, "kebbie-tasks")
-        assert model.loads == 1
+        assert quiet.embedded == []
     finally:
         second.close()
 
@@ -418,7 +313,16 @@ def test_the_setting_is_read_from_the_plugin_option_too(monkeypatch: pytest.Monk
     monkeypatch.delenv("VAULT_SEMANTIC", raising=False)
     monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_VAULT_SEMANTIC", "on")
     monkeypatch.setattr(embedding, "extra_installed", lambda: True)
-    assert isinstance(configured_embedder(tmp_path), FastEmbedder)
+    assert isinstance(configured_embedder(tmp_path), SharedEmbedder)
+
+
+def test_the_model_is_chosen_by_its_own_setting(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    monkeypatch.setenv("VAULT_SEMANTIC", "on")
+    monkeypatch.setattr(embedding, "extra_installed", lambda: True)
+    assert configured_embedder(tmp_path).model_id.endswith("MiniLM-L12-v2")
+    monkeypatch.setenv("VAULT_SEMANTIC_MODEL", MPNET)
+    chosen = configured_embedder(tmp_path)
+    assert chosen.model_id == MPNET and chosen.min_similarity == 0.35
 
 
 def test_on_without_the_extra_searches_by_words_and_says_so_once(
@@ -427,7 +331,7 @@ def test_on_without_the_extra_searches_by_words_and_says_so_once(
     monkeypatch.setenv("VAULT_SEMANTIC", "on")
     monkeypatch.setenv("VAULT_PATH", str(vault_dir))
     monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "cache"))
-    monkeypatch.setattr(embedding, "_missing_reported", False)
+    monkeypatch.setattr(embedding, "_reported", set())
     monkeypatch.setattr(embedding, "EXTRA_MODULES", ("numpy", "fastembed_is_not_installed"))
     with caplog.at_level(logging.WARNING, logger="notes_vault_mcp.embedding"):
         first = open_vault(vectors="wait")
@@ -453,7 +357,8 @@ vault.index.sync(force=True)
 queries = ("orchard", "domän", "inloggning", "9ca31382", "orchard bokning")
 out = [render(search(vault.index, vault.schema, q)) for q in queries]
 tables = [row[0] for row in vault.index.db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
-loaded = [m for m in ("fastembed", "numpy", "onnxruntime", "notes_vault_mcp.vectors") if m in sys.modules]
+modules = ("fastembed", "numpy", "onnxruntime", "notes_vault_mcp.vectors", "notes_vault_mcp.embed_worker")
+loaded = [m for m in modules if m in sys.modules]
 print(json.dumps({"out": out, "tables": sorted(tables), "loaded": loaded}))
 """
 
@@ -473,6 +378,7 @@ def test_off_leaves_search_and_the_index_as_they_were_and_imports_nothing(vault_
     assert served == plain
     assert served["loaded"] == []
     assert "chunks" not in served["tables"] and "embedded" not in served["tables"]
+    assert not list((tmp_path / "a").glob("embed*"))
 
 
 def test_an_index_without_an_embedder_has_no_vectors(vault_dir: Path, tmp_path: Path):

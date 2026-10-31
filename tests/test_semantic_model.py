@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import os
+import signal
 from pathlib import Path
 
 import pytest
 
 from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.embedding import FastEmbedder, extra_installed
+from notes_vault_mcp.embedding import MINILM, SharedEmbedder, extra_installed
 from notes_vault_mcp.schema import load_schema
 from notes_vault_mcp.search import search
 from notes_vault_mcp.vault import Vault
@@ -46,12 +47,18 @@ def vault(tmp_path_factory: pytest.TempPathFactory):
         path.parent.mkdir(parents=True, exist_ok=True)
         front = f"---\ntitle: {title}\ndate: 2026-10-01\nupdated: 2026-10-01\ntags: []\nstatus: active\n---\n"
         path.write_text(front + body, encoding="utf-8")
-    models = Path(os.environ.get("VAULT_TEST_MODEL_CACHE") or base / "models")
+    cache = base / "cache"
+    cache.mkdir()
+    if os.environ.get("VAULT_TEST_MODEL_CACHE"):
+        (cache / "models").symlink_to(Path(os.environ["VAULT_TEST_MODEL_CACHE"]))
+    embedder = SharedEmbedder(cache, os.environ.get("VAULT_SEMANTIC_MODEL") or MINILM)
     backend = LocalBackend(base / "vault")
-    opened = Vault(backend, load_schema(backend), base / "index.sqlite", embedder=FastEmbedder(models))
+    opened = Vault(backend, load_schema(backend), base / "index.sqlite", embedder=embedder)
     opened.index.sync(force=True)
     yield opened
     opened.close()
+    if embedder.worker_pid:
+        os.kill(embedder.worker_pid, signal.SIGTERM)
 
 
 def found(vault: Vault, query: str) -> list[str]:

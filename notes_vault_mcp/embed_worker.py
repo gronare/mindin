@@ -1,13 +1,47 @@
 from __future__ import annotations
 
+import contextlib
+import fcntl
+import importlib
+import itertools
 import json
+import os
+import queue
+import signal
+import socket
 import struct
 import sys
-from typing import BinaryIO
+import threading
+import time
+from collections.abc import Iterator
+from importlib import metadata
+from pathlib import Path
+from typing import Any, BinaryIO
 
 HEADER = struct.Struct(">II")
 LENGTH = struct.Struct(">I")
 BATCH_SIZE = 32
+PROTOCOL = 1
+QUERY, PASSAGES = 0, 1
+POLL_SECONDS = 0.2
+DEFAULT_LOADER = "notes_vault_mcp.embed_worker:fastembed_model"
+
+
+def package_version() -> str:
+    try:
+        return metadata.version("notes-vault-mcp")
+    except metadata.PackageNotFoundError:
+        return ""
+
+
+@contextlib.contextmanager
+def machine_lock(path: Path) -> Iterator[None]:
+    with open(path, "a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def read_exactly(stream: BinaryIO, size: int) -> bytes | None:
@@ -32,25 +66,182 @@ def write_message(stream: BinaryIO, payload: bytes) -> None:
     stream.flush()
 
 
-def serve(folder: str, model: str, requests: BinaryIO, replies: BinaryIO) -> None:
+def vectors_reply(rows: Any) -> bytes:
     import numpy
-    from fastembed import TextEmbedding
 
-    embedding = TextEmbedding(model, cache_dir=folder)
-    while (request := read_message(requests)) is not None:
+    matrix = numpy.asarray(rows, dtype=numpy.float32)
+    return HEADER.pack(*matrix.shape) + matrix.tobytes()
+
+
+def error_reply(message: str) -> bytes:
+    return HEADER.pack(0, 0) + message.encode("utf-8")
+
+
+class FastembedModel:
+    def __init__(self, model: str, folder: str) -> None:
+        from fastembed import TextEmbedding
+
+        self.embedding = TextEmbedding(model, cache_dir=folder)
+
+    def embed(self, texts: list[str]) -> Any:
+        return list(self.embedding.embed(texts, batch_size=BATCH_SIZE))
+
+
+def fastembed_model(model: str, folder: str) -> FastembedModel:
+    return FastembedModel(model, folder)
+
+
+def load_function(spec: str) -> Any:
+    module, _, name = spec.partition(":")
+    return getattr(importlib.import_module(module), name)
+
+
+class Job:
+    def __init__(self, texts: list[str]) -> None:
+        self.texts = texts
+        self.reply = b""
+        self.done = threading.Event()
+
+
+class Worker:
+    def __init__(
+        self, sock_path: Path, lock_path: Path, folder: str, model: str, idle_seconds: float, loader: str
+    ) -> None:
+        self.sock_path = sock_path
+        self.lock_path = lock_path
+        self.folder = folder
+        self.model_name = model
+        self.idle_seconds = idle_seconds
+        self.loader = loader
+        self.model: Any = None
+        self.jobs: queue.PriorityQueue[tuple[int, int, Job]] = queue.PriorityQueue()
+        self.order = itertools.count()
+        self.open_connections = 0
+        self.state_lock = threading.Lock()
+        self.last_used = time.monotonic()
+        self.stopping = threading.Event()
+        self.listener: socket.socket | None = None
+
+    def hello(self) -> bytes:
+        payload = {"model": self.model_name, "protocol": PROTOCOL, "version": package_version(), "pid": os.getpid()}
+        return json.dumps(payload).encode("utf-8")
+
+    def bind(self) -> None:
+        with contextlib.suppress(FileNotFoundError):
+            self.sock_path.unlink()
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        old = os.umask(0o177)
         try:
-            rows = numpy.asarray(list(embedding.embed(json.loads(request), batch_size=BATCH_SIZE)), dtype=numpy.float32)
-            write_message(replies, HEADER.pack(*rows.shape) + rows.tobytes())
-        except Exception as exc:
-            write_message(replies, HEADER.pack(0, 0) + str(exc).encode("utf-8"))
+            listener.bind(str(self.sock_path))
+        finally:
+            os.umask(old)
+        listener.listen(64)
+        listener.settimeout(POLL_SECONDS)
+        self.listener = listener
+
+    def serve(self) -> None:
+        threading.Thread(target=self._embed_loop, name="embed", daemon=True).start()
+        while True:
+            try:
+                connection, _ = self.listener.accept()
+            except TimeoutError:
+                if self.stopping.is_set() or self._idle():
+                    break
+                continue
+            if self.stopping.is_set():
+                connection.close()
+                break
+            with self.state_lock:
+                self.open_connections += 1
+            threading.Thread(target=self._answer, args=(connection,), daemon=True).start()
+        self.listener.close()
+        with machine_lock(self.lock_path), contextlib.suppress(FileNotFoundError):
+            if not answers(self.sock_path):
+                self.sock_path.unlink()
+
+    def _idle(self) -> bool:
+        with self.state_lock:
+            return not self.open_connections and time.monotonic() - self.last_used >= self.idle_seconds
+
+    def _answer(self, connection: socket.socket) -> None:
+        try:
+            with connection, connection.makefile("rwb") as stream:
+                write_message(stream, self.hello())
+                while (request := read_message(stream)) is not None:
+                    message = json.loads(request)
+                    if message.get("op") == "shutdown":
+                        self.stopping.set()
+                        write_message(stream, b"{}")
+                        return
+                    write_message(stream, self.submit(message))
+        except OSError:
+            pass
+        finally:
+            with self.state_lock:
+                self.open_connections -= 1
+                self.last_used = time.monotonic()
+
+    def submit(self, message: dict) -> bytes:
+        job = Job([str(text) for text in message.get("texts") or []])
+        priority = QUERY if message.get("op") == "query" else PASSAGES
+        self.jobs.put((priority, next(self.order), job))
+        job.done.wait()
+        return job.reply
+
+    def _embed_loop(self) -> None:
+        while True:
+            _, _, job = self.jobs.get()
+            try:
+                if self.model is None:
+                    self.model = load_function(self.loader)(self.model_name, self.folder)
+                job.reply = vectors_reply(self.model.embed(job.texts))
+            except Exception as exc:
+                job.reply = error_reply(f"{type(exc).__name__}: {exc}")
+            job.done.set()
+
+
+def answers(sock_path: Path) -> bool:
+    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    probe.settimeout(1.0)
+    try:
+        probe.connect(str(sock_path))
+    except OSError:
+        return False
+    finally:
+        probe.close()
+    return True
+
+
+def daemonize(worker: Worker, pid_path: Path) -> None:
+    ready_read, ready_write = os.pipe()
+    if os.fork():
+        os.close(ready_write)
+        os._exit(0 if os.read(ready_read, 1) else 1)
+    os.close(ready_read)
+    os.setsid()
+    worker.bind()
+    pid_path.write_text(str(os.getpid()), encoding="utf-8")
+    os.write(ready_write, b"1")
+    os.close(ready_write)
+    devnull = os.open(os.devnull, os.O_RDWR)
+    os.dup2(devnull, 0)
+    os.dup2(devnull, 1)
+    # stdout now points nowhere; prints from libraries go to the log on stderr instead.
+    sys.stdout = sys.stderr
+    signal.signal(signal.SIGTERM, lambda *_: worker.stopping.set())
+    try:
+        worker.serve()
+    finally:
+        with contextlib.suppress(OSError):
+            if pid_path.read_text(encoding="utf-8").strip() == str(os.getpid()):
+                pid_path.unlink()
+    os._exit(0)
 
 
 def main() -> None:
-    folder, model = sys.argv[1], sys.argv[2]
-    replies = sys.stdout.buffer
-    # Replies own stdout; anything a library prints must not land in them.
-    sys.stdout = sys.stderr
-    serve(folder, model, sys.stdin.buffer, replies)
+    sock_path, lock_path, pid_path, folder, model, idle, loader = sys.argv[1:8]
+    worker = Worker(Path(sock_path), Path(lock_path), folder, model, float(idle), loader)
+    daemonize(worker, Path(pid_path))
 
 
 if __name__ == "__main__":

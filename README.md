@@ -356,6 +356,10 @@ claude mcp add vault -s user \
   -- uvx --from 'notes-vault-mcp[semantic]' notes-vault-mcp
 ```
 
+A server run from the container image uses the `-semantic` tag, which carries the extra, with
+`VAULT_SEMANTIC=on`: `ghcr.io/gronare/notes-vault-mcp:v0.9.0-semantic`. The plain tag leaves it out, and
+every client of one server shares its model and index.
+
 It runs on your machine. The model, `paraphrase-multilingual-mpnet-base-v2` run through fastembed and
 ONNX, is downloaded once from Hugging Face into `VAULT_CACHE_DIR/models`. No API key, and no note leaves
 the machine. Each note is split at its headings, each section gets a vector, and the vectors live in the

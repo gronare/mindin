@@ -54,6 +54,15 @@ jobs:
             ghcr.io/gronare/notes-vault-mcp:${{ github.ref_name }}
             ghcr.io/gronare/notes-vault-mcp:latest
           labels: io.modelcontextprotocol.server.name=io.github.gronare/notes-vault-mcp
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: EXTRAS=--extra semantic
+          tags: |
+            ghcr.io/gronare/notes-vault-mcp:${{ github.ref_name }}-semantic
+            ghcr.io/gronare/notes-vault-mcp:latest-semantic
+          labels: io.modelcontextprotocol.server.name=io.github.gronare/notes-vault-mcp
 
   registry:
     needs: [pypi, ghcr]

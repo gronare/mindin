@@ -3,7 +3,7 @@
   "name": "io.github.gronare/notes-vault-mcp",
   "title": "Notes Vault",
   "description": "Indexed search, schema-checked writes and session hooks for a markdown notes vault",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "repository": {
     "url": "https://github.com/gronare/notes-vault-mcp",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "notes-vault-mcp",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "runtimeHint": "uvx",
       "transport": { "type": "stdio" },
       "environmentVariables": [

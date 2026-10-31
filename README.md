@@ -447,9 +447,9 @@ notes-vault-mcp log append --cwd ~/wt/wt1.myapp --line "Login fixed" --commit ab
 # {"path": "Log/myapp-log.md"}
 notes-vault-mcp log path --repo myapp                         # {"path": "Log/myapp-log.md"}
 notes-vault-mcp status
-# {"configured": true, "version": "0.8.0", "backend": "s3", "writable": null}
+# {"configured": true, "version": "0.9.0", "backend": "s3", "writable": null}
 notes-vault-mcp status --probe
-# {"configured": true, "version": "0.8.0", "backend": "s3", "writable": true}
+# {"configured": true, "version": "0.9.0", "backend": "s3", "writable": true}
 ```
 
 The repo is the main checkout's name, also from a worktree, and the area is the system note the

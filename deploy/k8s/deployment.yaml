@@ -31,7 +31,7 @@ spec:
     spec:
       containers:
         - name: notes-vault-mcp
-          image: ghcr.io/gronare/notes-vault-mcp:v0.3.0
+          image: ghcr.io/gronare/notes-vault-mcp:v0.9.0
           args:
             - serve
             - --transport

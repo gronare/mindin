@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.embedding import MINILM, SharedEmbedder, extra_installed
+from notes_vault_mcp.embedding import SharedEmbedder, extra_installed, model_name
 from notes_vault_mcp.schema import load_schema
 from notes_vault_mcp.search import search
 from notes_vault_mcp.vault import Vault
@@ -51,7 +51,7 @@ def vault(tmp_path_factory: pytest.TempPathFactory):
     cache.mkdir()
     if os.environ.get("VAULT_TEST_MODEL_CACHE"):
         (cache / "models").symlink_to(Path(os.environ["VAULT_TEST_MODEL_CACHE"]))
-    embedder = SharedEmbedder(cache, os.environ.get("VAULT_SEMANTIC_MODEL") or MINILM)
+    embedder = SharedEmbedder(cache, model_name())
     backend = LocalBackend(base / "vault")
     opened = Vault(backend, load_schema(backend), base / "index.sqlite", embedder=embedder)
     opened.index.sync(force=True)

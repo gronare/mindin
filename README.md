@@ -88,7 +88,7 @@ passes its user config. The bare name wins when both are set.
 | `VAULT_ALLOWED_HOSTS` | no | Extra `Host` header values the server answers on, space or comma separated. |
 | `VAULT_STOP_HOOK` | no | `off` disables the stop hook. |
 | `VAULT_SEMANTIC` | no | `on` adds [search by meaning](#search-by-meaning); needs the `semantic` extra. |
-| `VAULT_SEMANTIC_MODEL` | no | The embedding model for search by meaning, default `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`. |
+| `VAULT_SEMANTIC_MODEL` | no | The embedding model for search by meaning, default `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`. |
 
 Set `VAULT_PATH` **or** the four `S3_*` variables. With neither, the server exits with one line
 saying so.
@@ -231,7 +231,7 @@ claude mcp add vault -s user \
   -- uvx --from 'notes-vault-mcp[semantic]' notes-vault-mcp
 ```
 
-It runs on your machine. The model, `paraphrase-multilingual-MiniLM-L12-v2` run through fastembed and
+It runs on your machine. The model, `paraphrase-multilingual-mpnet-base-v2` run through fastembed and
 ONNX, is downloaded once from Hugging Face into `VAULT_CACHE_DIR/models`. No API key, and no note leaves
 the machine. Each note is split at its headings, each section gets a vector, and the vectors live in the
 same SQLite index: computed for the notes whose version changed, dropped with the note, and computed
@@ -243,19 +243,20 @@ running when that session ends, and exits by itself once nobody has asked it any
 The next search starts it again. If it crashes, the next search starts a new one. A session that never
 searches, with no new note to embed, never starts it. Its log is `VAULT_CACHE_DIR/embed.log`.
 
-`VAULT_SEMANTIC_MODEL=sentence-transformers/paraphrase-multilingual-mpnet-base-v2` swaps in a larger
-model that finds noticeably more, at four times the disk; every session on the machine should name the
-same model, since a session asking for another one restarts the shared process with its own.
+On a machine short of memory, `VAULT_SEMANTIC_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
+swaps in a smaller model: a quarter of the disk and about half the memory, and it finds fewer notes by
+meaning. Every session on the machine should name the same model, since a session asking for another one
+restarts the shared process with its own.
 
 What it costs, measured on an M2 Pro with a vault of 500 notes in 3,300 sections:
 
-| | MiniLM (default) | mpnet |
+| | mpnet (default) | MiniLM |
 | --- | --- | --- |
-| Disk | 250 MB for the model, about 2 KB per section in the index (7 MB here) | 1 GB for the model, about 4 KB per section (14 MB here) |
-| Shared process | About 900 MB just after it starts, less once the system has paged out what searches do not touch | 1.1 to 1.7 GB just after it starts |
-| Each server | About 25 MB more than searching by words | About 35 MB more |
-| First sync | About a minute (60 sections a second) | About four minutes (14 sections a second) |
-| Query | About 20 ms, against 11 ms by words alone; about 33 ms each with six sessions searching at once | About 23 ms; about 50 ms with six at once |
+| Disk | 1 GB for the model, about 4 KB per section in the index (14 MB here) | 250 MB for the model, about 2 KB per section (7 MB here) |
+| Shared process | 1.1 to 1.7 GB just after it starts, about 500 MB once the system has paged out what searches do not touch | About 900 MB just after it starts, about 160 MB later |
+| Each server | About 35 MB more than searching by words | About 25 MB more |
+| First sync | About four minutes (14 sections a second) | About a minute (60 sections a second) |
+| Query | About 23 ms, against 11 ms by words alone; about 50 ms each with six sessions searching at once | About 20 ms; about 33 ms with six at once |
 
 The shared process is one per machine, so six sessions cost one model, not six. A server embeds in the
 background and searches by words meanwhile; a query that would wait more than three seconds for the

@@ -15,7 +15,7 @@ from fake_models import concept_vector
 
 from notes_vault_mcp import embedding, notes
 from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.embedding import MPNET, SharedEmbedder, configured_embedder
+from notes_vault_mcp.embedding import MINILM, MPNET, SharedEmbedder, configured_embedder
 from notes_vault_mcp.index import Index
 from notes_vault_mcp.schema import load_schema
 from notes_vault_mcp.search import render, search
@@ -319,10 +319,11 @@ def test_the_setting_is_read_from_the_plugin_option_too(monkeypatch: pytest.Monk
 def test_the_model_is_chosen_by_its_own_setting(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv("VAULT_SEMANTIC", "on")
     monkeypatch.setattr(embedding, "extra_installed", lambda: True)
-    assert configured_embedder(tmp_path).model_id.endswith("MiniLM-L12-v2")
-    monkeypatch.setenv("VAULT_SEMANTIC_MODEL", MPNET)
+    default = configured_embedder(tmp_path)
+    assert default.model_id == MPNET and default.min_similarity == 0.35
+    monkeypatch.setenv("VAULT_SEMANTIC_MODEL", MINILM)
     chosen = configured_embedder(tmp_path)
-    assert chosen.model_id == MPNET and chosen.min_similarity == 0.35
+    assert chosen.model_id == MINILM and chosen.min_similarity == 0.25
 
 
 def test_on_without_the_extra_searches_by_words_and_says_so_once(

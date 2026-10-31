@@ -58,7 +58,7 @@ def semantic_requested() -> bool:
 
 
 def model_name() -> str:
-    return (env("VAULT_SEMANTIC_MODEL") or "").strip() or MINILM
+    return (env("VAULT_SEMANTIC_MODEL") or "").strip() or MPNET
 
 
 def extra_installed() -> bool:
@@ -131,7 +131,7 @@ class SharedEmbedder:
     def __init__(
         self,
         cache: Path,
-        model: str = MINILM,
+        model: str = MPNET,
         idle_seconds: float = IDLE_SECONDS,
         loader: str | None = None,
         query_wait: float = QUERY_WAIT_SECONDS,

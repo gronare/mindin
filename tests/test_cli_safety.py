@@ -65,6 +65,15 @@ def test_a_transcript_with_broken_lines_is_read_past_them(tmp_path: Path):
     assert hooks.touched_notes(str(transcript)) == {"Projects/x.md", "Projects/y.md"}
 
 
+def test_a_write_through_the_claude_ai_connector_counts_as_touched(tmp_path: Path):
+    transcript = tmp_path / "t.jsonl"
+    line = json.dumps(
+        {"type": "tool_use", "name": "mcp__claude_ai_Vault__write_file", "input": {"path": "Projects/z.md"}}
+    )
+    transcript.write_text(line + "\n", encoding="utf-8")
+    assert hooks.touched_notes(str(transcript)) == {"Projects/z.md"}
+
+
 def test_a_hostile_note_date_reaches_git_as_one_argument(tmp_path: Path):
     repo = make_repo(tmp_path / "repos", "orchard")
     marker = tmp_path / "pwned"

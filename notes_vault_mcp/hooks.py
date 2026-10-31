@@ -130,7 +130,7 @@ def stale_open_notes(vault: Vault, repo: str, path: str) -> list[tuple[str, str]
 
 def _collect_vault_paths(node: object, touched: set[str]) -> None:
     if isinstance(node, dict):
-        if node.get("type") == "tool_use" and "vault" in str(node.get("name", "")):
+        if node.get("type") == "tool_use" and "vault" in str(node.get("name", "")).lower():
             arguments = node.get("input") or {}
             for key in ("path", "source", "dest"):
                 value = arguments.get(key) if isinstance(arguments, dict) else None
@@ -152,7 +152,7 @@ def touched_notes(transcript_path: str | None) -> set[str]:
         return touched
     with path.open(encoding="utf-8", errors="replace") as handle:
         for line in handle:
-            if "tool_use" not in line or "vault" not in line:
+            if "tool_use" not in line or "vault" not in line.lower():
                 continue
             try:
                 entry = json.loads(line)

@@ -25,7 +25,8 @@ read and write files:
 
 Swedish or English notes both work: the index folds diacritics, stems every word in the vault's
 languages so `äppelpressar` finds `äppelpressen` and `pressing` finds `presses`, and the schema carries a
-synonym list so `bokning` finds `booking`.
+synonym list so `bokning` finds `booking`. Turn on [search by meaning](#search-by-meaning) and `inloggning`
+also finds the note about the OAuth flow.
 
 ## Install
 
@@ -86,6 +87,7 @@ passes its user config. The bare name wins when both are set.
 | `VAULT_TOKEN` | for `--auth bearer` | Static bearer token for the LAN mode of `--transport http`. |
 | `VAULT_ALLOWED_HOSTS` | no | Extra `Host` header values the server answers on, space or comma separated. |
 | `VAULT_STOP_HOOK` | no | `off` disables the stop hook. |
+| `VAULT_SEMANTIC` | no | `on` adds [search by meaning](#search-by-meaning); needs the `semantic` extra. |
 
 Set `VAULT_PATH` **or** the four `S3_*` variables. With neither, the server exits with one line
 saying so.
@@ -209,6 +211,43 @@ uvx notes-vault-mcp lint
 uvx notes-vault-mcp lint --write "Log/lint-$(date +%F).md"
 uvx notes-vault-mcp lint --write Log/lint.md --park-stale
 ```
+
+## Search by meaning
+
+Off by default. With it on, `search` also finds notes that share no word with the query: `inloggning`
+finds the note about the OAuth flow, and an English query reaches a Swedish note. Exact names still win.
+The word ranking and the meaning ranking are fused, a note's stem still puts that note first, a sha still
+finds exactly the notes that mention it, and the filters and the archive and superseded hiding apply to
+both. The header counts the rows found by meaning alone (`4 of 9, 2 by meaning only`), and a row that
+matched one section of a long note names it: `§ OAuth-flödet · …`.
+
+Install the `semantic` extra and set `VAULT_SEMANTIC=on`:
+
+```sh
+claude mcp add vault -s user \
+  -e VAULT_PATH=$HOME/vault \
+  -e VAULT_SEMANTIC=on \
+  -- uvx --from 'notes-vault-mcp[semantic]' notes-vault-mcp
+```
+
+It runs on your machine. The model, `paraphrase-multilingual-MiniLM-L12-v2` run through fastembed and
+ONNX, is downloaded once from Hugging Face into `VAULT_CACHE_DIR/models` and shared by every server on
+the machine. No API key, and no note leaves the machine. Each note is split at its headings, each section
+gets a vector, and the vectors live in the same SQLite index: computed for the notes whose version
+changed, dropped with the note, and computed again for every note when the model changes.
+
+What it costs, measured on an M2 Pro with a vault of 500 notes in 3,300 sections:
+
+| | |
+| --- | --- |
+| Disk | 250 MB for the model, and about 2 KB per section in the index (7 MB here). |
+| Memory | About 1 GB in a worker process while the model is loaded. The worker starts on the first search or the first note to embed and exits after five idle minutes. The server itself grows by about 25 MB. A session that never searches, with nothing new to embed, starts no worker. |
+| First sync | About a minute (60 sections a second). The server embeds in the background, and search by words works meanwhile. |
+| Query | About 18 ms, against 11 ms by words alone. The first query after the worker exited waits about 0.7 s for it to start. |
+
+With `VAULT_SEMANTIC=on` and the extra missing, the server logs one line saying so and searches by
+words. `notes-vault-mcp sync` embeds whatever is pending and says how many notes carry vectors;
+`sync --rebuild` computes them all again.
 
 ## Hooks
 
@@ -562,6 +601,10 @@ uv sync
 uv run pytest
 uv run ruff check .
 ```
+
+`VAULT_TEST_SEMANTIC_MODEL=1 uv run --extra semantic pytest tests/test_semantic_model.py` runs search by
+meaning against the real model, which it downloads first; `VAULT_TEST_MODEL_CACHE` points it at a model
+folder already on disk.
 
 The test suite runs against a fixture vault under `tests/fixtures/vault/` and a moto-mocked S3
 bucket. It never touches a real bucket.

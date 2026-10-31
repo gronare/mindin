@@ -20,15 +20,16 @@ template = provision.template
 
 def command_serve(args: argparse.Namespace) -> int:
     if args.transport != "http":
-        run_stdio(open_vault())
+        run_stdio(open_vault(vectors="background"))
         return 0
     auth = auth_config(args.auth)
     if auth.mode == "forwarded":
         from notes_vault_mcp.vault import SubjectVaults
 
-        run_http(SubjectVaults(prefix=auth.subject_prefix, dav_url=auth.dav_url), args.host, args.port, auth)
+        vaults = SubjectVaults(prefix=auth.subject_prefix, dav_url=auth.dav_url, vectors="background")
+        run_http(vaults, args.host, args.port, auth)
         return 0
-    run_http(open_vault(), args.host, args.port, auth)
+    run_http(open_vault(vectors="background"), args.host, args.port, auth)
     return 0
 
 
@@ -105,9 +106,11 @@ def command_lint(args: argparse.Namespace) -> int:
 
 
 def command_sync(args: argparse.Namespace) -> int:
-    vault = open_vault()
+    vault = open_vault(vectors="wait")
     count = vault.index.rebuild() if args.rebuild else vault.index.sync(force=True)
     print(f"indexed {count} notes of {len(vault.index.all_notes())}")
+    if vault.index.vectors is not None:
+        print(f"{vault.index.vectors.count()} notes carry vectors for search by meaning")
     return 0
 
 
@@ -131,7 +134,7 @@ def command_backlog(args: argparse.Namespace) -> int:
 
 
 def command_search(args: argparse.Namespace) -> int:
-    vault = open_vault()
+    vault = open_vault(vectors="wait")
     vault.index.sync()
     print(render(search(vault.index, vault.schema, args.query, limit=args.limit)))
     return 0

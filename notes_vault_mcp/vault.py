@@ -7,27 +7,37 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 import yaml
 
 from notes_vault_mcp import provision
 from notes_vault_mcp.backends import VaultBackend, VaultError, make_backend, make_subject_backend
 from notes_vault_mcp.config import cache_dir, env
+from notes_vault_mcp.embedding import Embedder, configured_embedder
 from notes_vault_mcp.index import Index
 from notes_vault_mcp.schema import Schema, deep_merge, default_schema_data, load_schema
 
 SUBJECT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@-]{0,63}")
 IDLE_SECONDS = 1800.0
+Vectoring = Literal["off", "wait", "background"]
 
 
 class Vault:
     def __init__(
-        self, backend: VaultBackend, schema: Schema, index_path: Path | None = None, index: Index | None = None
+        self,
+        backend: VaultBackend,
+        schema: Schema,
+        index_path: Path | None = None,
+        index: Index | None = None,
+        embedder: Embedder | None = None,
+        background: bool = False,
     ):
         self.backend = backend
         self.schema = schema
         self.index_path = index_path
+        self.embedder = embedder
+        self.background = background
         self._index = index
 
     @property
@@ -35,7 +45,9 @@ class Vault:
         if self._index is None:
             if self.index_path is None:
                 raise RuntimeError("the vault has no index path")
-            self._index = Index(self.index_path, self.backend, self.schema.languages)
+            self._index = Index(
+                self.index_path, self.backend, self.schema.languages, embedder=self.embedder, background=self.background
+            )
         return self._index
 
     @property
@@ -48,10 +60,17 @@ class Vault:
             self._index = None
 
 
-def open_vault(cache: Path | None = None) -> Vault:
+def open_vault(cache: Path | None = None, vectors: Vectoring = "off") -> Vault:
     backend, identifier = make_backend()
     schema = load_schema(backend, env("VAULT_SCHEMA"))
-    return Vault(backend=backend, schema=schema, index_path=(cache or cache_dir()) / f"{identifier}.sqlite")
+    folder = cache or cache_dir()
+    return Vault(
+        backend=backend,
+        schema=schema,
+        index_path=folder / f"{identifier}.sqlite",
+        embedder=configured_embedder(folder) if vectors != "off" else None,
+        background=vectors == "background",
+    )
 
 
 class NoSubject(VaultError):
@@ -65,6 +84,9 @@ class VaultResolver(Protocol):
 
     @property
     def instruction_schema(self) -> Schema: ...
+
+    @property
+    def searches_by_meaning(self) -> bool: ...
 
     def close(self) -> None: ...
 
@@ -83,6 +105,10 @@ class SingleVault:
     @property
     def instruction_schema(self) -> Schema:
         return self.vault.schema
+
+    @property
+    def searches_by_meaning(self) -> bool:
+        return self.vault.embedder is not None
 
     def close(self) -> None:
         self.vault.close()
@@ -103,8 +129,11 @@ class SubjectVaults:
         schema_template: str = "schema.yml",
         idle_seconds: float = IDLE_SECONDS,
         clock: Callable[[], float] = time.monotonic,
+        vectors: Vectoring = "off",
     ) -> None:
         self.cache = cache or cache_dir()
+        self.embedder = configured_embedder(self.cache) if vectors != "off" else None
+        self.background = vectors == "background"
         self.prefix = prefix.strip("/")
         self.dav_url = dav_url
         self.schema_template = schema_template
@@ -161,7 +190,13 @@ class SubjectVaults:
         backend, identifier = make_subject_backend(key, self.prefix)
         if provision.is_empty(backend):
             provision.initialize(backend, schema_template=self.schema_template, welcome={"DAV_URL": self.dav_url})
-        return Vault(backend=backend, schema=load_schema(backend), index_path=self.cache / f"{identifier}.sqlite")
+        return Vault(
+            backend=backend,
+            schema=load_schema(backend),
+            index_path=self.cache / f"{identifier}.sqlite",
+            embedder=self.embedder,
+            background=self.background,
+        )
 
     def _evict(self) -> None:
         now = self.clock()
@@ -173,6 +208,10 @@ class SubjectVaults:
     @property
     def open_subjects(self) -> list[str]:
         return sorted(self._open)
+
+    @property
+    def searches_by_meaning(self) -> bool:
+        return self.embedder is not None
 
     @property
     def instruction_schema(self) -> Schema:

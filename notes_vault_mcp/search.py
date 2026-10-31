@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import shlex
 import sqlite3
@@ -11,12 +12,17 @@ from notes_vault_mcp.index import Index, Note
 from notes_vault_mcp.schema import Schema
 from notes_vault_mcp.stemming import algorithms_of, stemmed
 
+log = logging.getLogger(__name__)
+
 SHA_TOKEN_RE = re.compile(r"^(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}$")
 PREFIX_MIN_LENGTH = 4
 SNIPPET_LENGTH = 160
 STATUS_FACTORS = {"active": 1.0, "draft": 0.9, "complete": 0.7, "superseded": 0.3}
 DAY_SECONDS = 86400.0
 CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+FUSION_K = 10
+MEANING_WEIGHT = 0.8
+MEANING_ROWS = 20
 
 
 class QueryError(ValueError):
@@ -45,6 +51,8 @@ class Row:
     score: float
     snippet: str = ""
     terms: int = 0
+    section: str = ""
+    by_meaning: bool = False
 
 
 @dataclass
@@ -53,6 +61,7 @@ class SearchResult:
     total: int = 0
     hidden_archive: int = 0
     hidden_superseded: int = 0
+    by_meaning: int = 0
     term_count: int = 0
     best_terms: int = 0
     languages: tuple[str, ...] = ()
@@ -253,13 +262,49 @@ def _sha_rows(index: Index, query: str) -> list[Row] | None:
     return found
 
 
-def _candidates(index: Index, schema: Schema, query: str) -> tuple[list[Row], bool]:
+def _candidates(index: Index, schema: Schema, query: str) -> tuple[list[Row], bool, bool]:
     found = _sha_rows(index, query)
-    if found is None:
-        found = _fts_rows(index, schema, query)
+    if found is not None:
+        return found, False, True
+    found = _fts_rows(index, schema, query)
     if found or len(terms_of(query)) < 2:
-        return found, False
-    return _partial_rows(index, schema, query), True
+        return found, False, False
+    return _partial_rows(index, schema, query), True, False
+
+
+def _meaning_rows(index: Index, query: str) -> list[Row]:
+    if index.vectors is None or not terms_of(query):
+        return []
+    try:
+        hits = index.vectors.nearest(query)
+    except Exception as exc:
+        log.warning("notes-vault-mcp: searching by meaning failed, searching by words only: %s", exc)
+        return []
+    found = []
+    for hit in hits:
+        note = index.note(hit.key)
+        if note is not None:
+            snippet = _clean_snippet(note.summary)
+            found.append(Row(note=note, score=hit.similarity, snippet=snippet, section=hit.heading))
+    return found
+
+
+def _fused(lexical: list[Row], meaning: list[Row], term_count: int) -> list[Row]:
+    fused: dict[str, float] = {}
+    rows: dict[str, Row] = {}
+    for rank, row in enumerate(lexical, 1):
+        share = row.terms / term_count if term_count else 1.0
+        fused[row.note.key] = share / (FUSION_K + rank)
+        rows[row.note.key] = row
+    for rank, row in enumerate(meaning, 1):
+        key = row.note.key
+        fused[key] = fused.get(key, 0.0) + MEANING_WEIGHT / (FUSION_K + rank)
+        if key in rows:
+            rows[key].section = row.section
+        else:
+            row.by_meaning = True
+            rows[key] = row
+    return sorted(rows.values(), key=lambda row: (-fused[row.note.key], row.note.key))
 
 
 def _stem_rows(index: Index, query: str, candidates: list[Row]) -> list[Row]:
@@ -286,9 +331,11 @@ def search(
     since: str | None = None,
 ) -> SearchResult:
     since = since_day(since)
-    candidates, partial = _candidates(index, schema, query)
+    candidates, partial, by_sha = _candidates(index, schema, query)
     pinned = _stem_rows(index, query, candidates)
     pinned_keys = {row.note.key for row in pinned}
+    lexical_keys = {row.note.key for row in candidates}
+    meaning = [] if by_sha else [row for row in _meaning_rows(index, query) if row.note.key not in lexical_keys]
 
     def wanted(note: Note) -> bool:
         return _matches_filters(note, folder, status, tag, kind, area, path_prefix, since)
@@ -296,26 +343,34 @@ def search(
     now = time.time()
     unsearched = set(schema.unsearched_folders)
     result = SearchResult(languages=schema.languages)
-    visible: list[Row] = []
-    for row in candidates:
-        note = row.note
-        if note.key in pinned_keys or not wanted(note):
-            continue
-        if note.folder in unsearched and not include_archive:
-            result.hidden_archive += 1
-            continue
-        if _is_superseded(note) and not include_superseded:
-            result.hidden_superseded += 1
-            continue
-        row.score = score_of(note, row.score, schema, now)
-        visible.append(row)
 
+    def shown(rows: list[Row], counted: bool = True) -> list[Row]:
+        kept: list[Row] = []
+        for row in rows:
+            note = row.note
+            if note.key in pinned_keys or not wanted(note):
+                continue
+            if note.folder in unsearched and not include_archive:
+                result.hidden_archive += counted
+                continue
+            if _is_superseded(note) and not include_superseded:
+                result.hidden_superseded += counted
+                continue
+            row.score = score_of(note, row.score, schema, now)
+            kept.append(row)
+        return kept
+
+    visible = shown(candidates)
     visible.sort(key=lambda row: (-row.terms, -row.score, row.note.key))
+    close = sorted(shown(meaning, counted=False), key=lambda row: (-row.score, row.note.key))[:MEANING_ROWS]
+    if close:
+        visible = _fused(visible, close, len(terms_of(query)) if partial else 0)
     visible = [row for row in pinned if wanted(row.note)] + visible
-    if partial and visible:
+    if partial and any(row.terms for row in visible):
         result.term_count = len(terms_of(query))
         result.best_terms = max(row.terms for row in visible)
     result.total = len(visible)
+    result.by_meaning = sum(row.by_meaning for row in visible)
     result.rows = visible[:limit]
     return result
 
@@ -325,15 +380,17 @@ def render_row(row: Row, now: float) -> str:
     age = humanize_age(age_days(note, now))
     area = note.area or "-"
     status = note.status or "-"
-    return f"{note.key} | {note.title} | {age} | {status} | {area} | {row.snippet}"
+    snippet = f"§ {row.section} · {row.snippet}" if row.section else row.snippet
+    return f"{note.key} | {note.title} | {age} | {status} | {area} | {snippet}"
 
 
 def render_header(result: SearchResult) -> str:
     hidden = f"(archive: {result.hidden_archive} hidden, superseded: {result.hidden_superseded} hidden)"
+    meaning = f", {result.by_meaning} by meaning only" if result.by_meaning else ""
     if result.partial:
-        terms = result.term_count
-        return f"0 matched all {terms} terms; {result.total} match some (best {result.best_terms} of {terms}) {hidden}"
-    return f"{len(result.rows)} of {result.total} {hidden}"
+        terms, some = result.term_count, result.total - result.by_meaning
+        return f"0 matched all {terms} terms; {some} match some (best {result.best_terms} of {terms}){meaning} {hidden}"
+    return f"{len(result.rows)} of {result.total}{meaning} {hidden}"
 
 
 def translate_hint(languages: tuple[str, ...]) -> str:

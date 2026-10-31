@@ -31,6 +31,10 @@ SEARCH_DESCRIPTION = (
     "languages and search again, and the reply names them. "
     "Excludes the archive and superseded notes unless you ask for them, and reports how many it hid."
 )
+MEANING_DESCRIPTION = (
+    " It also finds notes by meaning, across languages too, that share no word with the query: "
+    "the header counts those rows as matched by meaning only, and a row that matched a section names it after §."
+)
 
 
 def build_server(
@@ -56,7 +60,9 @@ def build_server(
         except EXPECTED_FAILURES as exc:
             raise ToolError(str(exc)) from exc
 
-    @server.tool(name="search", description=SEARCH_DESCRIPTION)
+    description = SEARCH_DESCRIPTION + (MEANING_DESCRIPTION if resolver.searches_by_meaning else "")
+
+    @server.tool(name="search", description=description)
     def search_tool(
         query: str,
         limit: int = 15,
@@ -304,4 +310,4 @@ def run_http(vaults: Vault | VaultResolver, host: str, port: int, auth: AuthConf
 
 
 def create_server() -> MCPServer:
-    return build_server(open_vault())
+    return build_server(open_vault(vectors="background"))

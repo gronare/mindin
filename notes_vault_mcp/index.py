@@ -10,11 +10,15 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from notes_vault_mcp.backends import Entry, VaultBackend
 from notes_vault_mcp.frontmatter import CLAIM_KEY, FrontmatterError, claim_fields, folder_of, parse, tags_of
 from notes_vault_mcp.stemming import algorithms_of, stemmed
+
+if TYPE_CHECKING:
+    from notes_vault_mcp.embedding import Embedder
+    from notes_vault_mcp.vectors import Vectors
 
 SYNC_THROTTLE_SECONDS = 20
 FETCH_WORKERS = 16
@@ -24,6 +28,7 @@ OPEN_RETRY_PAUSE = 0.5
 SHA_RE = re.compile(r"\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}\b")
 WIKILINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
 FIELD_TEXT_MAX = 10_000
+CLOSE_WAIT_SECONDS = 10.0
 
 FTS_SQL = """
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -186,11 +191,23 @@ def _casefold(text: str | None) -> str | None:
 
 
 class Index:
-    def __init__(self, path: Path, backend: VaultBackend, languages: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        path: Path,
+        backend: VaultBackend,
+        languages: tuple[str, ...] = (),
+        embedder: Embedder | None = None,
+        background: bool = False,
+    ) -> None:
         self.path = Path(path)
         self.backend = backend
         self.languages = tuple(languages)
         self.algorithms = algorithms_of(self.languages)
+        self.vectors: Vectors | None = None
+        if embedder is not None:
+            from notes_vault_mcp.vectors import Vectors
+
+            self.vectors = Vectors(embedder, lambda: self.db, self._transaction, background=background)
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self._local = threading.local()
         self._connections: list[sqlite3.Connection] = []
@@ -240,6 +257,8 @@ class Index:
     def _prepare(self) -> None:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA_SQL + FTS_SQL)
+        if self.vectors is not None:
+            self.vectors.prepare(self.db)
         present = self._columns("notes")
         for column in ADDED_COLUMNS:
             if column not in present:
@@ -263,6 +282,9 @@ class Index:
         self.db.execute("DELETE FROM meta WHERE k = 'last_sync'")
 
     def close(self) -> None:
+        if self.vectors is not None:
+            self.vectors.closed = True
+            self.vectors.wait(CLOSE_WAIT_SECONDS)
         with self._connections_lock:
             connections, self._connections = self._connections, []
         for connection in connections:
@@ -341,12 +363,13 @@ class Index:
         texts = (note.title, note.summary, " ".join(note.tags), body, note.stem)
         return "\n".join(stemmed("\n".join(texts), self.algorithms))
 
-    @staticmethod
-    def _delete(db: sqlite3.Connection, key: str) -> None:
+    def _delete(self, db: sqlite3.Connection, key: str) -> None:
         db.execute("DELETE FROM notes WHERE key = ?", (key,))
         db.execute("DELETE FROM notes_fts WHERE key = ?", (key,))
         db.execute("DELETE FROM shas WHERE key = ?", (key,))
         db.execute("DELETE FROM links WHERE src = ?", (key,))
+        if self.vectors is not None:
+            self.vectors.delete(db, key)
 
     def remove(self, key: str) -> None:
         with self._transaction() as db:
@@ -402,6 +425,7 @@ class Index:
     def sync(self, force: bool = False) -> int:
         last = float(self.meta("last_sync") or 0.0)
         if not force and (time.time() - last) < SYNC_THROTTLE_SECONDS:
+            self._refresh_vectors()
             return 0
         entries = [entry for entry in self.backend.list() if entry.key.endswith(".md")]
         known = self._versions()
@@ -411,11 +435,18 @@ class Index:
             self.remove(gone)
         self._fetch(changed)
         self.set_meta("last_sync", str(time.time()))
+        self._refresh_vectors()
         return len(changed)
+
+    def _refresh_vectors(self) -> None:
+        if self.vectors is not None:
+            self.vectors.refresh()
 
     def rebuild(self) -> int:
         with self._transaction() as db:
             for table in ("notes", "notes_fts", "shas", "links"):
                 db.execute(f"DELETE FROM {table}")
             db.execute("DELETE FROM meta WHERE k = 'last_sync'")
+            if self.vectors is not None:
+                self.vectors.forget(db)
         return self.sync(force=True)

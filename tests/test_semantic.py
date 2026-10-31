@@ -1,0 +1,511 @@
+from __future__ import annotations
+
+import io
+import json
+import logging
+import os
+import re
+import subprocess
+import sys
+import time
+import types
+import zlib
+from pathlib import Path
+
+import numpy
+import pytest
+
+from notes_vault_mcp import embed_worker, embedding, notes
+from notes_vault_mcp.backends.local import LocalBackend
+from notes_vault_mcp.embedding import FastEmbedder, configured_embedder
+from notes_vault_mcp.index import Index
+from notes_vault_mcp.schema import load_schema
+from notes_vault_mcp.search import render, search
+from notes_vault_mcp.vault import Vault, open_vault
+from notes_vault_mcp.vectors import chunks_of
+
+CONCEPTS = {"inloggning": 0, "oauth": 0, "token": 0, "login": 0, "backup": 1, "säkerhetskopia": 1, "kebbie": 2}
+DIMS = 32
+WORD_RE = re.compile(r"[^\W_]+")
+
+
+def concept_vector(text: str) -> numpy.ndarray:
+    vector = numpy.zeros(DIMS, dtype=numpy.float32)
+    for word in WORD_RE.findall(text.casefold()):
+        vector[CONCEPTS.get(word, 8 + zlib.crc32(word.encode()) % (DIMS - 8))] += 1.0
+    norm = numpy.linalg.norm(vector)
+    return vector / norm if norm else vector
+
+
+class FakeEmbedder:
+    min_similarity = 0.3
+
+    def __init__(self, model_id: str = "fake-1") -> None:
+        self.model_id = model_id
+        self.embedded: list[str] = []
+
+    def passages(self, texts):
+        self.embedded.extend(texts)
+        return numpy.vstack([concept_vector(text) for text in texts])
+
+    def query(self, text):
+        return concept_vector(text)
+
+
+NOTES = {
+    "Areas/auth.md": (
+        "---\ntitle: Anslutning\ndate: 2026-10-01\nupdated: 2026-10-01\ntags: [mcp]\nstatus: active\n"
+        "kind: system\n---\nHur klienter når servern.\n\n## OAuth-flödet\n\n"
+        "Klienten får en token av leverantören och byter den mot oauth token.\n\n"
+        "## Drift\n\nServern körs i klustret bakom proxyn.\n"
+    ),
+    "Areas/board.md": (
+        "---\ntitle: Board\ndate: 2026-10-01\nupdated: 2026-10-01\ntags: []\nstatus: active\nkind: system\n---\n"
+        "The board lists every lane, column, card and owner; the kebbie-tasks command prints it as json for scripts "
+        "and the lead reads it every morning before planning the day with the team around the table.\n"
+    ),
+    "Resources/kebbie-note.md": (
+        "---\ntitle: Kebbie\ndate: 2026-10-01\nupdated: 2026-10-01\ntags: []\nstatus: active\nkind: howto\n"
+        'area: "[[board]]"\n---\nkebbie kebbie kebbie\n'
+    ),
+    "Projects/backup-plan.md": (
+        "---\ntitle: Nattlig kopia\ndate: 2026-10-01\nupdated: 2026-10-01\ntags: [backup]\nstatus: active\nkind: task\n"
+        'area: "[[auth]]"\n---\n## Plan\n\nsäkerhetskopia varje natt\n'
+    ),
+    "Archive/old-auth.md": (
+        "---\ntitle: Gammal anslutning\ndate: 2025-01-01\nupdated: 2025-01-01\ntags: []\nstatus: complete\nkind: task\n"
+        'area: "[[auth]]"\n---\noauth token oauth\n'
+    ),
+    "Resources/old-login.md": (
+        "---\ntitle: Förra flödet\ndate: 2025-01-01\nupdated: 2025-01-01\ntags: []\nstatus: superseded\nkind: howto\n"
+        'area: "[[auth]]"\nsuperseded_by: "[[auth]]"\n---\noauth token login\n'
+    ),
+}
+
+
+def write_notes(root: Path) -> None:
+    for key, text in NOTES.items():
+        path = root / key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+@pytest.fixture
+def root(tmp_path: Path) -> Path:
+    folder = tmp_path / "vault"
+    write_notes(folder)
+    return folder
+
+
+def open_with(root: Path, index_path: Path, embedder, background: bool = False) -> Vault:
+    backend = LocalBackend(root)
+    vault = Vault(backend, load_schema(backend), index_path, embedder=embedder, background=background)
+    vault.index.sync(force=True)
+    return vault
+
+
+@pytest.fixture
+def fake() -> FakeEmbedder:
+    return FakeEmbedder()
+
+
+@pytest.fixture
+def vault(root: Path, tmp_path: Path, fake: FakeEmbedder):
+    opened = open_with(root, tmp_path / "index.sqlite", fake)
+    yield opened
+    opened.close()
+
+
+def keys(result) -> list[str]:
+    return [row.note.key for row in result.rows]
+
+
+def chunk_keys(vault: Vault) -> set[str]:
+    return {row[0] for row in vault.index.db.execute("SELECT key FROM chunks")}
+
+
+def test_sync_embeds_only_the_notes_whose_version_changed(vault: Vault, root: Path, fake: FakeEmbedder):
+    fake.embedded.clear()
+    path = root / "Projects/backup-plan.md"
+    path.write_text(path.read_text(encoding="utf-8") + "\nOch en till.\n", encoding="utf-8")
+    os.utime(path, (time.time() + 5, time.time() + 5))
+    vault.index.sync(force=True)
+    assert fake.embedded and all(text.startswith("Nattlig kopia") for text in fake.embedded)
+    fake.embedded.clear()
+    vault.index.sync(force=True)
+    assert fake.embedded == []
+
+
+def test_a_deleted_note_takes_its_vectors_with_it(vault: Vault, root: Path):
+    assert "Projects/backup-plan.md" in chunk_keys(vault)
+    (root / "Projects/backup-plan.md").unlink()
+    vault.index.sync(force=True)
+    assert "Projects/backup-plan.md" not in chunk_keys(vault)
+    embedded = vault.index.db.execute("SELECT key FROM embedded").fetchall()
+    assert "Projects/backup-plan.md" not in {row[0] for row in embedded}
+
+
+def test_a_model_change_recomputes_every_note(vault: Vault, root: Path, tmp_path: Path):
+    vault.close()
+    other = FakeEmbedder("fake-2")
+    reopened = open_with(root, tmp_path / "index.sqlite", other)
+    try:
+        assert {text.split("\n", 1)[0] for text in other.embedded} >= {"Anslutning", "Board", "Nattlig kopia"}
+        assert reopened.index.vectors.count() == len(NOTES)
+        other.embedded.clear()
+        reopened.index.sync(force=True)
+        assert other.embedded == []
+    finally:
+        reopened.close()
+
+
+def test_a_note_written_through_the_server_is_embedded_on_the_next_call(vault: Vault, fake: FakeEmbedder):
+    fake.embedded.clear()
+    text = NOTES["Areas/board.md"].replace("title: Board", "title: Inloggningen").replace("tags: []", "tags: [mcp]")
+    notes.write(vault, "Areas/login.md", text)
+    vault.index.sync()
+    assert any(entry.startswith("Inloggningen") for entry in fake.embedded)
+    assert "Areas/login.md" in chunk_keys(vault)
+
+
+def test_chunks_follow_headings_and_ignore_hashes_in_code():
+    body = (
+        "Intro words.\n\n## Flödet\n\nSteg ett.\n\n```sh\n# not a heading\n```\n\n"
+        "### Detalj\n\nMer.\n\n## Drift\n\nKlart.\n"
+    )
+    chunks = chunks_of("Titel", "En sammanfattning.", body)
+    assert [chunk.heading for chunk in chunks] == ["", "Flödet", "Detalj", "Drift"]
+    assert chunks[0].text == "Titel\nEn sammanfattning. Intro words."
+    assert "# not a heading" in chunks[1].text
+    assert chunks[2].text.startswith("Titel\nFlödet > Detalj\n")
+
+
+def test_a_long_section_is_split_into_windows_that_keep_the_heading():
+    chunks = chunks_of("T", "", "## Lång\n\n" + " ".join(f"ord{n}" for n in range(200)))
+    assert len(chunks) == 3
+    assert {chunk.heading for chunk in chunks} == {"Lång"}
+    assert all(chunk.text.startswith("T\nLång\n") for chunk in chunks)
+
+
+def test_an_empty_note_still_gets_one_chunk_from_its_title():
+    assert [chunk.text for chunk in chunks_of("Bara titel", "", "## Rubrik\n")] == ["Bara titel"]
+
+
+def test_meaning_finds_a_note_that_shares_no_word_with_the_query(vault: Vault):
+    result = search(vault.index, vault.schema, "inloggning")
+    assert keys(result)[0] == "Areas/auth.md"
+    assert result.rows[0].by_meaning
+    assert result.by_meaning == len(result.rows)
+
+
+def test_a_meaning_hit_names_the_section_it_came_from(vault: Vault):
+    result = search(vault.index, vault.schema, "inloggning")
+    assert result.rows[0].section == "OAuth-flödet"
+    text = render(result)
+    assert "by meaning only" in text.splitlines()[0]
+    assert "Areas/auth.md | Anslutning |" in text and "§ OAuth-flödet" in text
+
+
+def test_meaning_hits_alone_do_not_read_as_a_partial_word_match(vault: Vault):
+    result = search(vault.index, vault.schema, "inloggning xyzzy")
+    assert not result.partial
+    assert re.match(r"\d+ of \d+, \d+ by meaning only \(", render(result))
+
+
+def test_an_exact_name_still_ranks_first(vault: Vault):
+    result = search(vault.index, vault.schema, "kebbie-tasks")
+    assert keys(result)[0] == "Areas/board.md"
+    assert "Resources/kebbie-note.md" in keys(result)
+
+
+def test_a_sha_query_stays_lexical(vault: Vault, root: Path):
+    path = root / "Areas/board.md"
+    path.write_text(path.read_text(encoding="utf-8") + "\nFixed in 9ca31382.\n", encoding="utf-8")
+    os.utime(path, (time.time() + 5, time.time() + 5))
+    vault.index.sync(force=True)
+    result = search(vault.index, vault.schema, "9ca31382")
+    assert keys(result) == ["Areas/board.md"]
+    assert result.by_meaning == 0
+
+
+def test_a_stem_query_keeps_its_note_pinned_first(vault: Vault):
+    assert keys(search(vault.index, vault.schema, "backup-plan"))[0] == "Projects/backup-plan.md"
+
+
+def test_meaning_hits_hide_the_archive_and_superseded_notes(vault: Vault):
+    found = keys(search(vault.index, vault.schema, "inloggning"))
+    assert "Archive/old-auth.md" not in found
+    assert "Resources/old-login.md" not in found
+    assert "Archive/old-auth.md" in keys(search(vault.index, vault.schema, "inloggning", include_archive=True))
+    assert "Resources/old-login.md" in keys(search(vault.index, vault.schema, "inloggning", include_superseded=True))
+
+
+@pytest.mark.parametrize(
+    ("filters", "expected"),
+    [
+        ({"folder": "Areas"}, ["Areas/auth.md"]),
+        ({"folder": "Projects"}, []),
+        ({"kind": "task", "include_archive": True}, ["Archive/old-auth.md"]),
+        ({"status": "superseded", "include_superseded": True}, ["Resources/old-login.md"]),
+        ({"tag": "mcp"}, ["Areas/auth.md"]),
+        ({"area": "auth", "include_superseded": True}, ["Resources/old-login.md"]),
+        ({"since": "2026-01-01", "include_archive": True, "include_superseded": True}, ["Areas/auth.md"]),
+    ],
+)
+def test_filters_apply_to_meaning_hits(vault: Vault, filters: dict, expected: list[str]):
+    assert keys(search(vault.index, vault.schema, "inloggning", **filters)) == expected
+
+
+def test_another_process_embedding_the_same_index_is_left_to_it(root: Path, tmp_path: Path):
+    backend = LocalBackend(root)
+    fake = FakeEmbedder()
+    opened = Vault(backend, load_schema(backend), tmp_path / "leased.sqlite", embedder=fake)
+    try:
+        opened.index.set_meta("embed_lease", f"{os.getpid() + 1} {time.time()}")
+        opened.index.sync(force=True)
+        assert fake.embedded == [] and opened.index.vectors.count() == 0
+        opened.index.set_meta("embed_lease", f"{os.getpid() + 1} {time.time() - 600}")
+        opened.index.sync(force=True)
+        assert opened.index.vectors.count() == len(NOTES)
+        assert opened.index.meta("embed_lease") is None
+    finally:
+        opened.close()
+
+
+def test_vectors_are_computed_in_the_background_for_the_server(root: Path, tmp_path: Path):
+    fake = FakeEmbedder()
+    opened = open_with(root, tmp_path / "bg.sqlite", fake, background=True)
+    try:
+        opened.index.vectors.wait()
+        assert opened.index.vectors.count() == len(NOTES)
+    finally:
+        opened.close()
+
+
+class CountingModel:
+    def __init__(self) -> None:
+        self.loads = 0
+        self.closed = 0
+
+    def __call__(self, folder: Path):
+        self.loads += 1
+        return self
+
+    def embed(self, texts):
+        return [concept_vector(text) for text in texts]
+
+    def close(self) -> None:
+        self.closed += 1
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_the_model_loads_on_first_use_and_is_released_when_idle(tmp_path: Path):
+    model, clock = CountingModel(), Clock()
+    embedder = FastEmbedder(tmp_path / "models", idle_seconds=60, load=model, clock=clock)
+    assert not embedder.loaded and model.loads == 0
+    embedder.query("inloggning")
+    embedder.passages(["oauth token"])
+    assert embedder.loaded and model.loads == 1
+    clock.now += 30
+    assert not embedder.release_if_idle()
+    clock.now += 31
+    assert embedder.release_if_idle()
+    assert not embedder.loaded and model.closed == 1
+    embedder.query("igen")
+    assert model.loads == 2
+
+
+class FailingModel(CountingModel):
+    def embed(self, texts):
+        raise RuntimeError("worker died")
+
+
+def test_a_failing_model_is_dropped_and_search_falls_back_to_words(vault: Vault, tmp_path: Path):
+    model = FailingModel()
+    embedder = FastEmbedder(tmp_path / "models", load=model)
+    embedder.model_id = "fake-1"
+    vault.index.vectors.embedder = embedder
+    result = search(vault.index, vault.schema, "kebbie-tasks")
+    assert keys(result) == ["Areas/board.md"] and result.by_meaning == 0
+    assert not embedder.loaded and model.closed == 1
+
+
+def test_a_failing_model_leaves_sync_working_by_words(root: Path, tmp_path: Path):
+    embedder = FastEmbedder(tmp_path / "models", load=FailingModel())
+    opened = open_with(root, tmp_path / "failing.sqlite", embedder)
+    try:
+        assert opened.index.vectors.count() == 0
+        assert "Areas/board.md" in keys(search(opened.index, opened.schema, "kebbie-tasks"))
+    finally:
+        opened.close()
+
+
+def test_a_busy_model_lets_the_query_go_by_words(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(embedding, "QUERY_WAIT_SECONDS", 0.01)
+    embedder = FastEmbedder(tmp_path / "models", load=CountingModel())
+    with embedder._lock:
+        assert embedder.query("inloggning") is None
+
+
+def test_the_worker_answers_vectors_and_errors_over_its_pipe(monkeypatch: pytest.MonkeyPatch):
+    class TextEmbedding:
+        def __init__(self, model, cache_dir):
+            self.model = model
+
+        def embed(self, texts, batch_size):
+            if texts == ["boom"]:
+                raise ValueError("cannot embed boom")
+            return [concept_vector(text) for text in texts]
+
+    monkeypatch.setitem(sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=TextEmbedding))
+    requests = io.BytesIO()
+    embed_worker.write_message(requests, json.dumps(["oauth token", "backup"]).encode())
+    embed_worker.write_message(requests, json.dumps(["boom"]).encode())
+    requests.seek(0)
+    replies = io.BytesIO()
+    embed_worker.serve("/nowhere", "fake", requests, replies)
+    replies.seek(0)
+    first = embed_worker.read_message(replies)
+    rows, dims = embed_worker.HEADER.unpack_from(first)
+    vectors = numpy.frombuffer(first, dtype=numpy.float32, offset=embed_worker.HEADER.size).reshape(rows, dims)
+    assert (rows, dims) == (2, DIMS)
+    assert numpy.allclose(vectors[0], concept_vector("oauth token"))
+    second = embed_worker.read_message(replies)
+    assert embed_worker.HEADER.unpack_from(second) == (0, 0)
+    assert second[embed_worker.HEADER.size :] == b"cannot embed boom"
+    assert embed_worker.read_message(replies) is None
+
+
+def test_the_idle_timer_releases_the_model(tmp_path: Path):
+    embedder = FastEmbedder(tmp_path / "models", idle_seconds=0.05, load=CountingModel())
+    embedder.query("inloggning")
+    deadline = time.time() + 5
+    while embedder.loaded and time.time() < deadline:
+        time.sleep(0.02)
+    assert not embedder.loaded
+
+
+def test_a_session_with_nothing_new_to_embed_never_loads_the_model(root: Path, tmp_path: Path):
+    first = open_with(root, tmp_path / "shared.sqlite", FakeEmbedder())
+    first.close()
+    model = CountingModel()
+    embedder = FastEmbedder(tmp_path / "models", load=model)
+    embedder.model_id = "fake-1"
+    second = open_with(root, tmp_path / "shared.sqlite", embedder)
+    try:
+        second.index.sync(force=True)
+        assert model.loads == 0
+        search(second.index, second.schema, "kebbie-tasks")
+        assert model.loads == 1
+    finally:
+        second.close()
+
+
+def test_the_setting_is_off_by_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    monkeypatch.delenv("VAULT_SEMANTIC", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_OPTION_VAULT_SEMANTIC", raising=False)
+    assert configured_embedder(tmp_path) is None
+
+
+def test_the_setting_is_read_from_the_plugin_option_too(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    monkeypatch.delenv("VAULT_SEMANTIC", raising=False)
+    monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_VAULT_SEMANTIC", "on")
+    monkeypatch.setattr(embedding, "extra_installed", lambda: True)
+    assert isinstance(configured_embedder(tmp_path), FastEmbedder)
+
+
+def test_on_without_the_extra_searches_by_words_and_says_so_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, vault_dir: Path, tmp_path: Path
+):
+    monkeypatch.setenv("VAULT_SEMANTIC", "on")
+    monkeypatch.setenv("VAULT_PATH", str(vault_dir))
+    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(embedding, "_missing_reported", False)
+    monkeypatch.setattr(embedding, "EXTRA_MODULES", ("numpy", "fastembed_is_not_installed"))
+    with caplog.at_level(logging.WARNING, logger="notes_vault_mcp.embedding"):
+        first = open_vault(vectors="wait")
+        second = open_vault(vectors="background")
+    try:
+        assert first.embedder is None and second.embedder is None
+        first.index.sync(force=True)
+        assert first.index.vectors is None
+        assert "Areas/orchard.md" in keys(search(first.index, first.schema, "domän"))
+        notices = [record for record in caplog.records if "semantic extra is not installed" in record.getMessage()]
+        assert len(notices) == 1
+    finally:
+        first.close()
+        second.close()
+
+
+OFF_SCRIPT = """
+import json, sys
+from notes_vault_mcp.search import render, search
+from notes_vault_mcp.vault import open_vault
+vault = open_vault(vectors=sys.argv[1])
+vault.index.sync(force=True)
+queries = ("orchard", "domän", "inloggning", "9ca31382", "orchard bokning")
+out = [render(search(vault.index, vault.schema, q)) for q in queries]
+tables = [row[0] for row in vault.index.db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+loaded = [m for m in ("fastembed", "numpy", "onnxruntime", "notes_vault_mcp.vectors") if m in sys.modules]
+print(json.dumps({"out": out, "tables": sorted(tables), "loaded": loaded}))
+"""
+
+
+def _run_off(vault_dir: Path, cache: Path, vectors: str) -> dict:
+    environment = {k: v for k, v in os.environ.items() if "VAULT_" not in k and not k.startswith("S3_")}
+    environment.update(VAULT_PATH=str(vault_dir), VAULT_CACHE_DIR=str(cache))
+    done = subprocess.run(
+        [sys.executable, "-c", OFF_SCRIPT, vectors], env=environment, capture_output=True, text=True, check=True
+    )
+    return json.loads(done.stdout)
+
+
+def test_off_leaves_search_and_the_index_as_they_were_and_imports_nothing(vault_dir: Path, tmp_path: Path):
+    served = _run_off(vault_dir, tmp_path / "a", "background")
+    plain = _run_off(vault_dir, tmp_path / "b", "off")
+    assert served == plain
+    assert served["loaded"] == []
+    assert "chunks" not in served["tables"] and "embedded" not in served["tables"]
+
+
+def test_an_index_without_an_embedder_has_no_vectors(vault_dir: Path, tmp_path: Path):
+    index = Index(tmp_path / "plain.sqlite", LocalBackend(vault_dir))
+    try:
+        assert index.vectors is None
+        index.sync(force=True)
+    finally:
+        index.close()
+
+
+async def _search_tool(vault: Vault):
+    from mcp.client import Client
+
+    from notes_vault_mcp.server import build_server
+
+    async with Client(build_server(vault)) as client:
+        tools = await client.list_tools()
+        found = await client.call_tool("search", {"query": "inloggning"})
+    description = next(tool.description for tool in tools.tools if tool.name == "search")
+    return description, "".join(block.text for block in found.content if getattr(block, "text", None))
+
+
+@pytest.mark.anyio
+async def test_the_search_tool_says_it_finds_by_meaning_only_when_it_does(vault: Vault, root: Path, tmp_path: Path):
+    description, text = await _search_tool(vault)
+    assert "by meaning" in description
+    assert text.startswith("1 of 1, 1 by meaning only") and "§ OAuth-flödet" in text
+    backend = LocalBackend(root)
+    plain = Vault(backend, load_schema(backend), tmp_path / "plain.sqlite")
+    try:
+        description, text = await _search_tool(plain)
+    finally:
+        plain.close()
+    assert "by meaning" not in description
+    assert text.startswith("0 of 0")

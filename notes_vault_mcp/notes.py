@@ -490,6 +490,17 @@ class ContextBundle:
             return "No vault context for this path or repo."
         return "\n\n".join(blocks)
 
+    def as_dict(self) -> dict:
+        now = time.time()
+        return {
+            "text": self.render(),
+            "system": [
+                {"key": note.key, "stem": note.stem, "updated": note.updated, "paths": note.paths, "tags": note.tags}
+                for note, _ in self.system
+            ],
+            "triage": [{"key": note.key, "age": humanize_age(age_days(note, now))} for note in self.triage],
+        }
+
 
 def _claim_text(note: Note) -> str:
     claim = json.loads(note.claim) if note.claim else None
@@ -733,10 +744,10 @@ def _resolved(path: Path) -> Path:
         return path
 
 
-def vault_paths_in(note: Note, root: Path) -> list[str]:
+def vault_paths_in(paths: list[str], root: Path) -> list[str]:
     target = _resolved(root)
     inside = []
-    for raw in note.paths:
+    for raw in paths:
         candidate = _resolved(Path(expand_home(raw)))
         if candidate == target or target in candidate.parents:
             inside.append(str(candidate))

@@ -10,7 +10,8 @@ from notes_vault_mcp import notes
 from notes_vault_mcp.backends import MUST_NOT_EXIST, VersionConflict
 from notes_vault_mcp.frontmatter import CLAIM_KEY, claim_fields, dump, parse
 from notes_vault_mcp.git import current_branch, in_main_checkout, main_checkout, repo_name
-from notes_vault_mcp.index import Note, stem_of
+from notes_vault_mcp.index import stem_of
+from notes_vault_mcp.schema import Schema
 from notes_vault_mcp.vault import Vault
 
 HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t#]*$")
@@ -23,16 +24,29 @@ CLAIM_ATTEMPTS = 3
 class Place:
     repo: str
     checkout: Path | None
-    area: Note | None
+    area: str | None
+    area_tags: tuple[str, ...] = ()
+
+
+def located(cwd: str, system: list[dict]) -> Place:
+    first = system[0] if system else None
+    return Place(
+        repo=repo_name(cwd),
+        checkout=main_checkout(cwd),
+        area=first["stem"] if first else None,
+        area_tags=tuple(first["tags"]) if first else (),
+    )
+
+
+def system_notes(vault: Vault, cwd: str) -> list[dict]:
+    return notes.context(vault, path=str(in_main_checkout(cwd)), repo=repo_name(cwd)).as_dict()["system"]
 
 
 def place(vault: Vault, cwd: str) -> Place:
-    repo = repo_name(cwd)
-    checkout = main_checkout(cwd)
-    if checkout is not None:
-        vault.index.remember_repo(repo, str(checkout))
-    bundle = notes.context(vault, path=str(in_main_checkout(cwd)), repo=repo)
-    return Place(repo=repo, checkout=checkout, area=bundle.system[0][0] if bundle.system else None)
+    where = located(cwd, system_notes(vault, cwd))
+    if where.checkout is not None:
+        vault.index.remember_repo(where.repo, str(where.checkout))
+    return where
 
 
 def home_relative(path: Path) -> str:
@@ -48,8 +62,8 @@ def task_stem(repo: str, name: str) -> str:
     return slug if slug == family or slug.startswith(f"{family}-") else notes.slugify(f"{repo} {name}")
 
 
-def free_key(vault: Vault, folder: str, stem: str) -> str:
-    taken = {stem_of(entry.key).lower() for entry in vault.backend.list()}
+def free_key(taken_keys: list[str], folder: str, stem: str) -> str:
+    taken = {stem_of(key).lower() for key in taken_keys}
     candidate, suffix = stem, 2
     while candidate.lower() in taken:
         candidate = f"{stem}-{suffix}"
@@ -57,67 +71,81 @@ def free_key(vault: Vault, folder: str, stem: str) -> str:
     return f"{folder}/{candidate}.md"
 
 
-def task_tags(vault: Vault, repo: str, area: Note | None) -> list[str]:
-    vocabulary = vault.schema.tag_vocabulary
+def task_tags(schema: Schema, repo: str, area_tags: tuple[str, ...]) -> list[str]:
+    vocabulary = schema.tag_vocabulary
     if not vocabulary or repo in vocabulary:
         return [repo]
-    known = [tag for tag in (area.tags if area else []) if tag in vocabulary]
+    known = [tag for tag in area_tags if tag in vocabulary]
     return known[:1] or [repo]
 
 
-def section_skeleton(vault: Vault) -> str:
-    return "\n\n".join(f"## {heading}" for heading in vault.schema.task_sections.values()) + "\n"
+def section_skeleton(schema: Schema) -> str:
+    return "\n\n".join(f"## {heading}" for heading in schema.task_sections.values()) + "\n"
 
 
-def open_task(vault: Vault, name: str, cwd: str, branch: str | None = None) -> dict:
+def require_name(name: str) -> None:
     if not name.strip():
         raise ValueError("task open needs --name, or --note to claim a note")
-    where = place(vault, cwd)
-    area_stem = where.area.stem if where.area else None
-    key = free_key(vault, vault.schema.task_folder, task_stem(where.repo, name))
+
+
+def new_task(schema: Schema, name: str, where: Place, branch: str | None, taken_keys: list[str]) -> tuple[str, str]:
+    key = free_key(taken_keys, schema.task_folder, task_stem(where.repo, name))
     frontmatter: dict = {
         "title": name.strip(),
         "date": notes.stamp(),
         "updated": notes.stamp(),
-        "tags": task_tags(vault, where.repo, where.area),
+        "tags": task_tags(schema, where.repo, where.area_tags),
         "status": "active",
         "kind": "task",
-        "area": f"[[{area_stem or where.repo}]]",
+        "area": f"[[{where.area or where.repo}]]",
         "summary": "",
     }
     if where.checkout is not None:
         frontmatter["path"] = home_relative(where.checkout)
-    on_branch = branch or current_branch(cwd)
-    if on_branch:
-        frontmatter["source"] = f"branch {on_branch}"
-    notes.write(vault, key, dump(frontmatter, section_skeleton(vault)), expected_etag=MUST_NOT_EXIST)
-    return {"path": key, "created": True, "repo": where.repo, "area": area_stem}
+    if branch:
+        frontmatter["source"] = f"branch {branch}"
+    return key, dump(frontmatter, section_skeleton(schema))
+
+
+def opened(key: str, where: Place) -> dict:
+    return {"path": key, "created": True, "repo": where.repo, "area": where.area}
+
+
+def open_task(vault: Vault, name: str, cwd: str, branch: str | None = None) -> dict:
+    require_name(name)
+    where = place(vault, cwd)
+    taken = [entry.key for entry in vault.backend.list()]
+    key, text = new_task(vault.schema, name, where, branch or current_branch(cwd), taken)
+    notes.write(vault, key, text, expected_etag=MUST_NOT_EXIST)
+    return opened(key, where)
+
+
+def task_key(schema: Schema, path: str) -> str:
+    key = notes.note_key(path)
+    if schema.folder_of(key) not in schema.task_folders:
+        raise ValueError(f"{key} is not in a task folder ({', '.join(schema.task_folders)})")
+    return key
+
+
+def picked_up(key: str, text: str, cwd: str) -> dict:
+    frontmatter, _ = parse(text)
+    area = notes._area_stem(str(frontmatter.get("area") or "")) or None
+    return {"path": key, "created": False, "repo": repo_name(cwd), "area": area}
 
 
 def claim_task(vault: Vault, path: str, cwd: str) -> dict:
-    path = notes.note_key(path)
-    if vault.schema.folder_of(path) not in vault.schema.task_folders:
-        raise ValueError(f"{path} is not in a task folder ({', '.join(vault.schema.task_folders)})")
-    text, _ = vault.backend.get(path)
-    frontmatter, _ = parse(text)
-    notes.set_status(vault, path, "active")
-    area = notes._area_stem(str(frontmatter.get("area") or "")) or None
-    return {"path": path, "created": False, "repo": repo_name(cwd), "area": area}
+    key = task_key(vault.schema, path)
+    text, _ = vault.backend.get(key)
+    notes.set_status(vault, key, "active")
+    return picked_up(key, text, cwd)
 
 
 def claim_stamp() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _task_note(vault: Vault, path: str) -> str:
-    key = notes.note_key(path)
-    if vault.schema.folder_of(key) not in vault.schema.task_folders:
-        raise ValueError(f"{key} is not in a task folder ({', '.join(vault.schema.task_folders)})")
-    return key
-
-
 def claim_note(vault: Vault, path: str, machine: str, task: str, repo: str = "", force: bool = False) -> dict:
-    key = _task_note(vault, path)
+    key = task_key(vault.schema, path)
     machine, task = machine.strip(), task.strip()
     if not machine or not task:
         raise ValueError("task claim needs --machine and --task")
@@ -140,7 +168,7 @@ def claim_note(vault: Vault, path: str, machine: str, task: str, repo: str = "",
 
 
 def release_note(vault: Vault, path: str, machine: str | None = None) -> dict:
-    key = _task_note(vault, path)
+    key = task_key(vault.schema, path)
     for _ in range(CLAIM_ATTEMPTS):
         text, version = vault.backend.get(key)
         frontmatter, body = parse(text)
@@ -193,11 +221,19 @@ def filled_headings(body: str) -> dict[str, bool]:
 
 
 def missing_sections(vault: Vault, path: str, need: list[str]) -> list[str]:
-    sections = vault.schema.task_sections
-    unknown = [key for key in need if key not in sections]
-    if unknown:
-        raise ValueError(f"unknown section {', '.join(unknown)}; the schema names {', '.join(sections)}")
+    known_sections(vault.schema, need)
     text, _ = vault.backend.get(notes.note_key(path))
+    return missing_in(vault.schema, text, need)
+
+
+def known_sections(schema: Schema, need: list[str]) -> None:
+    unknown = [key for key in need if key not in schema.task_sections]
+    if unknown:
+        raise ValueError(f"unknown section {', '.join(unknown)}; the schema names {', '.join(schema.task_sections)}")
+
+
+def missing_in(schema: Schema, text: str, need: list[str]) -> list[str]:
+    sections = schema.task_sections
     _, body = parse(text)
     filled = filled_headings(body)
     return [key for key in need if not filled.get(sections[key].strip().casefold(), False)]
@@ -212,7 +248,7 @@ def append_log(vault: Vault, cwd: str, line: str, commits: tuple[str, ...] = (),
         where.repo,
         line.strip(),
         commits=commits,
-        area=where.area.stem if where.area else None,
+        area=where.area,
         branch=branch or current_branch(cwd),
     )
     return {"path": vault.schema.log_key(where.repo)}

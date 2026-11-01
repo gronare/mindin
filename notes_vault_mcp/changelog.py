@@ -58,12 +58,20 @@ def _belongs(note: Note, repo: str) -> bool:
     return repo in note.tags or stem_of(note.area.strip("[]").split("|")[0]) == repo
 
 
-def sections(vault: Vault, repo: str, period: str, repo_path: Path | None) -> list[str]:
+CommitsByDay = dict[str, list[str]]
+
+
+def commits_of(repo_path: Path | None, period: str, commits: CommitsByDay | None) -> CommitsByDay | None:
+    if commits is not None or repo_path is None:
+        return commits
+    return git_commits(repo_path, period)
+
+
+def sections(vault: Vault, repo: str, period: str, by_day: CommitsByDay | None) -> list[str]:
     blocks = []
     lines = log_lines(vault, repo, period)
     blocks.append("## log\n" + ("\n".join(lines) if lines else "- (no log lines)"))
-    if repo_path is not None:
-        by_day = git_commits(repo_path, period)
+    if by_day is not None:
         if by_day:
             days = [f"### {day}\n" + "\n".join(f"- {entry}" for entry in entries) for day, entries in by_day.items()]
             blocks.append("## commits\n" + "\n".join(days))
@@ -81,12 +89,15 @@ def sections(vault: Vault, repo: str, period: str, repo_path: Path | None) -> li
     return blocks
 
 
-def render(vault: Vault, repo: str, period: str, repo_path: Path | None) -> str:
-    return "\n\n".join([f"# {repo} — {period}", *sections(vault, repo, period, repo_path)])
+def render(
+    vault: Vault, repo: str, period: str, repo_path: Path | None = None, commits: CommitsByDay | None = None
+) -> str:
+    by_day = commits_of(repo_path, period, commits)
+    return "\n\n".join([f"# {repo} — {period}", *sections(vault, repo, period, by_day)])
 
 
-def generated_block(vault: Vault, repo: str, period: str, repo_path: Path | None) -> str:
-    return "\n".join([GENERATED_START, "\n\n".join(sections(vault, repo, period, repo_path)), GENERATED_END])
+def generated_block(vault: Vault, repo: str, period: str, by_day: CommitsByDay | None) -> str:
+    return "\n".join([GENERATED_START, "\n\n".join(sections(vault, repo, period, by_day)), GENERATED_END])
 
 
 def splice(body: str, block: str) -> str:
@@ -118,7 +129,9 @@ def period_over(period: str, on: date | None = None) -> bool:
     return (on or date.today()).isoformat() >= period_bounds(period)[1]
 
 
-def write_page(vault: Vault, repo: str, period: str, repo_path: Path | None) -> bool:
+def write_page(
+    vault: Vault, repo: str, period: str, repo_path: Path | None = None, commits: CommitsByDay | None = None
+) -> bool:
     period_bounds(period)
     key = note_key(vault.schema.period_key(repo, period))
     try:
@@ -127,7 +140,7 @@ def write_page(vault: Vault, repo: str, period: str, repo_path: Path | None) -> 
         existed = True
     except NotFound:
         frontmatter, body, existed = _new_page(vault, repo, period), "", False
-    new_body = splice(body, generated_block(vault, repo, period, repo_path))
+    new_body = splice(body, generated_block(vault, repo, period, commits_of(repo_path, period, commits)))
     if existed and new_body == body:
         return False
     frontmatter["updated"] = stamp()

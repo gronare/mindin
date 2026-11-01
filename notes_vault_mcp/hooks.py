@@ -4,14 +4,13 @@ import contextlib
 import json
 import os
 import re
-import time
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 from notes_vault_mcp import changelog
 from notes_vault_mcp.git import current_branch, git, in_main_checkout, main_checkout, repo_name, repo_root
 from notes_vault_mcp.notes import context, vault_paths_in
-from notes_vault_mcp.search import age_days, humanize_age
 from notes_vault_mcp.vault import Vault, open_vault
 
 SHA_PREFIX_LENGTH = 7
@@ -47,22 +46,32 @@ def _commits_since(root: Path, since: str, paths: list[str]) -> str:
     return f"{len(lines)} commits, newest {COMMITS_SHOWN}:\n{shown}"
 
 
+def commit_blocks(cwd: str, system: list[dict]) -> list[str]:
+    root = repo_root(cwd)
+    main = main_checkout(cwd)
+    if root is None or main is None:
+        return []
+    blocks = []
+    for note in system:
+        # Note paths name the main checkout; git log takes them relative to the worktree it runs in.
+        paths = [os.path.relpath(path, main) for path in vault_paths_in(note["paths"], main)]
+        commits = _commits_since(root, note["updated"], paths)
+        if commits:
+            blocks.append(f"## commits since the note — {note['key']} (updated {note['updated']})\n{commits}")
+    return blocks
+
+
+def render_session_start(bundle: dict, cwd: str) -> str:
+    return "\n\n".join([bundle["text"], *commit_blocks(cwd, bundle["system"]), VAULT_HINT])
+
+
 def session_start_text(vault: Vault, cwd: str) -> str:
     repo = repo_name(cwd)
     bundle = context(vault, path=str(in_main_checkout(cwd)), repo=repo)
-    blocks = [bundle.render()]
-    root = repo_root(cwd)
     main = main_checkout(cwd)
-    if root is not None and main is not None:
+    if repo_root(cwd) is not None and main is not None:
         vault.index.remember_repo(repo, str(main))
-        for note, _ in bundle.system:
-            # Note paths name the main checkout; git log takes them relative to the worktree it runs in.
-            paths = [os.path.relpath(path, main) for path in vault_paths_in(note, main)]
-            commits = _commits_since(root, note.updated, paths)
-            if commits:
-                blocks.append(f"## commits since the note — {note.key} (updated {note.updated})\n{commits}")
-    blocks.append(VAULT_HINT)
-    return "\n\n".join(blocks)
+    return render_session_start(bundle.as_dict(), cwd)
 
 
 def session_start(raw: str) -> str:
@@ -117,15 +126,20 @@ def _log_text(vault: Vault, repo: str) -> str:
     return text
 
 
-def unlogged_commits(vault: Vault, root: Path, repo: str) -> list[tuple[str, str]]:
-    logged = _log_text(vault, repo)
+def unlogged_in(logged: str, root: Path) -> list[tuple[str, str]]:
     return [(sha, subject) for sha, subject in _recent_commits(root) if sha not in logged]
 
 
+def unlogged_commits(vault: Vault, root: Path, repo: str) -> list[tuple[str, str]]:
+    return unlogged_in(_log_text(vault, repo), root)
+
+
+def stale_labels(triage: list[dict]) -> list[tuple[str, str]]:
+    return [(note["key"], f"{note['key']} ({note['age']} old)") for note in triage]
+
+
 def stale_open_notes(vault: Vault, repo: str, path: str) -> list[tuple[str, str]]:
-    now = time.time()
-    bundle = context(vault, path=path, repo=repo)
-    return [(note.key, f"{note.key} ({humanize_age(age_days(note, now))} old)") for note in bundle.triage]
+    return stale_labels(context(vault, path=path, repo=repo).as_dict()["triage"])
 
 
 def _collect_vault_paths(node: object, touched: set[str]) -> None:
@@ -183,7 +197,15 @@ def refresh_month_pages(vault: Vault, today: date | None = None) -> list[str]:
     return changelog.write_all(vault, periods=changelog.periods_due(today or date.today()))
 
 
-def stop(raw: str) -> str | None:
+@dataclass(frozen=True)
+class StopTarget:
+    data: dict
+    cwd: str
+    root: Path
+    repo: str
+
+
+def stop_target(raw: str) -> StopTarget | None:
     data = read_hook_input(raw)
     if data.get("stop_hook_active"):
         return None
@@ -193,18 +215,29 @@ def stop(raw: str) -> str | None:
     root = repo_root(cwd)
     if root is None:
         return None
-    repo = repo_name(cwd)
+    return StopTarget(data=data, cwd=cwd, root=root, repo=repo_name(cwd))
+
+
+def stop(raw: str) -> str | None:
+    target = stop_target(raw)
+    if target is None:
+        return None
     vault = open_vault()
     try:
         vault.index.sync()
         with contextlib.suppress(Exception):
             refresh_month_pages(vault)
-        commits = unlogged_commits(vault, root, repo)
-        stale = stale_open_notes(vault, repo, str(in_main_checkout(cwd)))
+        commits = unlogged_commits(vault, target.root, target.repo)
+        stale = stale_open_notes(vault, target.repo, str(in_main_checkout(target.cwd)))
     finally:
         vault.close()
-    touched = touched_notes(data.get("transcript_path"))
+    return verdict(target, commits, stale)
+
+
+def verdict(target: StopTarget, commits: list[tuple[str, str]], stale: list[tuple[str, str]]) -> str | None:
+    touched = touched_notes(target.data.get("transcript_path"))
     blocking = [label for key, label in stale if key in touched]
     if not commits and not blocking:
         return None
-    return json.dumps({"decision": "block", "reason": _reason(commits, blocking, repo, current_branch(root))})
+    reason = _reason(commits, blocking, target.repo, current_branch(target.root))
+    return json.dumps({"decision": "block", "reason": reason})

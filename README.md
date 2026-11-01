@@ -559,8 +559,10 @@ used, and are revoked on `/account`.
 
 Remotely Save takes WebDAV at `VAULT_PUBLIC_URL/dav/`, the account's email as the username, and as the
 password either a key from `/account` or the one the `obsidian_access` tool mints when you ask Claude for
-it (asking again replaces it). A new vault's welcome note carries these steps. Obsidian hides
-`.vault/`, so edit the schema with another WebDAV client (Finder's Connect to Server, Cyberduck). A proxy
+it (asking again replaces it). Leave the base folder as it is: whatever name Remotely Save puts after
+`/dav/`, it syncs the vault itself. Set Depth to "only supports depth='1'". A new vault's welcome note
+carries these steps. Other WebDAV clients open `VAULT_PUBLIC_URL/dav/vault/`. Obsidian hides `.vault/`, so
+edit the schema with one of them (Finder's Connect to Server, Cyberduck). A proxy
 in front must pass `/dav/*` straight through, with the `Authorization` header and the WebDAV verbs and
 headers (`PROPFIND`, `MKCOL`, `MOVE`, `COPY`, `Depth`, `Destination`, `Overwrite`) intact.
 

@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 import httpx2 as httpx
 import pytest
@@ -68,34 +69,36 @@ async def test_dav_refuses_a_wrong_token(app: Any, secret: str):
 @pytest.mark.anyio
 async def test_options_advertises_webdav(app: Any, secret: str):
     async with dav_client(app) as client:
-        response = await client.options("/dav/", headers=basic(secret))
+        response = await client.options("/dav/vault/", headers=basic(secret))
+        root = await client.options("/dav/", headers=basic(secret))
     assert response.status_code == 200
     assert response.headers["dav"] == "1"
     assert "PROPFIND" in response.headers["allow"] and "MKCOL" in response.headers["allow"]
+    assert root.status_code == 200 and "MKCOL" not in root.headers["allow"]
 
 
 @pytest.mark.anyio
 async def test_propfind_lists_the_provisioned_vault(app: Any, secret: str):
     async with dav_client(app) as client:
         response = await client.request(
-            "PROPFIND", "/dav/", content=PROPFIND_ALL, headers={"Depth": "1", **basic(secret)}
+            "PROPFIND", "/dav/vault/", content=PROPFIND_ALL, headers={"Depth": "1", **basic(secret)}
         )
     assert response.status_code == 207
     assert response.headers["content-type"].startswith("application/xml")
     listed = hrefs(response)
-    assert listed[0] == "/dav/"
-    assert "/dav/Welcome.md" in listed
-    assert "/dav/Areas.base" in listed
-    assert "/dav/.vault/" in listed
-    assert "/dav/.vault/schema.yml" not in listed
+    assert listed[0] == "/dav/vault/"
+    assert "/dav/vault/Welcome.md" in listed
+    assert "/dav/vault/Areas.base" in listed
+    assert "/dav/vault/.vault/" in listed
+    assert "/dav/vault/.vault/schema.yml" not in listed
 
 
 @pytest.mark.anyio
 async def test_propfind_depth_zero_describes_one_file(app: Any, secret: str):
     async with dav_client(app) as client:
-        response = await client.request("PROPFIND", "/dav/Welcome.md", headers={"Depth": "0", **basic(secret)})
+        response = await client.request("PROPFIND", "/dav/vault/Welcome.md", headers={"Depth": "0", **basic(secret)})
     assert response.status_code == 207
-    assert hrefs(response) == ["/dav/Welcome.md"]
+    assert hrefs(response) == ["/dav/vault/Welcome.md"]
     assert "<D:getcontentlength>" in response.text
     assert "<D:getetag>" in response.text
     assert "<D:collection/>" not in response.text
@@ -104,31 +107,31 @@ async def test_propfind_depth_zero_describes_one_file(app: Any, secret: str):
 @pytest.mark.anyio
 async def test_propfind_on_a_missing_path_is_404(app: Any, secret: str):
     async with dav_client(app) as client:
-        response = await client.request("PROPFIND", "/dav/Nowhere/", headers={"Depth": "1", **basic(secret)})
+        response = await client.request("PROPFIND", "/dav/vault/Nowhere/", headers={"Depth": "1", **basic(secret)})
     assert response.status_code == 404
 
 
 @pytest.mark.anyio
 async def test_put_get_and_overwrite(app: Any, secret: str):
     async with dav_client(app) as client:
-        created = await client.put("/dav/Areas/dav.md", content=b"# from obsidian\n", headers=basic(secret))
+        created = await client.put("/dav/vault/Areas/dav.md", content=b"# from obsidian\n", headers=basic(secret))
         assert created.status_code == 201
         assert created.headers["etag"].startswith('"')
-        fetched = await client.get("/dav/Areas/dav.md", headers=basic(secret))
+        fetched = await client.get("/dav/vault/Areas/dav.md", headers=basic(secret))
         assert fetched.status_code == 200
         assert fetched.content == b"# from obsidian\n"
         assert fetched.headers["content-type"].startswith("text/markdown")
         assert fetched.headers["etag"] == created.headers["etag"]
-        again = await client.put("/dav/Areas/dav.md", content=b"# edited\n", headers=basic(secret))
+        again = await client.put("/dav/vault/Areas/dav.md", content=b"# edited\n", headers=basic(secret))
         assert again.status_code == 204
-        head = await client.head("/dav/Areas/dav.md", headers=basic(secret))
+        head = await client.head("/dav/vault/Areas/dav.md", headers=basic(secret))
         assert head.status_code == 200 and head.content == b""
 
 
 @pytest.mark.anyio
 async def test_the_vault_stores_no_file_under_its_name(app: Any, secret: str, storage: Path):
     async with dav_client(app) as client:
-        await client.put("/dav/Areas/dav.md", content=b"# from obsidian\n", headers=basic(secret))
+        await client.put("/dav/vault/Areas/dav.md", content=b"# from obsidian\n", headers=basic(secret))
     names = [path.relative_to(storage).as_posix() for path in storage.rglob("*")]
     assert names and not any("Areas" in name or "dav" in name for name in names)
     assert not any(b"obsidian" in path.read_bytes() for path in storage.rglob("*") if path.is_file())
@@ -138,10 +141,10 @@ async def test_the_vault_stores_no_file_under_its_name(app: Any, secret: str, st
 async def test_binary_attachments_round_trip(app: Any, secret: str):
     payload = bytes(range(256))
     async with dav_client(app) as client:
-        await client.request("MKCOL", "/dav/Attachments/", headers=basic(secret))
-        put = await client.put("/dav/Attachments/pic.png", content=payload, headers=basic(secret))
+        await client.request("MKCOL", "/dav/vault/Attachments/", headers=basic(secret))
+        put = await client.put("/dav/vault/Attachments/pic.png", content=payload, headers=basic(secret))
         assert put.status_code == 201
-        got = await client.get("/dav/Attachments/pic.png", headers=basic(secret))
+        got = await client.get("/dav/vault/Attachments/pic.png", headers=basic(secret))
     assert got.content == payload
     assert got.headers["content-type"] == "image/png"
 
@@ -149,74 +152,76 @@ async def test_binary_attachments_round_trip(app: Any, secret: str):
 @pytest.mark.anyio
 async def test_mkcol_creates_a_collection_that_propfind_shows(app: Any, secret: str):
     async with dav_client(app) as client:
-        created = await client.request("MKCOL", "/dav/Log/", headers=basic(secret))
+        created = await client.request("MKCOL", "/dav/vault/Log/", headers=basic(secret))
         assert created.status_code == 201
-        again = await client.request("MKCOL", "/dav/Log/", headers=basic(secret))
+        again = await client.request("MKCOL", "/dav/vault/Log/", headers=basic(secret))
         assert again.status_code == 405
-        listing = await client.request("PROPFIND", "/dav/", headers={"Depth": "1", **basic(secret)})
-        detail = await client.request("PROPFIND", "/dav/Log/", headers={"Depth": "0", **basic(secret)})
-    assert "/dav/Log/" in hrefs(listing)
+        listing = await client.request("PROPFIND", "/dav/vault/", headers={"Depth": "1", **basic(secret)})
+        detail = await client.request("PROPFIND", "/dav/vault/Log/", headers={"Depth": "0", **basic(secret)})
+    assert "/dav/vault/Log/" in hrefs(listing)
     assert "<D:collection/>" in detail.text
 
 
 @pytest.mark.anyio
 async def test_move_renames_a_file_and_the_old_path_is_gone(app: Any, secret: str):
     async with dav_client(app) as client:
-        await client.put("/dav/Projects/a.md", content=b"a", headers=basic(secret))
+        await client.put("/dav/vault/Projects/a.md", content=b"a", headers=basic(secret))
         moved = await client.request(
-            "MOVE", "/dav/Projects/a.md", headers={"Destination": "http://localhost/dav/Projects/b.md", **basic(secret)}
+            "MOVE",
+            "/dav/vault/Projects/a.md",
+            headers={"Destination": "http://localhost/dav/vault/Projects/b.md", **basic(secret)},
         )
         assert moved.status_code == 201
-        assert (await client.get("/dav/Projects/a.md", headers=basic(secret))).status_code == 404
-        assert (await client.get("/dav/Projects/b.md", headers=basic(secret))).content == b"a"
+        assert (await client.get("/dav/vault/Projects/a.md", headers=basic(secret))).status_code == 404
+        assert (await client.get("/dav/vault/Projects/b.md", headers=basic(secret))).content == b"a"
 
 
 @pytest.mark.anyio
 async def test_move_refuses_to_overwrite_when_told_not_to(app: Any, secret: str):
     async with dav_client(app) as client:
-        await client.put("/dav/Projects/a.md", content=b"a", headers=basic(secret))
-        await client.put("/dav/Projects/b.md", content=b"b", headers=basic(secret))
+        await client.put("/dav/vault/Projects/a.md", content=b"a", headers=basic(secret))
+        await client.put("/dav/vault/Projects/b.md", content=b"b", headers=basic(secret))
         refused = await client.request(
             "MOVE",
-            "/dav/Projects/a.md",
-            headers={"Destination": "http://localhost/dav/Projects/b.md", "Overwrite": "F", **basic(secret)},
+            "/dav/vault/Projects/a.md",
+            headers={"Destination": "http://localhost/dav/vault/Projects/b.md", "Overwrite": "F", **basic(secret)},
         )
         assert refused.status_code == 412
-        assert (await client.get("/dav/Projects/b.md", headers=basic(secret))).content == b"b"
+        assert (await client.get("/dav/vault/Projects/b.md", headers=basic(secret))).content == b"b"
 
 
 @pytest.mark.anyio
 async def test_move_and_copy_carry_whole_collections(app: Any, secret: str):
     async with dav_client(app) as client:
-        await client.put("/dav/Old/one.md", content=b"1", headers=basic(secret))
-        await client.put("/dav/Old/deep/two.md", content=b"2", headers=basic(secret))
+        await client.put("/dav/vault/Old/one.md", content=b"1", headers=basic(secret))
+        await client.put("/dav/vault/Old/deep/two.md", content=b"2", headers=basic(secret))
         copied = await client.request(
-            "COPY", "/dav/Old/", headers={"Destination": "http://localhost/dav/Copy/", **basic(secret)}
+            "COPY", "/dav/vault/Old/", headers={"Destination": "http://localhost/dav/vault/Copy/", **basic(secret)}
         )
         assert copied.status_code == 201
         moved = await client.request(
-            "MOVE", "/dav/Old/", headers={"Destination": "http://localhost/dav/New/", **basic(secret)}
+            "MOVE", "/dav/vault/Old/", headers={"Destination": "http://localhost/dav/vault/New/", **basic(secret)}
         )
         assert moved.status_code == 201
-        assert (await client.get("/dav/New/deep/two.md", headers=basic(secret))).content == b"2"
-        assert (await client.get("/dav/Copy/one.md", headers=basic(secret))).content == b"1"
+        assert (await client.get("/dav/vault/New/deep/two.md", headers=basic(secret))).content == b"2"
+        assert (await client.get("/dav/vault/Copy/one.md", headers=basic(secret))).content == b"1"
         assert (
-            await client.request("PROPFIND", "/dav/Old/", headers={"Depth": "0", **basic(secret)})
+            await client.request("PROPFIND", "/dav/vault/Old/", headers={"Depth": "0", **basic(secret)})
         ).status_code == 404
 
 
 @pytest.mark.anyio
 async def test_delete_removes_a_file_and_a_whole_collection(app: Any, secret: str):
     async with dav_client(app) as client:
-        await client.put("/dav/Tmp/one.md", content=b"1", headers=basic(secret))
-        await client.put("/dav/Tmp/sub/two.md", content=b"2", headers=basic(secret))
-        assert (await client.delete("/dav/Tmp/one.md", headers=basic(secret))).status_code == 204
-        assert (await client.get("/dav/Tmp/one.md", headers=basic(secret))).status_code == 404
-        assert (await client.delete("/dav/Tmp/", headers=basic(secret))).status_code == 204
+        await client.put("/dav/vault/Tmp/one.md", content=b"1", headers=basic(secret))
+        await client.put("/dav/vault/Tmp/sub/two.md", content=b"2", headers=basic(secret))
+        assert (await client.delete("/dav/vault/Tmp/one.md", headers=basic(secret))).status_code == 204
+        assert (await client.get("/dav/vault/Tmp/one.md", headers=basic(secret))).status_code == 404
+        assert (await client.delete("/dav/vault/Tmp/", headers=basic(secret))).status_code == 204
         assert (
-            await client.request("PROPFIND", "/dav/Tmp/", headers={"Depth": "0", **basic(secret)})
+            await client.request("PROPFIND", "/dav/vault/Tmp/", headers={"Depth": "0", **basic(secret)})
         ).status_code == 404
-        assert (await client.delete("/dav/Tmp/", headers=basic(secret))).status_code == 404
+        assert (await client.delete("/dav/vault/Tmp/", headers=basic(secret))).status_code == 404
 
 
 @pytest.mark.anyio
@@ -232,11 +237,11 @@ async def test_a_second_subjects_token_sees_only_its_own_vault(
 ):
     other = key_for_subject(tmp_path / "auth", "other@example.com", "1187")
     async with dav_client(app) as client:
-        await client.put("/dav/Areas/mine.md", content=b"mine", headers=basic(secret))
-        assert (await client.get("/dav/Areas/mine.md", headers=basic(other))).status_code == 404
-        listing = await client.request("PROPFIND", "/dav/", headers={"Depth": "1", **basic(other)})
-    assert "/dav/Welcome.md" in hrefs(listing)
-    assert "/dav/Areas/" not in hrefs(listing)
+        await client.put("/dav/vault/Areas/mine.md", content=b"mine", headers=basic(secret))
+        assert (await client.get("/dav/vault/Areas/mine.md", headers=basic(other))).status_code == 404
+        listing = await client.request("PROPFIND", "/dav/vault/", headers={"Depth": "1", **basic(other)})
+    assert "/dav/vault/Welcome.md" in hrefs(listing)
+    assert "/dav/vault/Areas/" not in hrefs(listing)
 
 
 @pytest.mark.anyio
@@ -244,10 +249,10 @@ async def test_dav_under_a_public_url_path(tmp_path: Path, secret: str, keyring:
     vaults = SubjectVaults(cache=tmp_path / "cache", prefix="users")
     app = build_hosted_app(vaults, hosted_config(tmp_path, public_url="http://localhost/vault"), keyring=keyring)
     async with dav_client(app) as client:
-        response = await client.request("PROPFIND", "/vault/dav/", headers={"Depth": "1", **basic(secret)})
+        response = await client.request("PROPFIND", "/vault/dav/vault/", headers={"Depth": "1", **basic(secret)})
     assert response.status_code == 207
-    assert hrefs(response)[0] == "/vault/dav/"
-    assert "/vault/dav/Welcome.md" in hrefs(response)
+    assert hrefs(response)[0] == "/vault/dav/vault/"
+    assert "/vault/dav/vault/Welcome.md" in hrefs(response)
 
 
 @pytest.mark.anyio
@@ -256,12 +261,93 @@ async def test_a_remotely_save_walk_lists_the_storage_once(
 ):
     async with dav_client(app) as client:
         for path in ("Areas/a.md", "Projects/b.md", "Projects/Deep/c.md"):
-            await client.put(f"/dav/{path}", content=b"x", headers=basic(secret))
+            await client.put(f"/dav/vault/{path}", content=b"x", headers=basic(secret))
         inner = vaults.for_subject("1042").backend.inner
         listings: list[str] = []
         real = inner.list_all
         monkeypatch.setattr(inner, "list_all", lambda prefix="": listings.append(prefix) or real(prefix))
         for folder in ("", "Areas/", "Projects/", "Projects/Deep/"):
-            walked = await client.request("PROPFIND", f"/dav/{folder}", headers={"Depth": "1", **basic(secret)})
+            walked = await client.request("PROPFIND", f"/dav/vault/{folder}", headers={"Depth": "1", **basic(secret)})
             assert walked.status_code == 207
     assert len(listings) == 1
+
+
+def keys(vaults: SubjectVaults) -> set[str]:
+    return {entry.key for entry in vaults.for_subject("1042").backend.list_all()}
+
+
+@pytest.mark.anyio
+async def test_the_root_lists_one_vault_collection(app: Any, secret: str):
+    async with dav_client(app) as client:
+        listing = await client.request("PROPFIND", "/dav/", headers={"Depth": "1", **basic(secret)})
+        alone = await client.request("PROPFIND", "/dav/", headers={"Depth": "0", **basic(secret)})
+        put = await client.put("/dav/stray.md", content=b"x", headers=basic(secret))
+        mkcol = await client.request("MKCOL", "/dav/", headers=basic(secret))
+    assert listing.status_code == 207
+    assert hrefs(listing) == ["/dav/", "/dav/vault/"]
+    assert listing.text.count("<D:collection/>") == 2
+    assert hrefs(alone) == ["/dav/"]
+    assert put.status_code == 405 and mkcol.status_code == 405
+
+
+@pytest.mark.anyio
+async def test_a_remotely_save_session_syncs_the_vault_itself(app: Any, secret: str, vaults: SubjectVaults):
+    auth = basic(secret)
+    async with dav_client(app) as client:
+        exists = await client.request("PROPFIND", "/dav/obsidian/", headers={"Depth": "0", **auth})
+        assert exists.status_code == 207
+        assert hrefs(exists) == ["/dav/obsidian/"]
+        assert (await client.request("MKCOL", "/dav/obsidian/", headers=auth)).status_code == 201
+        assert (await client.options("/dav/obsidian/", headers=auth)).status_code == 200
+
+        probe = "/dav/obsidian/rs-test-folder-Xy7/"
+        assert (await client.request("MKCOL", probe, headers=auth)).status_code == 201
+        assert (await client.request("PROPFIND", probe, headers={"Depth": "0", **auth})).status_code == 207
+        assert (await client.put(probe + "rs-test-file-Ab3", content=bytes(100), headers=auth)).status_code == 201
+        assert (await client.put(probe + "rs-test-file-Ab3", content=bytes(200), headers=auth)).status_code == 204
+        assert (await client.get(probe + "rs-test-file-Ab3", headers=auth)).content == bytes(200)
+        assert (await client.delete(probe + "rs-test-file-Ab3", headers=auth)).status_code == 204
+        assert (await client.delete(probe, headers=auth)).status_code == 204
+
+        assert (await client.put("/dav/obsidian/Projects/plan.md", content=b"plan", headers=auth)).status_code == 201
+        walked = []
+        for folder in ("/dav/obsidian", "/dav/obsidian/Projects"):
+            listing = await client.request("PROPFIND", folder, headers={"Depth": "1", **auth})
+            assert listing.status_code == 207
+            walked += [unquote(href) for href in hrefs(listing)]
+        assert walked and all(href.startswith("/dav/obsidian/") for href in walked)
+        assert "/dav/obsidian/Welcome.md" in walked and "/dav/obsidian/Projects/plan.md" in walked
+
+        assert (await client.get("/dav/obsidian/Projects/plan.md", headers=auth)).content == b"plan"
+        moved = await client.request(
+            "MOVE",
+            "/dav/obsidian/Projects/plan.md",
+            headers={"Destination": "http://localhost/dav/obsidian/Projects/done.md", **auth},
+        )
+        assert moved.status_code == 201
+        assert vaults.for_subject("1042").backend.get_bytes("Projects/done.md")[0] == b"plan"
+        assert (await client.delete("/dav/obsidian/Projects/done.md", headers=auth)).status_code == 204
+        assert (await client.delete("/dav/obsidian/", headers=auth)).status_code == 403
+    stored = keys(vaults)
+    assert "Welcome.md" in stored and "Projects/done.md" not in stored
+    assert not any(key.startswith(("obsidian", "rs-test")) for key in stored)
+
+
+@pytest.mark.anyio
+async def test_any_vault_name_reaches_the_same_vault(app: Any, secret: str, vaults: SubjectVaults):
+    auth = basic(secret)
+    async with dav_client(app) as client:
+        put = await client.put("/dav/My%20Vault/Areas/n%C3%A5got.md", content=b"n", headers=auth)
+        assert put.status_code == 201
+        listing = await client.request("PROPFIND", "/dav/My%20Vault/Areas/", headers={"Depth": "1", **auth})
+        assert hrefs(listing) == ["/dav/My%20Vault/Areas/", "/dav/My%20Vault/Areas/n%C3%A5got.md"]
+        assert (await client.get("/dav/vault/Areas/n%C3%A5got.md", headers=auth)).content == b"n"
+        moved = await client.request(
+            "MOVE",
+            "/dav/My%20Vault/Areas/n%C3%A5got.md",
+            headers={"Destination": "http://localhost/dav/other/Areas/moved.md", **auth},
+        )
+        assert moved.status_code == 201
+    stored = keys(vaults)
+    assert "Areas/moved.md" in stored and "Areas/något.md" not in stored
+    assert not any(key.startswith(("My Vault", "other")) for key in stored)

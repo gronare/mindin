@@ -503,9 +503,9 @@ async def test_a_key_works_as_the_webdav_password_and_a_read_key_cannot_put(site
     write = site.key_for("ann@example.com", write=True)
     read = site.key_for("ann@example.com", write=False, name="phone")
     async with http:
-        put = await http.put("/dav/Areas/w.md", content=b"# w\n", headers=basic(write))
-        got = await http.get("/dav/Areas/w.md", headers=basic(read))
-        refused = await http.put("/dav/Areas/r.md", content=b"# r\n", headers=basic(read))
+        put = await http.put("/dav/vault/Areas/w.md", content=b"# w\n", headers=basic(write))
+        got = await http.get("/dav/vault/Areas/w.md", headers=basic(read))
+        refused = await http.put("/dav/vault/Areas/r.md", content=b"# r\n", headers=basic(read))
     assert put.status_code in (201, 204), put.text
     assert got.content == b"# w\n"
     assert refused.status_code == 403
@@ -546,7 +546,7 @@ async def test_two_accounts_never_see_each_others_notes_or_index(site: Hosted, v
         hidden = await call_tool(bo, bo_key, "search", {"query": "Hemligt"})
         listing = await call_tool(bo, bo_key, "list_files", {})
         missing = await call_tool(bo, bo_key, "read_file", {"path": "Areas/secret.md"})
-        dav = await bo.get("/dav/Areas/secret.md", headers=basic(bo_key))
+        dav = await bo.get("/dav/vault/Areas/secret.md", headers=basic(bo_key))
     assert "secret" in text_of(found)
     assert "secret" not in text_of(hidden)
     assert "Areas/secret.md" not in text_of(listing)

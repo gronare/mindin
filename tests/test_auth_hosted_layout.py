@@ -72,7 +72,9 @@ async def test_a_schema_broken_over_webdav_is_named_on_the_account_page(site: Ho
         page = await http.get("/account")
         await http.post("/account/layout", data={"csrf": csrf_of(page.text), "preset": "simple"})
         put = await http.put(
-            "/dav/.vault/schema.yml", content=b"preset: simple\nfolders:\n  Inbox: { kind: todo }\n", headers=basic(key)
+            "/dav/vault/.vault/schema.yml",
+            content=b"preset: simple\nfolders:\n  Inbox: { kind: todo }\n",
+            headers=basic(key),
         )
         broken = await http.get("/account")
         context = await call_tool(http, key, "context", {"repo": "demo"})

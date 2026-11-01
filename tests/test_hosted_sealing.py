@@ -112,11 +112,11 @@ async def test_writes_through_mcp_and_webdav_leave_no_plaintext_in_storage(
         async with http:
             written = await call_tool(http, key, "write_file", {"path": "Areas/secret.md", "content": NOTE_BODY})
             assert not written.get("isError"), text_of(written)
-            assert (await http.request("MKCOL", "/dav/Bilagor/", headers=basic(key))).status_code == 201
-            put = await http.put("/dav/Projects/plan-x.md", content=DAV_NOTE, headers=basic(key))
+            assert (await http.request("MKCOL", "/dav/vault/Bilagor/", headers=basic(key))).status_code == 201
+            put = await http.put("/dav/vault/Projects/plan-x.md", content=DAV_NOTE, headers=basic(key))
             assert put.status_code == 201
             found = await call_tool(http, key, "search", {"query": "Hemligt"})
-            got = await http.get("/dav/Areas/secret.md", headers=basic(key))
+            got = await http.get("/dav/vault/Areas/secret.md", headers=basic(key))
     vaults.close()
     assert "Areas/secret.md" in text_of(found)
     assert b"Hemligt" in got.content
@@ -157,7 +157,7 @@ async def test_the_account_downloads_its_whole_vault_as_a_zip(site: Hosted, vaul
     http = await site.member("ann@example.com", sub="sub-ann")
     key = site.key_for("ann@example.com")
     async with http:
-        await http.put("/dav/Bilagor/bild.png", content=bytes(range(256)), headers=basic(key))
+        await http.put("/dav/vault/Bilagor/bild.png", content=bytes(range(256)), headers=basic(key))
         response = await http.get("/account/export")
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/zip"

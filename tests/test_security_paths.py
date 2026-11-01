@@ -300,9 +300,9 @@ async def test_dav_move_refuses_a_destination_that_climbs_out(
 ):
     app, secret = dav
     async with app.router.lifespan_context(app):
-        await _call(app, "PUT", "/dav/Areas/mine.md", _basic(secret), b"mine")
+        await _call(app, "PUT", "/dav/vault/Areas/mine.md", _basic(secret), b"mine")
         status, _ = await _call(
-            app, "MOVE", "/dav/Areas/mine.md", {**_basic(secret), "Destination": "/dav/../Areas/escaped.md"}
+            app, "MOVE", "/dav/vault/Areas/mine.md", {**_basic(secret), "Destination": "/dav/vault/../Areas/escaped.md"}
         )
     assert status == 400
     assert len(list((storage / "users").iterdir())) == 1
@@ -314,12 +314,12 @@ async def test_dav_move_refuses_a_destination_that_climbs_out(
 async def test_dav_move_destination_stays_inside_the_subjects_vault(dav: tuple[Any, str], vaults: SubjectVaults):
     app, secret = dav
     async with app.router.lifespan_context(app):
-        await _call(app, "PUT", "/dav/Areas/mine.md", _basic(secret), b"mine")
+        await _call(app, "PUT", "/dav/vault/Areas/mine.md", _basic(secret), b"mine")
         status, _ = await _call(
             app,
             "MOVE",
-            "/dav/Areas/mine.md",
-            {**_basic(secret), "Destination": "http://evil.example/dav/Areas/moved.md"},
+            "/dav/vault/Areas/mine.md",
+            {**_basic(secret), "Destination": "http://evil.example/dav/vault/Areas/moved.md"},
         )
     assert status in (201, 204)
     assert vaults.for_subject("1042").backend.get_bytes("Areas/moved.md")[0] == b"mine"
@@ -350,8 +350,8 @@ async def test_dav_ignores_the_username_and_trusts_only_the_token(dav: tuple[Any
     other = key_for_subject(tmp_path / "auth", "other@example.com", "1187")
     headers = {"Authorization": "Basic " + base64.b64encode(f"user1042@example.com:{other}".encode()).decode()}
     async with app.router.lifespan_context(app):
-        await _call(app, "PUT", "/dav/Areas/mine.md", _basic(secret), b"mine")
-        status, _ = await _call(app, "GET", "/dav/Areas/mine.md", headers)
+        await _call(app, "PUT", "/dav/vault/Areas/mine.md", _basic(secret), b"mine")
+        status, _ = await _call(app, "GET", "/dav/vault/Areas/mine.md", headers)
     assert status == 404
 
 
@@ -360,7 +360,7 @@ async def test_dav_put_refuses_a_declared_body_over_the_cap(dav: tuple[Any, str]
     app, secret = dav
     async with app.router.lifespan_context(app):
         status, _ = await _call(
-            app, "PUT", "/dav/Areas/huge.md", {**_basic(secret), "Content-Length": str(1 << 40)}, b"small"
+            app, "PUT", "/dav/vault/Areas/huge.md", {**_basic(secret), "Content-Length": str(1 << 40)}, b"small"
         )
     assert status == 413
     assert "Areas/huge.md" not in {entry.key for entry in vaults.for_subject("1042").backend.list_all()}
@@ -372,7 +372,9 @@ async def test_dav_put_refuses_a_streamed_body_over_the_cap(vaults: SubjectVault
 
     secret = key_for_subject(tmp_path / "auth", "user1042@example.com", "1042")
     tokens = ApiKeyCredentials(HostedStore(tmp_path / "auth"))
-    status, _ = await _call(WebDav(vaults, tokens, max_body=10), "PUT", "/dav/Areas/x.md", _basic(secret), b"x" * 11)
+    status, _ = await _call(
+        WebDav(vaults, tokens, max_body=10), "PUT", "/dav/vault/Areas/x.md", _basic(secret), b"x" * 11
+    )
     assert status == 413
     assert not (storage / "users" / "1042" / "Areas" / "x.md").exists()
 

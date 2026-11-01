@@ -18,6 +18,8 @@ from notes_vault_mcp.backends import Entry, NotFound, VaultBackend
 from notes_vault_mcp.vault import SubjectVaults
 
 ALLOW = "OPTIONS, PROPFIND, GET, HEAD, PUT, DELETE, MKCOL, MOVE, COPY"
+ROOT_ALLOW = "OPTIONS, PROPFIND"
+LISTED_NAME = "vault"
 READING_METHODS = frozenset({"OPTIONS", "PROPFIND", "GET", "HEAD"})
 XML = "application/xml; charset=utf-8"
 MAX_BODY_BYTES = 32 * 1024 * 1024
@@ -61,6 +63,17 @@ def _content_type(key: str) -> str:
     return mimetypes.guess_type(key)[0] or "application/octet-stream"
 
 
+def _split(path: str) -> tuple[str | None, str] | None:
+    name, _, rest = path.lstrip("/").partition("/")
+    if name == "":
+        return None, ""
+    name = unquote(name)
+    if name in (".", "..") or "\\" in name:
+        return None
+    key = _clean(rest)
+    return None if key is None else (name, key)
+
+
 def _clean(raw: str) -> str | None:
     key = unquote(raw).lstrip("/")
     if key == "":
@@ -72,9 +85,13 @@ def _clean(raw: str) -> str | None:
     return key
 
 
+def _multistatus(parts: list[str]) -> Response:
+    body = '<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">' + "".join(parts) + "</D:multistatus>"
+    return Response(body, status_code=207, media_type=XML)
+
+
 class WebDav:
-    # A small WebDAV server over one subject's prefix: what Remotely Save needs, nothing more. The caller
-    # authenticates with the personal token the `obsidian_access` tool minted; the username is informational.
+    # The vault answers at mount/<any one name>/ because Remotely Save prefixes every path with its base folder.
     def __init__(
         self, vaults: SubjectVaults, tokens: DavCredentials, mount: str = "/dav", max_body: int = MAX_BODY_BYTES
     ) -> None:
@@ -97,15 +114,19 @@ class WebDav:
         subject, writable = grant
         if not writable and request.method.upper() not in READING_METHODS:
             return Response("this key may only read the vault", 403)
-        key = self._key(request.scope)
-        if key is None:
+        target = self._target(request.scope)
+        if target is None:
             return Response("forbidden", 403)
+        name, key = target
+        if name is None:
+            return self._root(request)
         handler = getattr(self, "do_" + request.method.lower(), None)
         if handler is None:
             return Response("method not allowed", 405, headers={"Allow": ALLOW})
         backend = self.vaults.for_subject(subject).backend
+        base = self.mount + "/" + quote(name, safe="") + "/"
         try:
-            return await handler(request, backend, key)
+            return await handler(request, backend, key, base)
         except NotFound:
             return Response("not found", 404)
         except BodyTooLarge:
@@ -125,17 +146,26 @@ class WebDav:
             return self.tokens.lookup(value.strip())
         return None
 
-    def _key(self, scope: Scope) -> str | None:
+    def _target(self, scope: Scope) -> tuple[str | None, str] | None:
         path = scope.get("path", "")
         root = scope.get("root_path", "")
         if root and path.startswith(root):
             path = path[len(root) :]
         if self.mount and path.startswith(self.mount):
             path = path[len(self.mount) :]
-        return _clean(path)
+        return _split(path)
 
-    def _href(self, key: str) -> str:
-        return self.mount + "/" + quote(key)
+    def _root(self, request: Request) -> Response:
+        method = request.method.upper()
+        if method == "OPTIONS":
+            return Response(status_code=200, headers={"DAV": "1", "Allow": ROOT_ALLOW, "MS-Author-Via": "DAV"})
+        if method != "PROPFIND":
+            return Response("method not allowed", 405, headers={"Allow": ROOT_ALLOW})
+        root = self.mount + "/"
+        parts = [self._response_xml(root, "/", None, True)]
+        if request.headers.get("depth", "1") != "0":
+            parts.append(self._response_xml(root + LISTED_NAME + "/", LISTED_NAME, None, True))
+        return _multistatus(parts)
 
     # --- resources -------------------------------------------------------------------------------------
 
@@ -175,9 +205,13 @@ class WebDav:
         children.extend((folder + name, files[name]) for name in sorted(files))
         return children
 
-    def _response_xml(self, key: str, entry: Entry | None, is_dir: bool) -> str:
-        href = escape(self._href(key))
-        name = escape(posixpath.basename(key.rstrip("/")) or "/")
+    def _entry_xml(self, base: str, key: str, entry: Entry | None, is_dir: bool) -> str:
+        name = posixpath.basename(key.rstrip("/")) or unquote(base.rstrip("/").rpartition("/")[2])
+        return self._response_xml(base + quote(key), name, entry, is_dir, key)
+
+    def _response_xml(self, href: str, name: str, entry: Entry | None, is_dir: bool, key: str = "") -> str:
+        href = escape(href)
+        name = escape(name)
         modified = _http_date(entry.mtime if entry else _now())
         props = [f"<D:displayname>{name}</D:displayname>", f"<D:getlastmodified>{modified}</D:getlastmodified>"]
         if is_dir:
@@ -196,34 +230,31 @@ class WebDav:
 
     # --- methods ---------------------------------------------------------------------------------------
 
-    async def do_options(self, request: Request, backend: VaultBackend, key: str) -> Response:
+    async def do_options(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
         return Response(status_code=200, headers={"DAV": "1", "Allow": ALLOW, "MS-Author-Via": "DAV"})
 
-    async def do_propfind(self, request: Request, backend: VaultBackend, key: str) -> Response:
+    async def do_propfind(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
         found = self._lookup(backend, key)
         if found is None:
             return Response("not found", 404)
         kind, entry = found
         is_dir = kind == "dir"
         folder = key if key == "" or key.endswith("/") else key + "/"
-        parts = [self._response_xml(folder if is_dir else key, entry, is_dir)]
+        parts = [self._entry_xml(base, folder if is_dir else key, entry, is_dir)]
         if is_dir and request.headers.get("depth", "1") != "0":
             parts.extend(
-                self._response_xml(child, child_entry, child.endswith("/"))
+                self._entry_xml(base, child, child_entry, child.endswith("/"))
                 for child, child_entry in self._children(backend, folder)
             )
-        body = (
-            '<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">' + "".join(parts) + "</D:multistatus>"
-        )
-        return Response(body, status_code=207, media_type=XML)
+        return _multistatus(parts)
 
-    async def do_head(self, request: Request, backend: VaultBackend, key: str) -> Response:
-        response = await self.do_get(request, backend, key)
+    async def do_head(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
+        response = await self.do_get(request, backend, key, base)
         return Response(
             status_code=response.status_code, headers=dict(response.headers), media_type=response.media_type
         )
 
-    async def do_get(self, request: Request, backend: VaultBackend, key: str) -> Response:
+    async def do_get(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
         found = self._lookup(backend, key)
         if found is None:
             return Response("not found", 404)
@@ -234,7 +265,7 @@ class WebDav:
         headers = {"ETag": f'"{version}"', "Last-Modified": _http_date(entry.mtime if entry else _now())}
         return Response(data, status_code=200, headers=headers, media_type=_content_type(key))
 
-    async def do_put(self, request: Request, backend: VaultBackend, key: str) -> Response:
+    async def do_put(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
         if key == "" or key.endswith("/"):
             return Response("cannot PUT a collection", 405, headers={"Allow": ALLOW})
         data = await _bounded_body(request, self.max_body)
@@ -242,7 +273,9 @@ class WebDav:
         version = backend.put_bytes(key, data, request.headers.get("content-type") or None)
         return Response(status_code=204 if existed else 201, headers={"ETag": f'"{version}"'})
 
-    async def do_delete(self, request: Request, backend: VaultBackend, key: str) -> Response:
+    async def do_delete(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
+        if key == "":
+            return Response("the vault itself cannot be deleted", 403)
         found = self._lookup(backend, key)
         if found is None:
             return Response("not found", 404)
@@ -264,10 +297,12 @@ class WebDav:
             with contextlib.suppress(NotFound):
                 backend.delete(folder)
 
-    async def do_mkcol(self, request: Request, backend: VaultBackend, key: str) -> Response:
+    async def do_mkcol(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
         if await _bounded_body(request, self.max_body):
             return Response("unsupported media type", 415)
-        if key == "" or self._lookup(backend, key) is not None:
+        if key == "":
+            return Response(status_code=201)
+        if self._lookup(backend, key) is not None:
             return Response("already exists", 405, headers={"Allow": ALLOW})
         backend.mkdir(key.rstrip("/") + "/")
         return Response(status_code=201)
@@ -276,15 +311,20 @@ class WebDav:
         raw = request.headers.get("destination", "")
         if not raw:
             return None
-        return self._key({"path": urlsplit(raw).path, "root_path": ""})
+        target = self._target({"path": urlsplit(raw).path, "root_path": ""})
+        if target is None or target[0] is None:
+            return None
+        return target[1]
 
-    async def do_move(self, request: Request, backend: VaultBackend, key: str) -> Response:
+    async def do_move(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
         return await self._transfer(request, backend, key, copy=False)
 
-    async def do_copy(self, request: Request, backend: VaultBackend, key: str) -> Response:
+    async def do_copy(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
         return await self._transfer(request, backend, key, copy=True)
 
     async def _transfer(self, request: Request, backend: VaultBackend, key: str, copy: bool) -> Response:
+        if key == "":
+            return Response("the vault itself cannot be moved or copied", 403)
         dest = self._destination(request)
         if dest is None or dest == "":
             return Response("bad destination", 400)

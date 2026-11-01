@@ -7,6 +7,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 ### What's new
 
 ### Fixed
+- Obsidian's Remotely Save syncs the vault itself over WebDAV, with its default base folder, instead of uploading a copy into a folder named after the Obsidian vault.
 
 ## 0.10.1
 

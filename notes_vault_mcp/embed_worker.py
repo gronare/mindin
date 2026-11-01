@@ -5,6 +5,7 @@ import fcntl
 import importlib
 import itertools
 import json
+import math
 import os
 import queue
 import signal
@@ -14,13 +15,19 @@ import sys
 import threading
 import time
 from collections.abc import Iterator
+from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from notes_vault_mcp.config import env
+
 HEADER = struct.Struct(">II")
 LENGTH = struct.Struct(">I")
-BATCH_SIZE = 32
+DEFAULT_BATCH = 16
+DEFAULT_MAX_TOKENS = 256
+MAX_DEFAULT_THREADS = 4
+CGROUP_CPU_MAX = Path("/sys/fs/cgroup/cpu.max")
 PROTOCOL = 1
 QUERY, PASSAGES = 0, 1
 POLL_SECONDS = 0.2
@@ -77,14 +84,71 @@ def error_reply(message: str) -> bytes:
     return HEADER.pack(0, 0) + message.encode("utf-8")
 
 
+@dataclass(frozen=True)
+class EmbedSettings:
+    batch: int
+    threads: int
+    max_tokens: int
+
+
+def cgroup_cores(cpu_max: Path = CGROUP_CPU_MAX) -> int | None:
+    try:
+        quota, period = cpu_max.read_text(encoding="utf-8").split()[:2]
+        return max(1, math.ceil(int(quota) / int(period)))
+    except (OSError, ValueError):
+        return None
+
+
+def usable_cores() -> int:
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
+    limit = cgroup_cores()
+    return min(cores or 1, limit or cores or 1)
+
+
+def _positive(name: str, default: int) -> int:
+    try:
+        value = int(env(name) or default)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def embed_settings() -> EmbedSettings:
+    return EmbedSettings(
+        batch=_positive("VAULT_EMBED_BATCH", DEFAULT_BATCH),
+        threads=_positive("VAULT_EMBED_THREADS", min(max(usable_cores() // 2, 1), MAX_DEFAULT_THREADS)),
+        max_tokens=_positive("VAULT_EMBED_MAX_TOKENS", DEFAULT_MAX_TOKENS),
+    )
+
+
+def shortest_first(texts: list[str], size: int) -> Iterator[list[int]]:
+    order = sorted(range(len(texts)), key=lambda position: len(texts[position]))
+    for start in range(0, len(order), size):
+        yield order[start : start + size]
+
+
 class FastembedModel:
-    def __init__(self, model: str, folder: str) -> None:
+    def __init__(self, model: str, folder: str, settings: EmbedSettings | None = None) -> None:
         from fastembed import TextEmbedding
 
-        self.embedding = TextEmbedding(model, cache_dir=folder)
+        self.settings = settings or embed_settings()
+        self.embedding = TextEmbedding(
+            model, cache_dir=folder, threads=self.settings.threads, enable_cpu_mem_arena=False
+        )
+        tokenizer = self.embedding.model.tokenizer
+        truncation = tokenizer.truncation or {}
+        if truncation.get("max_length", self.settings.max_tokens + 1) > self.settings.max_tokens:
+            tokenizer.enable_truncation(
+                max_length=self.settings.max_tokens, direction=truncation.get("direction", "right")
+            )
 
     def embed(self, texts: list[str]) -> Any:
-        return list(self.embedding.embed(texts, batch_size=BATCH_SIZE))
+        rows: list[Any] = [None] * len(texts)
+        for positions in shortest_first(texts, self.settings.batch):
+            part = [texts[position] for position in positions]
+            for position, row in zip(positions, self.embedding.embed(part, batch_size=len(part)), strict=True):
+                rows[position] = row
+        return rows
 
 
 def fastembed_model(model: str, folder: str) -> FastembedModel:

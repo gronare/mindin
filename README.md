@@ -460,6 +460,12 @@ What it costs, measured on an M2 Pro with a vault of 500 notes in 3,300 sections
 | First sync | About four minutes (14 sections a second) | About a minute (60 sections a second) |
 | Query | About 23 ms, against 11 ms by words alone; about 50 ms each with six sessions searching at once | About 20 ms; about 33 ms with six at once |
 
+On a server the shared process runs in the server's container, and the first sync is when it uses the
+most memory: loading mpnet peaks near 2 GB by itself, and embedding stays at about that peak with the
+defaults (`VAULT_EMBED_BATCH`, `VAULT_EMBED_MAX_TOKENS`). Give the container a memory limit of at least
+3 GiB with mpnet; below that the kernel kills the process, and the server with it, while it embeds. A
+restarted server goes on from the notes that already carry vectors.
+
 A server embeds in the background and searches by words meanwhile; a query that would wait more than
 three seconds for the shared process, because it is still starting or busy with a long embed, is answered
 by words. The first query after the process exited waits under a second for it to start again.
@@ -585,6 +591,9 @@ Every variable is also read from `CLAUDE_PLUGIN_OPTION_<NAME>`; the bare name wi
 | `VAULT_SCHEMA` | no | Local path to a schema file, overriding the one in the vault. |
 | `VAULT_SEMANTIC` | no | `on` (or `1`, `true`, `yes`) adds [search by meaning](#search-by-meaning); needs the `semantic` extra. |
 | `VAULT_SEMANTIC_MODEL` | no | The embedding model, default `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`. |
+| `VAULT_EMBED_BATCH` | no | Sections the shared embedding process runs through the model at once, default `16`. Fewer lowers its peak memory during a first sync. |
+| `VAULT_EMBED_THREADS` | no | Threads the model runs on, default half the cores the process may use, at most `4`, counting a container's CPU limit (cgroup v2 `cpu.max`); ONNX Runtime on its own takes every physical core of the node. |
+| `VAULT_EMBED_MAX_TOKENS` | no | Tokens of a section the model reads, default `256`. Prose sections stay under it; a section of links or code is cut there instead of padding its batch to 512. |
 | `VAULT_STOP_HOOK` | no | `off` disables the stop hook. |
 
 ### HTTP and authentication

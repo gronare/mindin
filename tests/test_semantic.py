@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import time
@@ -13,7 +14,7 @@ import numpy
 import pytest
 from fake_models import concept_vector
 
-from notes_vault_mcp import embedding, notes
+from notes_vault_mcp import embedding, notes, vectors
 from notes_vault_mcp.backends.local import LocalBackend
 from notes_vault_mcp.embedding import MINILM, MPNET, SharedEmbedder, configured_embedder
 from notes_vault_mcp.index import Index
@@ -280,6 +281,42 @@ def test_a_failing_embedder_leaves_search_by_words(vault: Vault):
     vault.index.vectors.embedder = FailingEmbedder()
     result = search(vault.index, vault.schema, "kebbie-tasks")
     assert keys(result) == ["Areas/board.md"] and result.by_meaning == 0
+
+
+class DyingEmbedder(FakeEmbedder):
+    def __init__(self, calls: int) -> None:
+        super().__init__()
+        self.calls = calls
+
+    def passages(self, texts):
+        if self.calls == 0:
+            raise RuntimeError("the embedding process was killed")
+        self.calls -= 1
+        return super().passages(texts)
+
+
+def embedded_keys(index_path: Path) -> set[str]:
+    with sqlite3.connect(index_path) as db:
+        return {row[0] for row in db.execute("SELECT key FROM embedded")}
+
+
+def test_an_interrupted_bulk_embed_continues_where_it_stopped(
+    root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(vectors, "NOTES_PER_BATCH", 1)
+    index_path = tmp_path / "resume.sqlite"
+    open_with(root, index_path, DyingEmbedder(calls=2)).close()
+    finished = embedded_keys(index_path)
+    assert len(finished) == 2
+    resumed = FakeEmbedder()
+    opened = open_with(root, index_path, resumed)
+    try:
+        assert opened.index.vectors.count() == len(NOTES)
+        titles = {text.split("\n")[0] for text in resumed.embedded}
+        for key in finished:
+            assert opened.index.db.execute("SELECT title FROM notes WHERE key = ?", (key,)).fetchone()[0] not in titles
+    finally:
+        opened.close()
 
 
 def test_a_failing_embedder_leaves_sync_working_by_words(root: Path, tmp_path: Path):

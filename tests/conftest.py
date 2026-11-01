@@ -22,6 +22,15 @@ def _substitute(text: str) -> str:
     return TOKEN_RE.sub(replace, text)
 
 
+@pytest.fixture(autouse=True)
+def away_from_the_users_own_config(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path_factory.mktemp("home")
+    (home / ".claude").mkdir()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / ".claude"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    monkeypatch.delenv("VAULT_SERVER_URL", raising=False)
+
+
 @pytest.fixture
 def vault_dir(tmp_path: Path) -> Path:
     destination = tmp_path / "vault"

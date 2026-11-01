@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -192,3 +193,12 @@ def test_a_worktree_name_never_becomes_a_repo_name(tmp_path: Path):
     from notes_vault_mcp.git import repo_name
 
     assert repo_name(worktree) == "orchard"
+
+
+def test_a_test_never_sees_the_users_own_plugin_config_or_server_keys():
+    from notes_vault_mcp import credentials
+
+    assert plugin_options() == {}
+    assert claude_credentials() == {}
+    assert credentials.configured_server() is None
+    assert str(credentials.credentials_path()).startswith(os.environ["XDG_CONFIG_HOME"])

@@ -54,6 +54,10 @@ class Vault:
     def index_opened(self) -> bool:
         return self._index is not None
 
+    def start_embedding(self) -> None:
+        if self.embedder is not None and self.index.vectors is not None:
+            self.index.vectors.refresh()
+
     def close(self) -> None:
         if self._index is not None:
             self._index.close()

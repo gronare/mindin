@@ -21,7 +21,9 @@ template = provision.template
 
 def command_serve(args: argparse.Namespace) -> int:
     if args.transport != "http":
-        run_stdio(open_vault(vectors="background"))
+        vault = open_vault(vectors="background")
+        vault.start_embedding()
+        run_stdio(vault)
         return 0
     auth = auth_config(args.auth)
     if auth.mode == "hosted" and args.plans == "on":
@@ -32,7 +34,9 @@ def command_serve(args: argparse.Namespace) -> int:
         vaults = SubjectVaults(prefix=auth.subject_prefix, dav_url=auth.dav_url, vectors="background")
         run_http(vaults, args.host, args.port, auth)
         return 0
-    run_http(open_vault(vectors="background"), args.host, args.port, auth)
+    vault = open_vault(vectors="background")
+    vault.start_embedding()
+    run_http(vault, args.host, args.port, auth)
     return 0
 
 

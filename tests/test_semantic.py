@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import os
@@ -14,7 +15,7 @@ import numpy
 import pytest
 from fake_models import concept_vector
 
-from notes_vault_mcp import embedding, notes, vectors
+from notes_vault_mcp import cli, embedding, notes, vectors
 from notes_vault_mcp.backends.local import LocalBackend
 from notes_vault_mcp.embedding import MINILM, MPNET, SharedEmbedder, configured_embedder
 from notes_vault_mcp.index import Index
@@ -317,6 +318,22 @@ def test_an_interrupted_bulk_embed_continues_where_it_stopped(
             assert opened.index.db.execute("SELECT title FROM notes WHERE key = ?", (key,)).fetchone()[0] not in titles
     finally:
         opened.close()
+
+
+def test_serving_embeds_pending_notes_before_any_request(root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    index_path = tmp_path / "startup.sqlite"
+    open_with(root, index_path, None).close()
+    backend = LocalBackend(root)
+    vault = Vault(backend, load_schema(backend), index_path, embedder=FakeEmbedder(), background=True)
+    served: list[Vault] = []
+    monkeypatch.setattr(cli, "open_vault", lambda vectors: vault)
+    monkeypatch.setattr(cli, "run_stdio", served.append)
+    try:
+        cli.command_serve(argparse.Namespace(transport="stdio"))
+        vault.index.vectors.wait(10)
+        assert served == [vault] and vault.index.vectors.count() == len(NOTES)
+    finally:
+        vault.close()
 
 
 def test_a_failing_embedder_leaves_sync_working_by_words(root: Path, tmp_path: Path):

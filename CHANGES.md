@@ -7,6 +7,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 ### What's new
 
 ### Fixed
+- search, backlog, lint and every other command find a vault server named in the Claude Code plugin's settings, not only the task and log commands.
 
 ## 0.10.0
 

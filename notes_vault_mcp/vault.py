@@ -214,6 +214,12 @@ class SubjectVaults:
             background=self.background,
         )
 
+    def discard(self, subject: str) -> None:
+        with self._lock:
+            opened = self._open.pop(subject_key(subject), None)
+        if opened is not None:
+            opened[0].close()
+
     def _evict(self) -> None:
         now = self.clock()
         for key, (vault, last_used) in list(self._open.items()):

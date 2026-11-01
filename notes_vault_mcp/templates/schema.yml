@@ -9,7 +9,7 @@ folders:
   Archive:   { kind: archive,   weight: 0.3, searched: false, description: "History. Searched only on request." }
 frontmatter:
   required: [title, date, updated, tags, status]
-  optional: [kind, area, summary, path, superseded_by, priority, source, kelpie]
+  optional: [kind, area, summary, path, superseded_by, priority, source, kebbie]
   area_required_in: [Projects, Resources, Log]
   status_values: [draft, active, backlog, complete, superseded]
   kind_values: [system, task, trap, howto, decision, reference, log]

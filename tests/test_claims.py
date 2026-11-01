@@ -13,7 +13,7 @@ from notes_vault_mcp.backends import VersionConflict
 from notes_vault_mcp.cli import main
 from notes_vault_mcp.frontmatter import parse, validate
 from notes_vault_mcp.index import Index
-from notes_vault_mcp.schema import Schema, default_schema_data, instructions
+from notes_vault_mcp.schema import CLAIM_KEY, Schema, default_schema_data, instructions
 from notes_vault_mcp.vault import Vault
 
 NOTE = "Projects/orchard-fresh.md"
@@ -41,10 +41,10 @@ def run(capsys: pytest.CaptureFixture, *argv: str) -> dict:
 
 def claim_of(vault_dir: Path, key: str = NOTE) -> dict | None:
     frontmatter, _ = parse((vault_dir / key).read_text(encoding="utf-8"))
-    return frontmatter.get("kelpie")
+    return frontmatter.get(CLAIM_KEY)
 
 
-def test_claim_writes_the_kelpie_key_and_release_clears_only_that(cli_vault: Path, capsys):
+def test_claim_writes_the_claim_key_and_release_clears_only_that(cli_vault: Path, capsys):
     before, body = parse((cli_vault / NOTE).read_text(encoding="utf-8"))
     answer = run(capsys, "task", "claim", NOTE, "--machine", "mac", "--task", "billing", "--repo", "orchard")
     assert answer["claimed"] is True and answer["replaced"] is None
@@ -53,7 +53,7 @@ def test_claim_writes_the_kelpie_key_and_release_clears_only_that(cli_vault: Pat
     assert (claim["machine"], claim["task"], claim["repo"]) == ("mac", "billing", "orchard")
     assert len(claim["since"]) == 20 and claim["since"].endswith("Z") and "T" in claim["since"]
     after, after_body = parse((cli_vault / NOTE).read_text(encoding="utf-8"))
-    assert {key: value for key, value in after.items() if key not in ("kelpie", "updated")} == {
+    assert {key: value for key, value in after.items() if key not in (CLAIM_KEY, "updated")} == {
         key: value for key, value in before.items() if key != "updated"
     }
     assert after_body.strip() == body.strip()
@@ -113,7 +113,7 @@ def test_a_claim_retries_on_a_note_that_changed_under_it_and_keeps_that_change(v
     answer = tasks.claim_note(vault, NOTE, "mac", "billing")
     assert answer["claimed"] is True and raced == [NOTE]
     frontmatter, body = parse(original(NOTE)[0])
-    assert frontmatter["kelpie"]["machine"] == "mac" and "Written meanwhile." in body
+    assert frontmatter[CLAIM_KEY]["machine"] == "mac" and "Written meanwhile." in body
 
 
 def test_a_claim_that_keeps_conflicting_gives_up_with_the_conflict(vault: Vault, monkeypatch):
@@ -130,47 +130,47 @@ def test_a_claim_that_keeps_conflicting_gives_up_with_the_conflict(vault: Vault,
 
 def test_write_file_keeps_the_stored_claim_whatever_the_content_says(vault: Vault):
     tasks.claim_note(vault, NOTE, "devbox", "search")
-    stored = parse(vault.backend.get(NOTE)[0])[0]["kelpie"]
+    stored = parse(vault.backend.get(NOTE)[0])[0][CLAIM_KEY]
     text, _ = vault.backend.get(NOTE)
     frontmatter, body = parse(text)
-    del frontmatter["kelpie"]
+    del frontmatter[CLAIM_KEY]
     notes.write(vault, NOTE, notes.dump(frontmatter, body + "\nMore.\n"))
-    assert parse(vault.backend.get(NOTE)[0])[0]["kelpie"] == stored, "an agent rewriting the note keeps the claim"
-    frontmatter["kelpie"] = {"machine": "hand", "task": "edit", "since": "2026-01-01T00:00:00Z"}
+    assert parse(vault.backend.get(NOTE)[0])[0][CLAIM_KEY] == stored, "an agent rewriting the note keeps the claim"
+    frontmatter[CLAIM_KEY] = {"machine": "hand", "task": "edit", "since": "2026-01-01T00:00:00Z"}
     notes.write(vault, NOTE, notes.dump(frontmatter, body))
-    assert parse(vault.backend.get(NOTE)[0])[0]["kelpie"] == stored, "a hand edit of the key does not take"
+    assert parse(vault.backend.get(NOTE)[0])[0][CLAIM_KEY] == stored, "a hand edit of the key does not take"
     new = "Projects/orchard-new.md"
     notes.write(vault, new, notes.dump(frontmatter, body))
-    assert "kelpie" not in parse(vault.backend.get(new)[0])[0], "a new note starts unclaimed"
+    assert CLAIM_KEY not in parse(vault.backend.get(new)[0])[0], "a new note starts unclaimed"
 
 
 def test_close_and_a_move_to_the_backlog_clear_the_claim(vault: Vault):
     tasks.claim_note(vault, NOTE, "mac", "billing")
     notes.set_status(vault, NOTE, "active")
-    assert "kelpie" in parse(vault.backend.get(NOTE)[0])[0], "staying active keeps it"
+    assert CLAIM_KEY in parse(vault.backend.get(NOTE)[0])[0], "staying active keeps it"
     notes.set_status(vault, NOTE, "backlog", priority="low")
-    assert "kelpie" not in parse(vault.backend.get(NOTE)[0])[0]
+    assert CLAIM_KEY not in parse(vault.backend.get(NOTE)[0])[0]
     tasks.claim_note(vault, NOTE, "mac", "billing")
     archived = notes.close(vault, NOTE)
-    assert "kelpie" not in parse(vault.backend.get(archived)[0])[0]
+    assert CLAIM_KEY not in parse(vault.backend.get(archived)[0])[0]
 
 
 def test_the_schema_accepts_a_well_formed_claim_and_names_a_broken_one():
     schema = Schema(default_schema_data())
-    assert "kelpie" in schema.optional_fields
+    assert CLAIM_KEY in schema.optional_fields
     base = {"title": "x", "date": "2026-10-01", "updated": "2026-10-01", "tags": ["x"], "status": "active"}
     good = {"machine": "mac", "task": "billing", "repo": "", "since": "2026-10-23T10:00:00Z"}
-    assert validate({**base, "kelpie": good}, "Areas/x.md", schema) == []
+    assert validate({**base, CLAIM_KEY: good}, "Areas/x.md", schema) == []
     for broken in ("mac", {"machine": "mac"}, {"machine": "mac", "task": "billing"}, ["mac"]):
-        problems = validate({**base, "kelpie": broken}, "Areas/x.md", schema)
-        assert problems == ["kelpie must be a mapping with machine, task and since (and optionally repo)"], broken
+        problems = validate({**base, CLAIM_KEY: broken}, "Areas/x.md", schema)
+        assert problems == [f"{CLAIM_KEY} must be a mapping with machine, task and since (and optionally repo)"], broken
 
 
 def test_the_instructions_name_the_claim_only_when_the_schema_lists_it():
     data = default_schema_data()
-    assert "kelpie, on a task note, says which machine and task work on it" in instructions(Schema(data))
-    data["frontmatter"]["optional"] = [field for field in data["frontmatter"]["optional"] if field != "kelpie"]
-    assert "kelpie, on a task note" not in instructions(Schema(data))
+    assert f"{CLAIM_KEY}, on a task note, says which machine and task work on it" in instructions(Schema(data))
+    data["frontmatter"]["optional"] = [field for field in data["frontmatter"]["optional"] if field != CLAIM_KEY]
+    assert f"{CLAIM_KEY}, on a task note" not in instructions(Schema(data))
 
 
 def test_the_index_carries_the_claim_and_context_shows_it(vault: Vault):

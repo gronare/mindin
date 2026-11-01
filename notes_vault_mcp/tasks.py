@@ -136,7 +136,7 @@ def claim_note(vault: Vault, path: str, machine: str, task: str, repo: str = "",
         except VersionConflict:
             continue
         return {"path": key, "claimed": True, "claim": claim, "replaced": held if elsewhere else None}
-    raise VersionConflict(f"{key} kept changing while kelpie claimed it; try again")
+    raise VersionConflict(f"{key} kept changing while it was being claimed; try again")
 
 
 def release_note(vault: Vault, path: str, machine: str | None = None) -> dict:
@@ -155,7 +155,7 @@ def release_note(vault: Vault, path: str, machine: str | None = None) -> dict:
         except VersionConflict:
             continue
         return {"path": key, "released": True, "claim": None}
-    raise VersionConflict(f"{key} kept changing while kelpie released it; try again")
+    raise VersionConflict(f"{key} kept changing while it was being released; try again")
 
 
 def release_claims_of(vault: Vault, machine: str, task: str) -> dict:

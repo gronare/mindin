@@ -13,6 +13,7 @@ from notes_vault_mcp.auth import auth_config
 from notes_vault_mcp.backends import NotFound
 from notes_vault_mcp.config import ConfigError, adopt_plugin_config, local_root, s3_settings
 from notes_vault_mcp.embedding import keep_warm
+from notes_vault_mcp.schema import CLAIM_KEY
 from notes_vault_mcp.search import render, search
 from notes_vault_mcp.server import run_http, run_stdio
 from notes_vault_mcp.vault import Vault, open_vault
@@ -391,7 +392,8 @@ def build_parser() -> argparse.ArgumentParser:
     parking.add_argument("--priority", default="medium", help="urgent, high, medium or low")
     parking.set_defaults(func=json_command(task_backlog))
     claiming = task_sub.add_parser(
-        "claim", help="write which machine and task work on the note (frontmatter key kelpie), unless another holds it"
+        "claim",
+        help=f"write which machine and task work on the note (frontmatter key {CLAIM_KEY}), unless another holds it",
     )
     claiming.add_argument("path")
     claiming.add_argument("--machine", required=True, help="the machine the work runs on")
@@ -401,7 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
     claiming.set_defaults(func=json_command(task_claim))
     releasing = task_sub.add_parser(
         "release",
-        help="clear the note's claim (frontmatter key kelpie), or without a path every claim of --machine --task",
+        help=f"clear the note's claim (frontmatter key {CLAIM_KEY}), or without a path every claim of --machine --task",
     )
     releasing.add_argument("path", nargs="?")
     releasing.add_argument("--machine", help="clear it only when this machine holds it")

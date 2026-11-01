@@ -67,7 +67,7 @@ The contract every note must satisfy:
 ```yaml
 frontmatter:
   required: [title, date, updated, tags, status]
-  optional: [kind, area, summary, path, superseded_by, priority, source, kelpie]
+  optional: [kind, area, summary, path, superseded_by, priority, source, kebbie]
   area_required_in: [Projects, Resources, Log]
   status_values: [draft, active, backlog, complete, superseded]
   kind_values: [system, task, trap, howto, decision, reference, log]
@@ -542,7 +542,7 @@ bodies; the stem is the repo plus the task name, made unique across the whole va
 an existing task note instead: status `active`, nothing else changed. `--branch` defaults to the branch
 checked out in `--cwd`.
 
-`task claim` says which machine and task work on a task note, in its `kelpie` frontmatter key
+`task claim` says which machine and task work on a task note, in its `kebbie` frontmatter key
 (`machine`, `task`, `repo`, `since` in UTC), so a second machine on the same vault sees the note is
 taken. It changes only that key, as a conditional write against the version it read, and reads again
 when the note changed in between. A note another machine holds is left as it is and answered with

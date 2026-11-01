@@ -192,7 +192,7 @@ def test_log_append_writes_the_main_checkouts_log(configured: Path, worktree: Pa
 
 def test_log_file_name_comes_from_the_schema(configured: Path, worktree: Path, capsys):
     set_schema(configured, 'log:\n  file_format: "{repo}-logg.md"\n')
-    assert run(capsys, "log", "path", "--repo", "kelpie") == {"path": "Log/kelpie-logg.md"}
+    assert run(capsys, "log", "path", "--repo", "orchard") == {"path": "Log/orchard-logg.md"}
     appended = run(capsys, "log", "append", "--cwd", str(worktree), "--line", "Pruned", "--branch", "main")
     assert appended == {"path": "Log/orchard-logg.md"}
     assert (configured / "Log" / "orchard-logg.md").is_file()

@@ -9,7 +9,7 @@ import yaml
 
 from notes_vault_mcp.backends import SCHEMA_KEY, VaultBackend
 
-CLAIM_KEY = "kelpie"
+CLAIM_KEY = "kebbie"
 CLAIM_STALE_DAYS = 14
 DEFAULT_LOG_ENTRY_FORMAT = "- [{date}] {line} | branch: {branch} | commits: {commits} | {area}"
 
@@ -268,8 +268,9 @@ def instructions(schema: Schema) -> str:
     priority_line = f"\n- priority, on a backlog note, is one of: {priorities}" if priorities else ""
     area_folders = ", ".join(schema.area_required_in)
     claim_line = (
-        f"\n- {CLAIM_KEY}, on a task note, says which machine and task work on it: kelpie writes and clears it, "
-        "write_file keeps it as stored, so never edit it; a note held by another machine is not yours to start"
+        f"\n- {CLAIM_KEY}, on a task note, says which machine and task work on it: "
+        "the claiming tool writes and clears it, write_file keeps it as stored, so never edit it; "
+        "a note held by another machine is not yours to start"
         if CLAIM_KEY in schema.optional_fields
         else ""
     )

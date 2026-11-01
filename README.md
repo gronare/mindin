@@ -4,20 +4,20 @@
 
 Memory for coding agents, kept as a folder of markdown notes you own, with a schema that holds and a tie to your git history.
 
-The vault is an Obsidian-style folder of `.md` files with YAML frontmatter, on disk or in an S3 bucket.
-This server indexes it and gives any MCP client (Claude Code, Codex, Cursor, claude.ai, Claude Desktop
-and mobile) a cheap way to search it, read it and write it. Writes are checked against a schema the
-vault carries. Notes can point at code, and at the start of a session the agent gets the commits made
-since each relevant note was last updated, so a stale note is caught before it is believed.
+The vault is an Obsidian-style folder of `.md` files with YAML frontmatter, on disk, in an S3 bucket or
+on a vault server. This server indexes it and gives any MCP client (Claude Code, Codex, Cursor, claude.ai,
+Claude Desktop and mobile) a cheap way to search it, read it and write it. Writes are checked against a
+schema the vault carries. Notes can point at code, and at the start of a session the agent gets the
+commits made since each relevant note was last updated, so a stale note is caught before it is believed.
 
 ## Why this one
 
 - **The notes are yours.** Plain markdown in a folder or a bucket, open in Obsidian, in git, or in `cat`. No database to export from.
-- **A schema with teeth.** Required fields, legal statuses and kinds, folders that must link an area, a tag vocabulary. A write that breaks the contract is refused, not stored.
+- **A schema with teeth.** Required fields, legal statuses and kinds, folders that must link an area, a tag vocabulary. A write that breaks the contract is refused, not stored. Start from PARA, a simple root-first vault, a journal or your own layout.
 - **A lifecycle, not a pile.** `close` archives finished work, `backlog_add` files what was deferred, `log_append` writes one line per repo per session, `lint` reports drift and can park stale tasks. A weekly `lint` keeps `active` meaning active.
 - **Memory tied to code.** A note names the paths it describes; the session-start hook prints the commits newer than the note, and the stop hook refuses to end a session that left its commits unlogged.
 - **Search that reads your languages.** Stemming for every language Snowball knows, folded diacritics, synonyms from the schema, and optional search by meaning that runs on your machine with one model process shared by every session.
-- **Your own remote connector.** Serve it over HTTPS with the built-in OAuth login or your OpenID Connect provider, and claude.ai, Claude Desktop and the mobile app connect to it. Self-hosted, with a read-only mode.
+- **Your own vault server.** Run it over HTTPS for yourself or a group: accounts with passkeys, email links, GitHub or your identity provider, one vault each, encrypted in storage. claude.ai, Claude Desktop and the mobile app connect to it as a connector, and every machine's CLI, hooks and agents sign in to it.
 
 [kebbie](https://kebbie.dev) uses it for each task's note.
 
@@ -30,28 +30,30 @@ claude mcp add vault -s user -e VAULT_PATH=$HOME/vault -- uvx notes-vault-mcp
 VAULT_PATH=$HOME/vault uvx notes-vault-mcp init
 ```
 
-`init` writes `.vault/schema.yml` and five Obsidian Bases views into the vault, keeps anything that
-exists (`--force` overwrites), and prints a CLAUDE.md snippet with the rules an agent follows on its
-side: `context` at session start, a note before the first edit, `log_append` at the end. Paste it into
-your CLAUDE.md.
+`init` writes `.vault/schema.yml` and the Obsidian Bases views into the vault, keeps anything that
+exists, and prints a CLAUDE.md snippet with the rules an agent follows on its side: `context` at session
+start, a note before the first edit, `log_append` at the end. Paste it into your CLAUDE.md.
+`init --preset para` starts from another [layout](#layouts).
 
 The [Claude Code plugin](#claude-code) does the same and adds the two hooks and the skills. For a
-vault in S3 or MinIO, for other clients and for claude.ai, see [Connect it](#connect-it).
+vault in S3 or MinIO and for other clients, see [Run it locally](#run-it-locally); for claude.ai and for
+a vault several machines share, see [Run a server](#run-a-server).
 
 - [How it works](#how-it-works)
 - [Tools](#tools)
-- [Connect it](#connect-it)
+- [Run it locally](#run-it-locally)
+- [Run a server](#run-a-server)
+- [Connect to a server](#connect-to-a-server)
 - [Search by meaning](#search-by-meaning)
 - [Command line](#command-line)
 - [Configuration](#configuration)
 - [Deploy](#deploy)
-- [Development](#development)
 
 ## How it works
 
 ### Notes and folders
 
-A note is a markdown file with frontmatter. The default schema lays out five folders, and the folder
+A note is a markdown file with frontmatter. The built-in layout has five folders, and the folder
 decides the kind of note and how much it weighs in search:
 
 | Folder | Kind | Weight | Role |
@@ -87,12 +89,55 @@ kinds:
 `path` ties a note to code: a comma-separated list of directories (`~` is kept as written and also
 indexed expanded). `context` and the session-start hook match the working directory against it.
 
+### Layouts
+
+The folders above are the built-in layout, which `init` writes when it is given no preset. `init
+--preset <name>` starts a vault from another layout instead, each with its own folders, frontmatter
+contract, kinds, tags and Bases views:
+
+| Preset | Folders |
+| --- | --- |
+| `para` | Projects, Areas, Resources (with Resources/Logs), Archive |
+| `simple` | Most notes in the root, typed by a `categories` link to an overview note; Projects (open work and the backlog), References, Clippings, Daily, Templates, Attachments. No log, no archive |
+| `journal` | Daily (one note per day, `Daily/YYYY/YYYY-MM-DD.md`), Notes, Projects, Logs, Templates, Archive |
+| `custom` | An empty schema you fill in |
+
+`simple` follows Steph Ango's vault: a category note such as `Books.md`, made from
+`Templates/Category Template`, embeds `Templates/Bases/Category.base` and lists every note whose
+`categories` links to it, and the daily note template embeds the notes written or linked that day. Open
+work is the one exception to notes in the root: it lives in `Projects/`, so the tools can file it, and
+`Open work.base` and `Backlog.base` show it. In Obsidian, point the core Daily notes
+plugin at the `Daily` folder and `Templates/Daily Note Template`; for `journal`, set its date format to
+`YYYY/YYYY-MM-DD`.
+
+A vault whose schema names a preset this version does not ship is read as written, over the empty
+custom schema, and `context`, `lint` and the account page say so; `init` keeps that schema until
+`--preset <name> --force` switches it.
+
+Each tool finds its home by folder kind: open tasks and the backlog go to the folder of kind `task`,
+`log_append` writes to the folder of kind `log`, and `close` moves notes to the folder of kind
+`archive`. In a layout without one of these, the tool says which folder kind is missing.
+
+`init --preset <name> --force` switches an existing vault: the schema and the views are rewritten, the
+old schema is kept as `.vault/schema.previous.yml`, and no note is moved or deleted. Notes in folders the
+new layout does not name stay where they are and stay searchable; each is checked against the new rules
+the next time it is written, and `lint` lists the ones that do not fit it. The `init` tool sets up only
+a vault without a schema, so an MCP client cannot change the rules that check its own writes. On a
+[server](#run-a-server), the account page picks the layout the first time and switches it later.
+
 ### The schema
 
-`.vault/schema.yml` is deep-merged over the built-in default, so it only needs to carry what differs.
-A vault adds a kind by adding an entry (`research: "reading notes on a topic; no task, no decision"`),
-rewrites a rule by restating it, and drops a kind by setting it to `null`. `VAULT_SCHEMA` points at a
-local file that overrides the one in the vault.
+`.vault/schema.yml` is deep-merged over the preset it names (`preset: para`), or over the built-in
+layout when it names none, so it only needs to carry what differs. A vault adds a kind by adding an
+entry (`research: "reading notes on a topic; no task, no decision"`), rewrites a rule by restating it,
+and drops a kind or a folder by setting it to `null`. Folders nest by path
+(`Work/Logs: { kind: log }`). `preset: custom` starts from nothing. `VAULT_SCHEMA` points at a local
+file that overrides the one in the vault.
+
+The schema is checked when it is loaded. A schema that does not hold leaves the vault on its preset,
+and `context`, `lint` and the account page list each problem, for example
+`folders.Inbox.kind 'todo' is not one of: system, reference, task, log, archive`. A running server picks
+up an edited schema on its next refresh.
 
 Other settings: `language` and `other_languages` as ISO codes (`language: sv`, `other_languages: [en]`;
 changing them rebuilds the index), the tag vocabulary and whether it is strict, synonym groups,
@@ -169,16 +214,19 @@ notes-vault-mcp lint --write Log/lint.md --park-stale
 `--write` keeps the report as a note. `--park-stale` sets open task notes untouched for longer than
 `stale_after_days` to `backlog` (priority `low`, source `veckolint <date>`) and lists them under
 `parked`, so `active` means touched within the window; `set_status(path, "active")` revives one. A
-note claimed through `task claim` within the last 14 days is left alone. Run it weekly.
+note claimed through `task claim` within the last 14 days is left alone. Run it weekly. For a vault on a
+server, sign the machine that runs the schedule in with [`login`](#sign-a-machine-in) and set
+`VAULT_SERVER_URL`; the server parks the notes and writes the report itself.
 
 ## Tools
 
 | Tool | Cost | What it does |
 | --- | --- | --- |
 | `search` | cheap | Full-text and, when on, meaning search over the index. Filters: `folder`, `status`, `tag`, `kind`, `area`, `path_prefix`, `since`, `include_archive`, `include_superseded`, `limit`. |
-| `context` | cheap | The session-start bundle for a `path` and `repo`. |
+| `context` | cheap | The session-start bundle for a `path` and `repo`; `format: "json"` answers it as data. |
 | `backlog` | cheap | The backlog by priority then age, filtered by `area` and `priority`. |
 | `list_files` | cheap | Paths only. |
+| `whoami` | cheap | The account a connection signs in as and whether it may write. |
 | `read_file` | moderate | One note, prefixed with `etag: <version>`. A superseded note carries a warning callout. |
 | `lint` | moderate | Reads every note and reports drift. |
 | `write_file` | write | Validates against the schema and refuses the write if it does not hold. Stamps `updated`, fills `date`. `expected_etag` makes the write conditional; `"*"` creates a note that must not exist yet. On S3 the condition travels with the PUT (`If-Match`, `If-None-Match: *`); a server that refuses conditional PUTs gets a HEAD first, logged once. Only `.md` notes outside dot-folders are written. |
@@ -189,20 +237,26 @@ note claimed through `task claim` within the last 14 days is left alone. Run it 
 | `log_append` | write | One dated line in the repo log, with the commits and the branch. |
 | `move_file` | write | Moves or renames a note; it must satisfy the schema at the destination. |
 | `delete_file` | write | Deletes for good. Prefer `close`. |
-| `init` | write | Writes the schema and the Bases views into the vault root and keeps what exists; `force` overwrites. |
-| `obsidian_access` | write | `--auth forwarded` and `hosted` only. Mints the WebDAV token for Obsidian's Remotely Save and shows it once. |
+| `init` | write | Sets up a vault without a schema: the schema of the `preset` it is given and the Bases views. On a vault with a schema it only writes the missing views. |
+| `obsidian_access` | write | Server only. Mints the WebDAV password for Obsidian's Remotely Save and shows it once. |
 
-Over HTTP with OAuth, a token carries `vault:read` or `vault:read vault:write`. A write tool called
-with a read-only token fails with an error saying so, rather than half-writing.
+A server also serves `claim`, `release`, `changelog` and `lint_and_park` to a machine signed in with
+[`login`](#sign-a-machine-in), for the [task and log commands](#task-and-log-commands), `changelog` and
+`lint --write --park-stale` that run through it; connectors never see them.
 
-## Connect it
+Over HTTP, a connection carries `vault:read` or `vault:read vault:write`. A write tool called on a
+read-only connection fails with an error saying so, rather than half-writing.
+
+## Run it locally
 
 Set `VAULT_PATH` for a folder, or `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `S3_BUCKET` for a
-bucket (MinIO included). With neither, the server exits with one line saying so.
+bucket (MinIO included). The server runs over stdio, started by the client. With no vault configured, it
+exits with one line saying so.
 
 ### Claude Code
 
-The plugin installs the server, the two hooks and the skills, and asks for the vault settings:
+The plugin installs the server, the two hooks and the skills, and asks for the vault settings: a local
+folder, an S3 bucket, or a [vault server](#claude-code-with-a-server).
 
 ```sh
 claude plugin marketplace add https://github.com/gronare/claude-plugins
@@ -274,141 +328,241 @@ picks kinds and statuses the same way. The container image does the same job:
 docker run --rm -i -e S3_ENDPOINT -e S3_ACCESS_KEY -e S3_SECRET_KEY -e S3_BUCKET ghcr.io/gronare/notes-vault-mcp:latest
 ```
 
-### Remote: claude.ai, Claude Desktop and mobile
+## Run a server
 
-Run the server over HTTPS with `--auth builtin` or `--auth oidc` and claude.ai adds it as a custom
-connector. Connect it once on the web and the same connector appears in Claude Desktop and in the
-mobile app. One server instance serves one vault.
-
-```sh
-notes-vault-mcp serve --transport http --host 0.0.0.0 --port 8765 --auth builtin
-```
-
-Streamable HTTP on `/mcp`, with five ways to authenticate:
-
-| `--auth` | Who logs in | Client registration | Read-only clients | State on disk |
-| --- | --- | --- | --- | --- |
-| `builtin` | one owner, against a password this server holds | dynamic, nothing to configure in claude.ai | two checkboxes on the login page | `auth.sqlite` under `VAULT_AUTH_DIR` |
-| `oidc` | anyone your OpenID Connect provider admits | dynamic when the provider supports it, otherwise a client id and secret pasted into claude.ai | group membership | none |
-| `bearer` | anything carrying `Authorization: Bearer $VAULT_TOKEN` | none | no | none |
-| `forwarded` | whoever a trusted proxy identifies in a signed header | the proxy's | by entitlement | `personal.sqlite` under `VAULT_AUTH_DIR` |
-| `hosted` | invited people, through your OpenID Connect provider, one vault each | metadata documents and dynamic, nothing to configure in claude.ai | read or read and write per connection and key | `hosted.sqlite` under `VAULT_AUTH_DIR` |
-
-`bearer` is the default and the LAN mode: one token with full access, refused without `VAULT_TOKEN`,
-and claude.ai cannot use it. `forwarded` serves one vault per person behind a proxy that did the OAuth;
-see [Behind a proxy](#behind-a-proxy-one-vault-per-person). `hosted` signs a group in through your
-identity provider and gives each person a vault; see [Hosted mode](#hosted-mode-accounts-for-a-small-group).
-
-You need a domain pointing at the machine and TLS in front of the server. The examples under `deploy/`
-put Caddy there, which fetches the certificate itself. `VAULT_PUBLIC_URL` is the https address clients
-reach, path included when the server is not at the root; the MCP endpoint is that plus `/mcp`, and that
-is the URL you paste into claude.ai under Settings, Connectors, Add custom connector.
-
-**Built-in login.** The browser lands on the server's login page, which asks for the owner password and
-shows two checkboxes, read and write. Clear write to hand out a read-only connector. Set the password
-once with `notes-vault-mcp owner set-password`; `tokens list` shows what is connected and
-`tokens revoke <client_id>` disconnects one. The password hash and the tokens live in `auth.sqlite`.
-Back it up; losing it means every client has to connect again.
-
-**OIDC.** The server is a resource server: it validates the provider's access tokens and never sees a
-password. A user in `VAULT_OIDC_WRITE_GROUP` gets `vault:read` and `vault:write`, a user in
-`VAULT_OIDC_READ_GROUP` only `vault:read`, and anyone in neither is refused. When the access token
-carries no `groups`, the server asks the provider's userinfo endpoint. With a provider that supports
-dynamic client registration you are done after adding the connector. With one that does not (Pocket ID,
-Authentik), register the client in the provider first and paste its client id and secret under the
-connector's Advanced settings; the redirect URI to allow is the one claude.ai shows in that dialog.
-
-Pocket ID in particular only accepts an OAuth `resource` it knows as an API, and claude.ai sends the
-`/mcp` URL as that resource:
-
-1. Settings, APIs, Add API: a name and the resource identifier, exactly `VAULT_PUBLIC_URL` + `/mcp`,
-   with two permissions keyed `vault:read` and `vault:write`.
-2. Settings, User Groups: create `vault` (read) and `vault-writers` (write) and put users in them.
-3. Settings, OIDC Clients, Add: name `claude.ai`, callback URL `https://claude.ai/api/mcp/auth_callback`,
-   PKCE on, public client off, allowed user groups `vault`. Under API access, grant the API with both
-   permissions (user-delegated). Copy the client id and secret.
-4. On the server: `VAULT_OIDC_ISSUER` is Pocket ID's base URL, `VAULT_OIDC_AUDIENCE` is the resource
-   identifier from step 1, and `VAULT_OIDC_SCOPES` is `openid profile email groups vault:read vault:write`.
-5. In claude.ai, add the connector with the client id and secret under Advanced settings.
-
-The user's groups decide what a token may do; the client's permissions only matter when the provider
-reports no groups at all.
-
-**The `Host` header.** Bound to localhost, the server answers `localhost`, `127.0.0.1` and `[::1]` and
-gives anything else `421`. With `VAULT_PUBLIC_URL` set, its hostname and localhost are answered and
-the rest get `421`; a Service name or a LAN hostname next to the public one goes in
-`VAULT_ALLOWED_HOSTS`. Bound to another address with neither set, every `Host` is answered. In
-`forwarded` mode the header is not checked.
-
-### Hosted mode: accounts for a small group
-
-`--auth hosted` serves a vault to each person in a group you choose: a household, a team, you on
-several machines. People sign in through your OpenID Connect provider (Pocket ID, Authentik, Keycloak
-and the like), and each account gets its own vault under `VAULT_SUBJECT_PREFIX/<sub>/` with its own
-index. Nobody sees anyone else's notes.
-
-At the provider, register one confidential client for this server with the redirect URI
-`VAULT_PUBLIC_URL` + `/oidc/callback` and the scopes `openid email profile`. On the server:
+`serve --transport http` runs a vault server: people sign in to accounts, and each account has its own
+vault, its own index and its own key. It serves a household, a team, or you on several machines.
+claude.ai, Claude Desktop and the mobile app connect to it as a custom connector, and any machine's CLI,
+hooks and agents [sign in to it](#connect-to-a-server).
 
 ```sh
 export VAULT_PUBLIC_URL=https://vault.example.com
-export VAULT_HOSTED_OIDC_ISSUER=https://id.example.com
-export VAULT_HOSTED_OIDC_CLIENT_ID=...
-export VAULT_HOSTED_OIDC_CLIENT_SECRET=...
-notes-vault-mcp serve --transport http --host 0.0.0.0 --port 8765 --auth hosted
+export VAULT_HOSTED_MASTER_KEY=$(notes-vault-mcp master-key generate)
+export S3_ENDPOINT=https://s3.example.com S3_BUCKET=vault S3_ACCESS_KEY=... S3_SECRET_KEY=...
+export VAULT_SMTP_HOST=smtp.example.com VAULT_SMTP_FROM="Vault <vault@example.com>" \
+  VAULT_SMTP_USERNAME=... VAULT_SMTP_PASSWORD=...
+notes-vault-mcp serve --transport http --host 0.0.0.0 --port 8765
+notes-vault-mcp accounts invite ann@example.com
 ```
 
-Access is by invitation. Invite an address, and the first time someone signs in with that address,
-verified by the provider, the account is theirs:
+It needs three things, and refuses to start without them:
+
+- `VAULT_PUBLIC_URL`, the https address people reach it on, path included when the server is not at the
+  root (`http://localhost` works for a trial). Put TLS in front of it; the examples under
+  [Deploy](#deploy) use Caddy, which fetches the certificate itself.
+- `VAULT_HOSTED_MASTER_KEY`, the key that seals every vault (see [Encryption](#encryption)).
+- At least one way to sign in other than passkeys.
+
+The vaults live in the configured folder or bucket, one under `VAULT_SUBJECT_PREFIX/<account>/` each.
+Search by meaning works as [on a single machine](#search-by-meaning), with one model shared by every
+account.
+
+### Sign-in methods
+
+There are no passwords. Each method is on when its settings are present, and the sign-in page at
+`/signin` lists only those.
+
+| Method | Settings | Register this callback |
+| --- | --- | --- |
+| Email link | `VAULT_SMTP_HOST`, `VAULT_SMTP_FROM`, `VAULT_SMTP_USERNAME`, `VAULT_SMTP_PASSWORD` | |
+| GitHub | `VAULT_GITHUB_CLIENT_ID`, `VAULT_GITHUB_CLIENT_SECRET` | `VAULT_PUBLIC_URL/signin/github/callback` |
+| Your identity provider (Pocket ID, Okta, Google Workspace, Keycloak) | `VAULT_OIDC_ISSUER`, `VAULT_OIDC_CLIENT_ID`, `VAULT_OIDC_CLIENT_SECRET` | `VAULT_PUBLIC_URL/oidc/callback` |
+| A trusted proxy | `VAULT_IDENTITY_PUBLIC_KEY`, `VAULT_IDENTITY_ISSUER` | |
+| Passkeys | on unless `VAULT_PASSKEYS=off` | |
+
+- **Email link.** A link works once, for 15 minutes. `VAULT_SMTP_SECURITY` is `starttls` (port 587, the
+  default), `ssl` (465) or `none` (25, only without a username and password); `VAULT_SMTP_PORT`
+  overrides the port.
+- **GitHub.** Create an OAuth app at github.com/settings/developers with the callback above. The account
+  is tied to the GitHub user, so a renamed login keeps working; only verified emails count.
+- **Your identity provider.** Register one confidential client with the callback above.
+  `VAULT_OIDC_NAME` is the button's label; `VAULT_OIDC_SCOPES` defaults to `openid email profile`.
+- **A trusted proxy.** When a proxy in front authenticates people and forwards a signed identity token
+  (the pattern Cloudflare Access uses), the server verifies it with `VAULT_IDENTITY_PUBLIC_KEY` (PEM,
+  RS256 or ES256, raw or base64 on one line) and signs that person in, MCP requests included. The token
+  arrives in `X-Forwarded-Identity` (`VAULT_IDENTITY_HEADER`), needs `iss`, `sub`, `exp` and an `aud`
+  naming this server's host, and carries an entitlement: `vault:write` or `vault:read` by default
+  (`VAULT_IDENTITY_WRITE_CLAIMS`, `VAULT_IDENTITY_READ_CLAIMS`, in its `entitlements` list or `scope`).
+  `VAULT_IDENTITY_TYP` pins its `typ`, and `VAULT_IDENTITY_NAME` labels the button. The proxy's email
+  counts as verified. The header is ignored unless these are set.
+- **Passkeys.** Sign in once another way, then use "Add a passkey" on the account page. After that,
+  "Sign in with a passkey" needs nothing else.
+
+An account can have several ways in. A sign-in whose verified email matches an account joins it, so a
+person can start with an email link and later use GitHub or a passkey. The account page lists every way
+in and removes any but the last.
+
+### Accounts
+
+New accounts are by invitation: `accounts invite ann@example.com` lets that address in the first time it
+signs in with a verified email. `VAULT_REGISTRATION=open` lets anyone with a verified email create an
+account.
 
 ```sh
-notes-vault-mcp accounts invite anna@example.com
+notes-vault-mcp accounts invite ann@example.com
 notes-vault-mcp accounts list
-notes-vault-mcp accounts suspend anna@example.com     # every key and token stops at once
-notes-vault-mcp accounts activate anna@example.com
+notes-vault-mcp accounts suspend ann@example.com     # every key and token stops at once
+notes-vault-mcp accounts activate ann@example.com
+notes-vault-mcp accounts delete ann@example.com --yes
 ```
 
-Each person then opens `VAULT_PUBLIC_URL/account`, which shows who they are, their keys and how to
-connect:
+Each person opens `VAULT_PUBLIC_URL/account`, which shows who they are, how to connect, their keys and
+ways in, and:
 
-- **claude.ai, Claude Desktop and mobile**: add a custom connector with `VAULT_PUBLIC_URL/mcp`. The
-  server takes claude.ai's client metadata document, so there is nothing to paste.
-- **Claude Code, Codex, Cursor**: add `VAULT_PUBLIC_URL/mcp` as a remote server. Each registers itself
-  (a metadata document or dynamic registration) and signs in through the browser the first time.
-- **A machine without a browser** (a laptop's setup script, a devbox over ssh): a tool that speaks the
-  OAuth device flow shows a code such as `BCDF-GHJK`. Open `VAULT_PUBLIC_URL/device`, enter it, and
-  choose read or read and write. The machine receives an API key and keeps it.
-- **A client that only takes a header**: make a key on `/account` and send
-  `Authorization: Bearer nvm_...`.
-- **Obsidian's Remotely Save**: WebDAV at `VAULT_PUBLIC_URL/dav/`, the account's email as the username
-  and a key as the password.
+- **Layout.** A new vault picks PARA, Simple, Journal or Custom [layout](#layouts) here, and switches it later. The built-in layout is set from the CLI only.
+- **Export and import.** The whole vault downloads as a zip at any time; a zip imports into it, replacing
+  files with the same path.
+- **Support access.** The person can let the server's staff open the vault for an hour, a day or a week,
+  and end it early. Every access is logged with time, operator and reason, and the log shows on the page.
+- **Deletion.** The account deletes itself after a sign-in within the last ten minutes and its email typed
+  out: the vault's key goes first, then its files, its index, its keys and its ways in.
 
-Every connection asks for read or read and write. Keys are shown once, named after where they live,
-show when they were last used, and are revoked on `/account`.
+`accounts delete` does the same from the shell. `hosted.sqlite` under `VAULT_AUTH_DIR` holds the
+accounts, the ways in, the hashed keys and tokens, the registered clients and every vault's sealed key.
 
-A device flow for scripts. `POST /device_authorization` with `name=<machine>` (and optionally
-`scope=vault:read`) answers `device_code`, `user_code`, `verification_uri`,
-`verification_uri_complete`, `interval` and `expires_in`. Poll `POST /token` with
-`grant_type=urn:ietf:params:oauth:grant-type:device_code` and the `device_code` every `interval`
-seconds; it answers `authorization_pending` until the person approves, `slow_down` when polled too
-often, `access_denied` or `expired_token`, and once `{"access_token": "nvm_...", "token_type": "Bearer",
-"scope": "...", "key_name": "...", "resource": ".../mcp"}`.
+### Encryption
 
-`hosted.sqlite` under `VAULT_AUTH_DIR` holds the accounts, the hashed keys and tokens and the
-registered clients. Back it up.
+Every vault is sealed before it reaches storage: file contents with AES-256-GCM, and file and folder
+names too, so the bucket holds only opaque object names and ciphertext. Each account has its own data
+key, wrapped by the master key in `VAULT_HOSTED_MASTER_KEY` (base64 of 32 bytes, made with
+`notes-vault-mcp master-key generate`). The server refuses to start without it, or with a master key
+that does not open the account keys it holds.
 
-**Plans.** With `--plans on` each account also carries a plan, `active` or `inactive` with an `until`
-time, set through an admin API by a billing service. A plan past its end leaves the vault readable,
-WebDAV export included, for `VAULT_PLAN_READ_ONLY_DAYS`, and then refuses it until the plan is renewed;
-the person can still sign in to `/account`. `--plans off`, the default, ignores plans. The admin API
-takes a token made with `notes-vault-mcp admin token --name billing --scope billing`:
-`GET /v1/admin/accounts` (paged with `after` and `limit`), `GET /v1/admin/accounts/{id}`,
-`PUT /v1/admin/accounts/{id}/plan` with `{"status": "active", "until": 1764547200}`, and
-`POST /v1/admin/accounts/{id}/deactivate` or `/activate`. With `VAULT_BILLING_URL` and
-`VAULT_BILLING_HANDOFF_SECRET` set, `/account` links to the billing service's checkout and portal
-through `/account/billing/checkout` and `/account/billing/portal`, which redirect with
-`account`, `expires` and `signature`: base64url of HMAC-SHA256 over `vault-billing-handoff-v1`,
-the purpose, a zero byte, the account id, a zero byte and the expiry.
+Keep the master key outside the bucket and back it up together with `hosted.sqlite`: a vault is read
+with both, and with neither alone. The server decrypts when it answers, so search, connectors and
+Obsidian over WebDAV see plain notes; it is not end-to-end encryption. The search index and the vectors
+for search by meaning are kept in plaintext under `VAULT_CACHE_DIR`; put that directory on an encrypted
+volume.
+
+To rotate the master key, set the new key in `VAULT_HOSTED_MASTER_KEY` and the old one in
+`VAULT_HOSTED_MASTER_KEY_PREVIOUS`, run `notes-vault-mcp master-key rewrap`, check
+`notes-vault-mcp master-key status`, then remove the old key.
+
+Run one server per bucket: a sealed vault keeps its listing for five seconds, so a second server writing
+to the same vault is seen late.
+
+### Support access and import
+
+With the account's permission from its page, the staff reads a vault and imports into it from the shell.
+Each command names who runs it and why, and refuses without the permission:
+
+```sh
+notes-vault-mcp support files ann@example.com --operator sam --reason "lost note"
+notes-vault-mcp support read ann@example.com Areas/home.md --operator sam --reason "lost note"
+notes-vault-mcp accounts import ann@example.com --from-path ~/old-vault --operator sam --reason "move in"
+notes-vault-mcp accounts import ann@example.com --from-s3-bucket old-vault --from-s3-prefix ann \
+  --operator sam --reason "move in"
+```
+
+`accounts import` seals every file of a plaintext vault into the account. From S3 it takes
+`IMPORT_S3_ACCESS_KEY` and `IMPORT_S3_SECRET_KEY` (or the server's own `S3_*` keys), and
+`--from-s3-endpoint` and `--from-s3-region` when they differ from the server's.
+
+### Plans
+
+With `--plans on` each account also carries a plan, `active` or `inactive` with an `until` time, set
+through an admin API by a billing service. A plan past its end leaves the vault readable, export
+included, for `VAULT_PLAN_READ_ONLY_DAYS`, and then refuses it until the plan is renewed; the person can
+still sign in to `/account`. `--plans off`, the default, ignores plans. The admin API takes a token made
+with `notes-vault-mcp admin token --name billing --scope billing`: `GET /v1/admin/accounts` (paged with
+`after` and `limit`), `GET /v1/admin/accounts/{id}`, `PUT /v1/admin/accounts/{id}/plan` with
+`{"status": "active", "until": 1764547200}`, and `POST /v1/admin/accounts/{id}/deactivate` or
+`/activate`. With `VAULT_BILLING_URL` and `VAULT_BILLING_HANDOFF_SECRET` set, `/account` links to the
+billing service's checkout and portal through `/account/billing/checkout` and `/account/billing/portal`,
+which redirect with `account`, `expires` and `signature`: base64url of HMAC-SHA256 over
+`vault-billing-handoff-v1`, the purpose, a zero byte, the account id, a zero byte and the expiry.
+
+### The `Host` header
+
+The MCP endpoint answers the hostname of `VAULT_PUBLIC_URL` and localhost, and gives any other `Host`
+`421`. A
+Service name, a LAN hostname, or the host a proxy rewrites requests to goes in `VAULT_ALLOWED_HOSTS`.
+
+## Connect to a server
+
+`VAULT_PUBLIC_URL/account` shows each of these with the server's own addresses. Every connection asks
+for read or read and write.
+
+| Client | How it connects |
+| --- | --- |
+| claude.ai, Claude Desktop, mobile | A custom connector with `VAULT_PUBLIC_URL/mcp`, signed in through the browser |
+| Claude Code, Codex, kebbie, the hooks and the CLI | [`login`](#sign-a-machine-in) once per machine, then `VAULT_SERVER_URL` |
+| Any other OAuth-capable MCP client | `VAULT_PUBLIC_URL/mcp` as a remote server, signed in through the browser |
+| A client that only takes a header | A key made on `/account`, sent as `Authorization: Bearer nvm_...` |
+| Obsidian's Remotely Save | WebDAV at `VAULT_PUBLIC_URL/dav/` |
+
+### claude.ai, Claude Desktop and mobile
+
+In claude.ai, open Settings, Connectors, Add custom connector, and paste `VAULT_PUBLIC_URL/mcp`. The
+browser signs in to the server and asks for read or read and write. There is nothing to register: the
+server takes claude.ai's client metadata document, and dynamic registration for other clients. Connect
+once on the web and the same connector appears in Claude Desktop and in the mobile app.
+
+### Sign a machine in
+
+```sh
+uvx notes-vault-mcp login https://vault.example.com
+```
+
+It prints a link and a code. Open the link on any device, sign in, check that the code matches and
+approve read and write. The machine gets its own key, named after its host name (`--name` picks another),
+stored in `~/.config/notes-vault-mcp/credentials.json` and readable only by you. Over ssh it works the
+same way, and `--no-browser` only prints the link. `notes-vault-mcp whoami` shows the account and whether
+the key may write; `notes-vault-mcp logout` forgets the key on this machine. Revoke it for good on the
+account page.
+
+Then set `VAULT_SERVER_URL` to the server. The stdio MCP server, the hooks and every command work through
+it as with a folder or a bucket, except `sync`, since the server keeps the index. `VAULT_SERVER_URL` wins over `VAULT_PATH` and
+`S3_*` when both are set.
+
+### Claude Code with a server
+
+```sh
+claude plugin install vault@gronare --config vault_server_url=https://vault.example.com
+```
+
+Then run `/vault:login` (or the `login` command above), and reconnect with `/mcp`, plugin:vault:vault,
+Reconnect. The session-start and stop hooks use the same key.
+
+### Codex and other stdio clients
+
+```sh
+codex mcp add vault --env VAULT_SERVER_URL=https://vault.example.com -- uvx notes-vault-mcp
+```
+
+Any client from [Run it locally](#codex-cursor-and-other-mcp-clients) takes `VAULT_SERVER_URL` in place
+of `VAULT_PATH`. Until the machine is signed in, the server's instructions tell the agent to ask for `login`.
+
+### kebbie
+
+kebbie runs the [task and log commands](#task-and-log-commands). Sign the machine in once; the commands
+read `VAULT_SERVER_URL` from the environment or from the Claude Code plugin's settings.
+
+### A machine without a browser
+
+A tool that speaks the OAuth device flow can sign itself in the way `login` does.
+`POST /device_authorization` with `name=<machine>` (and optionally `scope=vault:read`) answers
+`device_code`, `user_code`, `verification_uri`, `verification_uri_complete`, `interval` and
+`expires_in`. The person opens `VAULT_PUBLIC_URL/device`, enters the code and approves. Poll
+`POST /token` with `grant_type=urn:ietf:params:oauth:grant-type:device_code` and the `device_code` every
+`interval` seconds; it answers `authorization_pending` until the person approves, `slow_down` when polled
+too often, `access_denied` or `expired_token`, and once `{"access_token": "nvm_...", "token_type":
+"Bearer", "scope": "...", "key_name": "...", "resource": ".../mcp"}`.
+
+### Header clients
+
+Make a key on `/account`, named after where it will live and read or read and write, and send
+`Authorization: Bearer nvm_...` to `VAULT_PUBLIC_URL/mcp`. Keys are shown once, show when they were last
+used, and are revoked on `/account`.
+
+### Obsidian
+
+Remotely Save takes WebDAV at `VAULT_PUBLIC_URL/dav/`, the account's email as the username, and as the
+password either a key from `/account` or the one the `obsidian_access` tool mints when you ask Claude for
+it (asking again replaces it). A new vault's welcome note carries these steps. Obsidian hides
+`.vault/`, so edit the schema with another WebDAV client (Finder's Connect to Server, Cyberduck). A proxy
+in front must pass `/dav/*` straight through, with the `Authorization` header and the WebDAV verbs and
+headers (`PROPFIND`, `MKCOL`, `MOVE`, `COPY`, `Depth`, `Destination`, `Overwrite`) intact.
 
 ## Search by meaning
 
@@ -480,8 +634,8 @@ words. `notes-vault-mcp sync` embeds whatever is pending and says how many notes
 
 ```sh
 notes-vault-mcp serve --transport stdio          # the default, also with no subcommand
-notes-vault-mcp serve --transport http --host 0.0.0.0 --port 8765 --auth builtin
-notes-vault-mcp init [--force]
+notes-vault-mcp serve --transport http --host 0.0.0.0 --port 8765 [--plans on]
+notes-vault-mcp init [--preset para] [--force]
 notes-vault-mcp sync [--rebuild]                 # refresh the index; --rebuild reads every note again
 notes-vault-mcp search "bokning" --limit 5       # the same ranking, from a shell
 notes-vault-mcp lint [--write Log/lint.md] [--park-stale]
@@ -489,19 +643,29 @@ notes-vault-mcp backlog --area myapp --priority high
 notes-vault-mcp changelog myapp 2026-08 --repo-path ~/projects/myapp [--write]
 notes-vault-mcp changelog --all                  # this month, and last month during its first week
 notes-vault-mcp hook session-start | stop        # the Claude Code hooks, JSON on stdin
-notes-vault-mcp owner set-password [--password ...]
-notes-vault-mcp tokens list | revoke <client_id>
-notes-vault-mcp accounts list | invite <email> | suspend <account> | activate <account>
-notes-vault-mcp admin token --name billing --scope billing | revoke <name>
+notes-vault-mcp login [<url>] [--name laptop] [--no-browser]
+notes-vault-mcp whoami [<url>] | logout [<url>]
 notes-vault-mcp status [--probe]
 ```
 
+On the server's own machine:
+
+```sh
+notes-vault-mcp accounts list | invite <email> | suspend <account> | activate <account>
+notes-vault-mcp accounts delete <account> --yes
+notes-vault-mcp accounts import <account> --from-path <dir> | --from-s3-bucket <bucket> --operator <name> --reason <text>
+notes-vault-mcp support files | read <account> [<path>] --operator <name> --reason <text>
+notes-vault-mcp master-key generate | status | rewrap
+notes-vault-mcp admin token --name billing --scope billing | revoke <name>
+```
+
 `changelog` prints the log lines, the git commits grouped by day, and the repo's notes dated inside
-the period (`YYYY` or `YYYY-MM`). With `--write` it keeps that as a period page, `Log/<repo>-<period>.md`,
-between the markers `<!-- changelog:generated -->` and `<!-- /changelog:generated -->`; prose above the
-markers (a summary written at month end) is left alone, and the page's status follows the calendar.
-`--all` does it for every repo the session-start hook has seen on this machine, and the stop hook runs
-that once a day, so the pages stay current without a cron.
+the period (`YYYY` or `YYYY-MM`), each day whole from midnight to midnight. With `--write` it keeps that
+as a period page, `Log/<repo>-<period>.md`, between the markers `<!-- changelog:generated -->` and
+`<!-- /changelog:generated -->`; prose above the markers (a summary written at month end) is left alone,
+and the page's status follows the calendar. `--all` does it for every repo the session-start hook has
+seen on this machine, and the stop hook runs that once a day, so the pages stay current without a cron.
+Through a server, the commits are read on this machine and the page is written on the server.
 
 ### Task and log commands
 
@@ -565,14 +729,15 @@ task:
 ```
 
 `status` never fails: with no vault configured it prints `"configured": false, "backend": null` and
-exits 0. It is read-only and leaves `writable` null; `--probe` measures it by writing and deleting
+exits 0. Through a server it answers `"backend": "server"` with the `server` and whether this machine is
+`signed_in`. It is read-only and leaves `writable` null; `--probe` measures it by writing and deleting
 `.vault/write-probe`.
 
 These commands read the storage settings from the environment first. When the environment names no
 vault, they take the Claude Code plugin's saved user config instead: `pluginConfigs["vault@<marketplace>"].options`
 in `$CLAUDE_CONFIG_DIR/settings.json` (default `~/.claude/settings.json`), mapping `vault_path`,
-`s3_endpoint`, `s3_bucket`, `s3_access_key`, `s3_secret_key`, `s3_prefix` and `s3_region` to their
-variables, with the secrets from Claude Code's credentials store when they are kept there.
+`s3_endpoint`, `s3_bucket`, `s3_access_key`, `s3_secret_key`, `s3_prefix`, `s3_region` and
+`vault_server_url` to their variables, with the secrets from Claude Code's credentials store when they are kept there.
 
 ## Configuration
 
@@ -582,13 +747,14 @@ Every variable is also read from `CLAUDE_PLUGIN_OPTION_<NAME>`; the bare name wi
 
 | Variable | Required | Meaning |
 | --- | --- | --- |
-| `VAULT_PATH` | for a local vault | Directory holding the vault. |
+| `VAULT_PATH` | for a local vault | Directory holding the vault. On a server, the folder holding every account's vault. |
 | `S3_ENDPOINT` | for an S3 vault | Endpoint URL, e.g. `https://minio.example.com`. |
 | `S3_ACCESS_KEY` | for an S3 vault | Access key. |
 | `S3_SECRET_KEY` | for an S3 vault | Secret key. |
 | `S3_BUCKET` | for an S3 vault | Bucket holding the vault. |
 | `S3_PREFIX` | no | Key prefix inside the bucket. |
 | `S3_REGION` | no | Region, default `us-east-1`. |
+| `VAULT_SERVER_URL` | for a vault server | The server a machine [signed in to](#sign-a-machine-in); the stdio server, the hooks and the commands work through it. Wins over `VAULT_PATH` and `S3_*`. |
 | `VAULT_CACHE_DIR` | no | Where the index, the model and the shared embedding process's socket live, default `~/.cache/notes-vault-mcp`. |
 | `VAULT_SCHEMA` | no | Local path to a schema file, overriding the one in the vault. |
 | `VAULT_SEMANTIC` | no | `on` (or `1`, `true`, `yes`) adds [search by meaning](#search-by-meaning); needs the `semantic` extra. |
@@ -598,64 +764,64 @@ Every variable is also read from `CLAUDE_PLUGIN_OPTION_<NAME>`; the bare name wi
 | `VAULT_EMBED_MAX_TOKENS` | no | Tokens of a section the model reads, default `256`. Prose sections stay under it; a section of links or code is cut there instead of padding its batch to 512. |
 | `VAULT_STOP_HOOK` | no | `off` disables the stop hook. |
 
-### HTTP and authentication
+### Server
 
-`serve --transport http` takes `--host` (default `127.0.0.1`), `--port` (default `8765`) and `--auth`
-(`bearer`, the default, `oidc`, `builtin`, `forwarded` or `hosted`). In hosted mode `--plans on` checks
-each account's plan; the default `off` ignores plans.
+`serve --transport http` takes `--host` (default `127.0.0.1`), `--port` (default `8765`) and `--plans`
+(`off`, the default, or `on`).
 
-| Variable | Mode | Meaning |
-| --- | --- | --- |
-| `VAULT_TOKEN` | bearer | Required. The static token every request must carry. |
-| `VAULT_PUBLIC_URL` | oidc, builtin, forwarded, hosted | Required. The address clients reach, path included when the server is not at the root. Must be `https://`, or `http://localhost` for a local trial. Optional in bearer mode, where it only widens the `Host` check. |
-| `VAULT_ALLOWED_HOSTS` | all | Extra `Host` header values the server answers on, space or comma separated. |
-| `VAULT_AUTH_DIR` | builtin, forwarded, hosted | Where `auth.sqlite` (the owner's password hash, the registered clients, the hashed tokens), `personal.sqlite` (the hashed WebDAV tokens) or `hosted.sqlite` (accounts, hashed keys and tokens, clients) lives. Default `~/.cache/notes-vault-mcp/auth`. |
-| `VAULT_OIDC_ISSUER` | oidc | Required. The provider's issuer URL. |
-| `VAULT_OIDC_AUDIENCE` | oidc | Required. The value the provider puts in `aud`; a token without it, or for another audience, is refused. |
-| `VAULT_OIDC_READ_GROUP` | oidc | Group granting `vault:read`. Default `vault`. |
-| `VAULT_OIDC_WRITE_GROUP` | oidc | Group granting `vault:read` and `vault:write`. Default `vault-writers`. |
-| `VAULT_OIDC_SCOPES` | oidc | Scopes the resource metadata advertises, space separated, so the client asks the provider for scopes it knows. Default `openid profile email groups`. |
-| `VAULT_IDENTITY_PUBLIC_KEY` | forwarded | Required. The proxy's PEM public key (RS256 or ES256), raw or base64 on one line. |
-| `VAULT_IDENTITY_ISSUER` | forwarded | Required. The `iss` in the proxy's tokens. |
-| `VAULT_IDENTITY_HEADER` | forwarded | The header carrying the token. Default `X-Forwarded-Identity`. |
-| `VAULT_IDENTITY_TYP` | forwarded | When set, the token's `typ` must match. |
-| `VAULT_IDENTITY_WRITE_CLAIMS` | forwarded | Entitlement names (in the token's `entitlements` list or `scope`) that grant `vault:read` and `vault:write`, space separated. Default `vault:write`. |
-| `VAULT_IDENTITY_READ_CLAIMS` | forwarded | Entitlement names that grant `vault:read` only. Default `vault:read`. A token with neither gets `403 insufficient_scope`. |
-| `VAULT_SUBJECT_PREFIX` | forwarded, hosted | Where the per-person vaults live under the bucket or folder: `<prefix>/<sub>/`. Default `users`. |
-| `VAULT_HOSTED_OIDC_ISSUER` | hosted | Required. The issuer URL of the provider people sign in with. |
-| `VAULT_HOSTED_OIDC_CLIENT_ID` | hosted | Required. This server's client id at that provider. |
-| `VAULT_HOSTED_OIDC_CLIENT_SECRET` | hosted | Required. This server's client secret at that provider. |
-| `VAULT_HOSTED_OIDC_SCOPES` | hosted | Scopes asked of the provider, space separated. Default `openid email profile`. |
-| `VAULT_PLAN_READ_ONLY_DAYS` | hosted | With `--plans on`, how many days a vault stays readable after its plan ends. Default `30`. |
-| `VAULT_BILLING_URL` | hosted | The billing service the `/account` checkout and portal links go to. |
-| `VAULT_BILLING_HANDOFF_SECRET` | hosted | 32 random bytes, base64url, shared with the billing service to sign those links. |
+| Variable | Meaning |
+| --- | --- |
+| `VAULT_PUBLIC_URL` | Required. The address clients reach, path included when the server is not at the root. Must be `https://`, or `http://localhost` for a local trial. |
+| `VAULT_HOSTED_MASTER_KEY` | Required. Base64 of 32 bytes that wraps every account's data key; `master-key generate` makes one. |
+| `VAULT_HOSTED_MASTER_KEY_PREVIOUS` | Older master keys, space or comma separated, still accepted while `master-key rewrap` moves the account keys off them. |
+| `VAULT_REGISTRATION` | `invite` (default): only invited addresses get an account. `open`: any verified email does. |
+| `VAULT_PASSKEYS` | `on` (default) or `off`. |
+| `VAULT_SMTP_HOST` | Turns on email links. Needs `VAULT_SMTP_FROM`. |
+| `VAULT_SMTP_FROM` | The sender, e.g. `Vault <vault@example.com>`. |
+| `VAULT_SMTP_USERNAME`, `VAULT_SMTP_PASSWORD` | The SMTP login. |
+| `VAULT_SMTP_SECURITY` | `starttls` (default), `ssl` or `none`. |
+| `VAULT_SMTP_PORT` | Default 587, 465 or 25 by `VAULT_SMTP_SECURITY`. |
+| `VAULT_GITHUB_CLIENT_ID`, `VAULT_GITHUB_CLIENT_SECRET` | Turn on GitHub sign-in. |
+| `VAULT_OIDC_ISSUER` | Turns on your identity provider. Needs `VAULT_OIDC_CLIENT_ID` and `VAULT_OIDC_CLIENT_SECRET`. |
+| `VAULT_OIDC_NAME` | The provider's button label. Default `your organisation`. |
+| `VAULT_OIDC_SCOPES` | Scopes asked of the provider, space separated. Default `openid email profile`. |
+| `VAULT_IDENTITY_PUBLIC_KEY` | Turns on a trusted proxy: its PEM public key (RS256 or ES256), raw or base64 on one line. Needs `VAULT_IDENTITY_ISSUER`. |
+| `VAULT_IDENTITY_ISSUER` | The `iss` in the proxy's tokens. |
+| `VAULT_IDENTITY_HEADER` | The header carrying the token. Default `X-Forwarded-Identity`. |
+| `VAULT_IDENTITY_TYP` | When set, the token's `typ` must match. |
+| `VAULT_IDENTITY_WRITE_CLAIMS` | Entitlements that grant read and write, space separated. Default `vault:write`. |
+| `VAULT_IDENTITY_READ_CLAIMS` | Entitlements that grant read only. Default `vault:read`. A token with neither is refused. |
+| `VAULT_IDENTITY_NAME` | The proxy's button label. Default `your company's sign-in`. |
+| `VAULT_ALLOWED_HOSTS` | Extra `Host` header values the server answers on, space or comma separated. |
+| `VAULT_AUTH_DIR` | Where `hosted.sqlite` lives. Default `~/.cache/notes-vault-mcp/auth`. |
+| `VAULT_SUBJECT_PREFIX` | Where the vaults live under the bucket or folder: `<prefix>/<account>/`. Default `users`. |
+| `VAULT_PLAN_READ_ONLY_DAYS` | With `--plans on`, how many days a vault stays readable after its plan ends. Default `30`. |
+| `VAULT_BILLING_URL` | The billing service the `/account` checkout and portal links go to. |
+| `VAULT_BILLING_HANDOFF_SECRET` | 32 random bytes, base64url, shared with the billing service to sign those links. |
+| `IMPORT_S3_ACCESS_KEY`, `IMPORT_S3_SECRET_KEY` | The keys `accounts import --from-s3-bucket` reads the old bucket with. |
 
 ## Deploy
 
-### Caddy with the built-in login
+Both examples run the server image with an S3 vault and one sign-in method filled in. For a folder,
+drop the `S3_*` settings, set `VAULT_PATH=/vault` and mount the folder there. The container image sets
+`VAULT_AUTH_DIR=/data/auth` and `VAULT_CACHE_DIR=/data/cache` and declares `/data` a volume; back up
+`/data/auth` together with the master key.
+
+### Caddy
+
+`deploy/caddy/` runs the server behind Caddy, which fetches the certificate for `VAULT_HOST`.
 
 ```sh
-cd deploy/caddy-builtin
+cd deploy/caddy
 cp .env.example .env
 $EDITOR .env
+echo "VAULT_HOSTED_MASTER_KEY=$(docker compose run --rm --no-deps vault master-key generate)" >> .env
 docker compose up -d
-docker compose exec vault notes-vault-mcp owner set-password
+docker compose exec vault notes-vault-mcp accounts invite you@example.com
 ```
 
-Then add the connector in claude.ai with the `/mcp` URL. `docker compose exec vault notes-vault-mcp
-tokens list` shows what is connected. `auth.sqlite` lives in the `vault-data` volume; back it up.
-
-### Caddy with OIDC
-
-```sh
-cd deploy/caddy-oidc
-cp .env.example .env
-$EDITOR .env
-docker compose up -d
-```
-
-Both `.env.example` files take an S3 vault; for a folder, drop the `S3_*` lines, set `VAULT_PATH=/vault`
-and bind-mount the folder there.
+`.env.example` lists the email, GitHub and identity-provider settings; fill in at least one. Then open
+`https://VAULT_HOST/account` to sign in, and add the connector in claude.ai with the `/mcp` URL.
 
 ### Kubernetes
 
@@ -664,63 +830,16 @@ Ingress and an example Secret.
 
 ```sh
 cp deploy/k8s/secret.example.yaml secret.yaml
-$EDITOR secret.yaml
+$EDITOR secret.yaml                              # add VAULT_HOSTED_MASTER_KEY from master-key generate
 $EDITOR deploy/k8s/ingress.yaml
 kubectl apply -f secret.yaml -f deploy/k8s/deployment.yaml -f deploy/k8s/service.yaml -f deploy/k8s/ingress.yaml
-kubectl exec -it deploy/notes-vault-mcp -- notes-vault-mcp owner set-password
+kubectl exec deploy/notes-vault-mcp -- notes-vault-mcp accounts invite you@example.com
 ```
 
-The Deployment runs `--auth builtin`; for OIDC change the `--auth` argument and fill the
-`VAULT_OIDC_*` keys in the Secret. The probes hit `/.well-known/oauth-protected-resource/mcp`, the one
-route that answers without a token in both modes; when `VAULT_PUBLIC_URL` carries a path, that path
-sits in the probe URL too. Fill in `ingressClassName` and point `secretName` at a TLS certificate.
-
-The container image sets `VAULT_AUTH_DIR=/data/auth` and `VAULT_CACHE_DIR=/data/cache` and declares
-`/data` a volume.
-
-### Behind a proxy: one vault per person
-
-`--auth forwarded` is for an organisation that already runs an OAuth authorization server in front
-of its MCP servers and forwards the caller's identity as a signed token in a header (the pattern
-Cloudflare Access uses with `Cf-Access-Jwt-Assertion`). The server verifies that token with the
-proxy's public key, takes the subject from it, and serves that subject's own vault: a prefix per
-person in one bucket (or a folder per person under `VAULT_PATH`), with its own index, its own
-`.vault/schema.yml` and a welcome note, all created on the first request. Granting access at the proxy
-is the whole onboarding.
-
-```sh
-notes-vault-mcp serve --transport http --host 0.0.0.0 --port 8765 --auth forwarded
-```
-
-The contract with the proxy: a request without a valid identity gets `403` with no
-`WWW-Authenticate` challenge, the transport is stateless with plain JSON responses so a buffering
-proxy needs no `Mcp-Session-Id`, the `Host` header is not checked, and `/up` answers `ok` without a
-token for readiness probes. The OAuth metadata routes are not served; the proxy owns them. The token
-needs `iss`, `aud` (the hostname of `VAULT_PUBLIC_URL`), `sub` and `exp`; `email` and `name` are used
-when present. Subjects that are not plain identifiers are hashed before they name a folder.
-`VAULT_CACHE_DIR` holds one index per subject; give it a volume.
-
-Each vault is also served over WebDAV at `VAULT_PUBLIC_URL/dav/`, for Obsidian's Remotely Save
-plugin, which cannot do OAuth. The person asks Claude to run `obsidian_access`; the server mints a
-personal token, returns it once and stores only its hash. Remotely Save gets the `/dav/` address, the
-email as username and that token as the password. Running `obsidian_access` again rotates the token.
-The proxy must pass `/dav/*` straight through, with the client's `Authorization` header and the WebDAV
-verbs and headers (`PROPFIND`, `MKCOL`, `MOVE`, `COPY`, `Depth`, `Destination`, `Overwrite`) intact.
-The welcome note written on the first request carries these instructions for the person.
-
-## Development
-
-```sh
-uv sync
-uv run pytest
-uv run ruff check .
-```
-
-The suite runs against a fixture vault under `tests/fixtures/vault/` and a moto-mocked S3 bucket; it
-never touches a real bucket. Search by meaning is tested with a fake model by default.
-`VAULT_TEST_SEMANTIC_MODEL=1 uv run --extra semantic pytest tests/test_semantic_model.py` runs it
-against the real model, which it downloads first; `VAULT_TEST_MODEL_CACHE` points it at a model folder
-already on disk.
+The Deployment runs one replica, as a sealed vault needs. The probes hit
+`/.well-known/oauth-protected-resource/mcp`, which answers without a token; when `VAULT_PUBLIC_URL`
+carries a path, that path sits in the probe URL too. Fill in `ingressClassName` and point `secretName`
+at a TLS certificate.
 
 ## License
 

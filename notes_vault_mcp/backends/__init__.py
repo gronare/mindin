@@ -7,6 +7,7 @@ from typing import Protocol, runtime_checkable
 SCHEMA_KEY = ".vault/schema.yml"
 MUST_NOT_EXIST = "*"
 NOTE_SUFFIXES = (".md", ".base")
+FETCH_WORKERS = 16
 
 
 class VaultError(Exception):

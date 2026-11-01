@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from notes_vault_mcp.backends import Entry, VaultBackend
+from notes_vault_mcp.backends import FETCH_WORKERS, Entry, VaultBackend
 from notes_vault_mcp.frontmatter import CLAIM_KEY, FrontmatterError, claim_fields, folder_of, parse, tags_of
 from notes_vault_mcp.stemming import algorithms_of, stemmed
 
@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from notes_vault_mcp.vectors import Vectors
 
 SYNC_THROTTLE_SECONDS = 20
-FETCH_WORKERS = 16
 BUSY_TIMEOUT_MS = 30000
 OPEN_RETRY_SECONDS = 60
 OPEN_RETRY_PAUSE = 0.5

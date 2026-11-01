@@ -7,7 +7,7 @@ import boto3
 from botocore.client import Config
 from botocore.exceptions import ClientError
 
-from notes_vault_mcp.backends import MUST_NOT_EXIST, Entry, NotFound, VersionConflict, is_vault_key
+from notes_vault_mcp.backends import FETCH_WORKERS, MUST_NOT_EXIST, Entry, NotFound, VersionConflict, is_vault_key
 
 MISSING_CODES = frozenset({"NoSuchKey", "404", "NotFound"})
 CONFLICT_CODES = frozenset({"PreconditionFailed", "412", "ConditionalRequestConflict", "409"})
@@ -39,7 +39,7 @@ class S3Backend:
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             region_name=region,
-            config=Config(signature_version="s3v4"),
+            config=Config(signature_version="s3v4", max_pool_connections=FETCH_WORKERS),
         )
 
     def _object_key(self, key: str) -> str:

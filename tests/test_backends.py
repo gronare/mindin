@@ -7,7 +7,7 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from notes_vault_mcp.backends import MUST_NOT_EXIST, NotFound, VersionConflict
+from notes_vault_mcp.backends import FETCH_WORKERS, MUST_NOT_EXIST, NotFound, VersionConflict
 from notes_vault_mcp.backends.local import LocalBackend
 from notes_vault_mcp.backends.s3 import S3Backend
 
@@ -66,6 +66,10 @@ def s3_backend():
         backend.put("Areas/orchard.md", "---\ntitle: orchard\n---\n\nbody\n")
         backend.put("Notes/skip.txt", "not a note")
         yield backend
+
+
+def test_the_s3_client_pools_a_connection_per_fetch_worker(s3_backend: S3Backend):
+    assert s3_backend.client.meta.config.max_pool_connections == FETCH_WORKERS
 
 
 def test_s3_list_only_returns_vault_keys(s3_backend: S3Backend):

@@ -5,6 +5,12 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 ## Unreleased
 
 ### What's new
+
+### Fixed
+
+## 0.10.0
+
+### What's new
 - The HTTP server always serves accounts, one vault each, with an /account page. This breaks older setups: the --auth flag and the bearer, builtin, oidc and forwarded modes are removed, and so are the owner and tokens commands.
 - Sign in with a passkey, an email link over SMTP, GitHub, your OpenID Connect provider or a trusted proxy's signed identity header. Each method is on when its settings are present, and an account can use several.
 - The provider settings are called VAULT_OIDC_ISSUER, VAULT_OIDC_CLIENT_ID, VAULT_OIDC_CLIENT_SECRET and VAULT_OIDC_SCOPES. This breaks older setups: the VAULT_HOSTED_OIDC_* names are not read.

@@ -168,7 +168,8 @@ def test_changed_languages_rebuild_the_index(vault: Vault):
     index = Index(path, vault.backend, ("sv",))
     try:
         assert index.meta("languages") == "sv"
-        assert index.all_notes() == []
+        for table in ("notes", "notes_fts", "shas", "links"):
+            assert index.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0, table
         index.sync()
         stemmed = index.db.execute("SELECT stemmed FROM notes_fts WHERE key = 'Areas/orchard.md'").fetchone()[0]
         assert "\n" not in stemmed

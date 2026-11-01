@@ -189,6 +189,9 @@ def _casefold(text: str | None) -> str | None:
     return text.casefold() if text else text
 
 
+NOTE_TABLES = ("notes", "notes_fts", "shas", "links")
+
+
 class Index:
     def __init__(
         self,
@@ -276,10 +279,11 @@ class Index:
     def _columns(self, table: str) -> set[str]:
         return {row["name"] for row in self.db.execute(f"PRAGMA table_info({table})")}
 
-    def _forget_notes(self) -> None:
-        self.db.execute("DELETE FROM notes")
-        self.db.execute("DELETE FROM notes_fts")
-        self.db.execute("DELETE FROM meta WHERE k = 'last_sync'")
+    def _forget_notes(self, db: sqlite3.Connection | None = None) -> None:
+        db = db or self.db
+        for table in NOTE_TABLES:
+            db.execute(f"DELETE FROM {table}")
+        db.execute("DELETE FROM meta WHERE k = 'last_sync'")
 
     def close(self) -> None:
         if self.vectors is not None:
@@ -453,9 +457,7 @@ class Index:
 
     def rebuild(self) -> int:
         with self._transaction() as db:
-            for table in ("notes", "notes_fts", "shas", "links"):
-                db.execute(f"DELETE FROM {table}")
-            db.execute("DELETE FROM meta WHERE k = 'last_sync'")
+            self._forget_notes(db)
             if self.vectors is not None:
                 self.vectors.forget(db)
         return self.sync(force=True)

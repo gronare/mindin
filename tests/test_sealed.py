@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import boto3
+import pytest
+from moto import mock_aws
+
+from notes_vault_mcp.backends import MUST_NOT_EXIST, NotFound, VaultError, VersionConflict
+from notes_vault_mcp.backends.local import LocalBackend
+from notes_vault_mcp.backends.s3 import S3Backend
+from notes_vault_mcp.backends.sealed import MAX_PATH_BYTES, SealedBackend, Unreadable
+from notes_vault_mcp.vault import SubjectVaults, open_vault
+
+BUCKET = "sealed-test"
+NOTE = "---\ntitle: Kvartalsplan\n---\n\nTopphemlig kvartalsplan.\n"
+
+
+def raw_files(root: Path) -> dict[str, bytes]:
+    return {path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+
+
+class Counting:
+    def __init__(self, inner: LocalBackend) -> None:
+        self.inner = inner
+        self.fetches = 0
+
+    def __getattr__(self, name: str):
+        return getattr(self.inner, name)
+
+    def get_bytes(self, key: str) -> tuple[bytes, str]:
+        self.fetches += 1
+        return self.inner.get_bytes(key)
+
+
+@pytest.fixture
+def sealed(tmp_path: Path) -> SealedBackend:
+    return SealedBackend(LocalBackend(tmp_path / "raw"), os.urandom(32))
+
+
+def test_contents_and_names_round_trip_and_leave_nothing_readable(sealed: SealedBackend, tmp_path: Path):
+    version = sealed.put("Projects/kvartalsplan.md", NOTE)
+    sealed.put_bytes("Bilagor/kvitto.png", bytes(range(256)))
+    text, read_version = sealed.get("Projects/kvartalsplan.md")
+    assert (text, read_version) == (NOTE, version)
+    assert sealed.get_bytes("Bilagor/kvitto.png")[0] == bytes(range(256))
+    raw = raw_files(tmp_path / "raw")
+    for secret in ("Projects", "kvartalsplan", "Bilagor", "kvitto", ".md", ".png"):
+        assert not any(secret in name for name in raw), secret
+    assert not any(b"Topphemlig" in blob or b"Kvartalsplan" in blob for blob in raw.values())
+
+
+def test_swapping_two_blobs_fails_to_decrypt(sealed: SealedBackend, tmp_path: Path):
+    sealed.put("a.md", "first")
+    sealed.put("b.md", "second")
+    a, b = (tmp_path / "raw" / sealed.object_key(key) for key in ("a.md", "b.md"))
+    first, second = a.read_bytes(), b.read_bytes()
+    a.write_bytes(second)
+    b.write_bytes(first)
+    with pytest.raises(Unreadable):
+        sealed.get("a.md")
+    with pytest.raises(Unreadable):
+        sealed.get("b.md")
+
+
+def test_another_vaults_key_reads_neither_names_nor_contents(sealed: SealedBackend, tmp_path: Path):
+    sealed.put("a.md", "mine")
+    stranger = SealedBackend(LocalBackend(tmp_path / "raw"), os.urandom(32))
+    assert stranger.list_all() == []
+    blob = (tmp_path / "raw" / sealed.object_key("a.md")).read_bytes()
+    stranger.inner.put_bytes(stranger.object_key("a.md"), blob)
+    with pytest.raises(Unreadable):
+        stranger.get("a.md")
+
+
+def test_listing_recovers_paths_sizes_and_etags_without_fetching(tmp_path: Path):
+    counting = Counting(LocalBackend(tmp_path / "raw"))
+    sealed = SealedBackend(counting, os.urandom(32))
+    version = sealed.put("Areas/orchard.md", NOTE)
+    sealed.put(".vault/schema.yml", "languages: [sv]\n")
+    sealed.put_bytes(".obsidian/app.json", b"{}")
+    sealed.mkdir("Empty/")
+    counting.fetches = 0
+    entries = {entry.key: entry for entry in sealed.list_all()}
+    assert set(entries) == {"Areas/orchard.md", ".vault/schema.yml", ".obsidian/app.json", "Empty/"}
+    assert entries["Areas/orchard.md"].version == version
+    assert entries["Areas/orchard.md"].size == len(NOTE.encode())
+    assert entries["Empty/"].is_dir and entries["Empty/"].size == 0
+    assert [entry.key for entry in sealed.list()] == [".vault/schema.yml", "Areas/orchard.md"]
+    assert [entry.key for entry in sealed.list_all("Areas")] == ["Areas/orchard.md"]
+    assert counting.fetches == 0
+
+
+def test_conditional_writes_still_conflict(sealed: SealedBackend):
+    version = sealed.put("a.md", "one", expected_version=MUST_NOT_EXIST)
+    with pytest.raises(VersionConflict):
+        sealed.put("a.md", "two", expected_version=MUST_NOT_EXIST)
+    sealed.put("a.md", "someone else")
+    with pytest.raises(VersionConflict):
+        sealed.put("a.md", "mine", expected_version=version)
+
+
+def test_move_reseals_under_the_new_path_and_delete_removes(sealed: SealedBackend):
+    sealed.put("Inbox/idea.md", "idea")
+    sealed.move("Inbox/idea.md", "Areas/idea.md")
+    assert sealed.get("Areas/idea.md")[0] == "idea"
+    assert [entry.key for entry in sealed.list_all()] == ["Areas/idea.md"]
+    sealed.delete("Areas/idea.md")
+    assert sealed.list_all() == []
+
+
+def test_a_long_path_fits_a_local_filename_and_an_overlong_one_is_refused(sealed: SealedBackend):
+    deep = "/".join(["mapp-med-ett-långt-namn"] * 18) + "/note.md"
+    assert len(deep.encode()) <= MAX_PATH_BYTES
+    sealed.put(deep, "deep")
+    assert sealed.get(deep)[0] == "deep"
+    assert all(len(segment) <= 255 for segment in sealed.object_key(deep).split("/"))
+    with pytest.raises(VaultError):
+        sealed.put("x" * (MAX_PATH_BYTES + 1) + ".md", "too long")
+
+
+def test_on_s3_keys_stay_under_the_limit_and_objects_carry_no_content_type():
+    with mock_aws():
+        client = boto3.client("s3", region_name="us-east-1")
+        client.create_bucket(Bucket=BUCKET)
+        inner = S3Backend("https://s3.amazonaws.com", "key", "secret", BUCKET, prefix="users/acc_0123456789abcdef")
+        sealed = SealedBackend(inner, os.urandom(32))
+        longest = "p" * (MAX_PATH_BYTES - 3) + ".md"
+        sealed.put(longest, NOTE)
+        sealed.put_bytes("Bilagor/bild.png", b"\x89PNG", "image/png")
+        listed = client.list_objects_v2(Bucket=BUCKET)["Contents"]
+        assert all(len(obj["Key"].encode()) <= 1024 for obj in listed)
+        for obj in listed:
+            head = client.head_object(Bucket=BUCKET, Key=obj["Key"])
+            assert head["ContentType"] == "application/octet-stream"
+            body = client.get_object(Bucket=BUCKET, Key=obj["Key"])["Body"].read()
+            assert b"Topphemlig" not in body and b"PNG" not in body
+        assert {entry.key for entry in sealed.list_all()} == {longest, "Bilagor/bild.png"}
+        assert sealed.get(longest)[0] == NOTE
+
+
+def test_storage_is_chosen_before_any_subject_vault_opens(storage: Path, tmp_path: Path):
+    vaults = SubjectVaults(cache=tmp_path / "cache")
+    vaults.for_subject("ann")
+    with pytest.raises(VaultError):
+        vaults.use_backends(vaults.plain_backend)
+    vaults.close()
+
+
+def test_a_missing_note_is_named_by_its_path_and_never_by_its_sealed_key(sealed: SealedBackend):
+    with pytest.raises(NotFound, match=r"^Projects/nowhere\.md$"):
+        sealed.get("Projects/nowhere.md")
+    with pytest.raises(NotFound, match=r"^Projects/nowhere\.md$"):
+        sealed.move("Projects/nowhere.md", "Projects/b.md")
+
+
+def test_a_local_vault_still_writes_plaintext(vault_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("VAULT_PATH", str(vault_dir))
+    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "cache"))
+    vault = open_vault()
+    vault.backend.put("Areas/plain.md", NOTE)
+    assert not getattr(vault.backend, "sealed", False)
+    assert (vault_dir / "Areas" / "plain.md").read_text(encoding="utf-8") == NOTE
+    vault.close()

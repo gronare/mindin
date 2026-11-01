@@ -21,6 +21,7 @@ from notes_vault_mcp.schema import Schema, deep_merge, default_schema_data, load
 SUBJECT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@-]{0,63}")
 IDLE_SECONDS = 1800.0
 Vectoring = Literal["off", "wait", "background"]
+BackendFactory = Callable[[str], tuple[VaultBackend, str]]
 
 
 class Vault:
@@ -147,6 +148,16 @@ class SubjectVaults:
         self._in_use: dict[str, int] = {}
         self._lock = threading.Lock()
         self._instruction_schema: Schema | None = None
+        self.backend_factory: BackendFactory = self.plain_backend
+
+    def plain_backend(self, subject: str) -> tuple[VaultBackend, str]:
+        return make_subject_backend(subject_key(subject), self.prefix)
+
+    def use_backends(self, factory: BackendFactory) -> None:
+        with self._lock:
+            if self._open or self.backend_factory != self.plain_backend:
+                raise VaultError("the storage of subject vaults is chosen once, before any vault opens")
+            self.backend_factory = factory
 
     def _current_subject(self) -> str:
         from mcp.server.auth.middleware.auth_context import get_access_token
@@ -168,7 +179,7 @@ class SubjectVaults:
     def using_subject(self, subject: str) -> Iterator[Vault]:
         key = subject_key(subject)
         with self._lock:
-            vault = self._touch(key)
+            vault = self._touch(subject)
             self._in_use[key] = self._in_use.get(key, 0) + 1
         try:
             yield vault
@@ -181,17 +192,18 @@ class SubjectVaults:
 
     def for_subject(self, subject: str) -> Vault:
         with self._lock:
-            return self._touch(subject_key(subject))
+            return self._touch(subject)
 
-    def _touch(self, key: str) -> Vault:
+    def _touch(self, subject: str) -> Vault:
         self._evict()
+        key = subject_key(subject)
         opened = self._open.get(key)
-        vault = opened[0] if opened else self._open_vault(key)
+        vault = opened[0] if opened else self._open_vault(subject)
         self._open[key] = (vault, self.clock())
         return vault
 
-    def _open_vault(self, key: str) -> Vault:
-        backend, identifier = make_subject_backend(key, self.prefix)
+    def _open_vault(self, subject: str) -> Vault:
+        backend, identifier = self.backend_factory(subject)
         if provision.is_empty(backend):
             provision.initialize(backend, schema_template=self.schema_template, welcome={"DAV_URL": self.dav_url})
         return Vault(

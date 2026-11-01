@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -11,7 +12,9 @@ import pytest
 from hosted_support import hosted_config, key_for_subject
 
 from notes_vault_mcp.auth.hosted import build_hosted_app
-from notes_vault_mcp.vault import SubjectVaults
+from notes_vault_mcp.backends import make_subject_backend
+from notes_vault_mcp.backends.sealed import SealedBackend
+from notes_vault_mcp.vault import SubjectVaults, subject_key
 
 PROPFIND_ALL = '<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:allprop/></D:propfind>'
 
@@ -26,6 +29,21 @@ async def dav_client(app: Any) -> AsyncIterator[httpx.AsyncClient]:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
             yield client
+
+
+@pytest.fixture(params=["plain", "sealed"])
+def vaults(request: pytest.FixtureRequest, storage: Path, tmp_path: Path) -> SubjectVaults:
+    opened = SubjectVaults(cache=tmp_path / "cache", prefix="users", dav_url="http://localhost/dav/")
+    if request.param == "sealed":
+        keys: dict[str, bytes] = {}
+
+        def sealed(subject: str) -> tuple[SealedBackend, str]:
+            inner, identifier = make_subject_backend(subject_key(subject), "users")
+            return SealedBackend(inner, keys.setdefault(subject, os.urandom(32))), identifier
+
+        opened.use_backends(sealed)
+    yield opened
+    opened.close()
 
 
 @pytest.fixture
@@ -102,7 +120,7 @@ async def test_propfind_on_a_missing_path_is_404(app: Any, secret: str):
 
 
 @pytest.mark.anyio
-async def test_put_get_and_overwrite(app: Any, secret: str, storage: Path):
+async def test_put_get_and_overwrite(app: Any, secret: str):
     async with dav_client(app) as client:
         created = await client.put("/dav/Areas/dav.md", content=b"# from obsidian\n", headers=basic(secret))
         assert created.status_code == 201
@@ -116,7 +134,24 @@ async def test_put_get_and_overwrite(app: Any, secret: str, storage: Path):
         assert again.status_code == 204
         head = await client.head("/dav/Areas/dav.md", headers=basic(secret))
         assert head.status_code == 200 and head.content == b""
-    assert (storage / "users" / "1042" / "Areas" / "dav.md").read_bytes() == b"# edited\n"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("vaults", ["plain"], indirect=True)
+async def test_a_plain_vault_stores_the_file_as_written(app: Any, secret: str, storage: Path):
+    async with dav_client(app) as client:
+        await client.put("/dav/Areas/dav.md", content=b"# from obsidian\n", headers=basic(secret))
+    assert (storage / "users" / "1042" / "Areas" / "dav.md").read_bytes() == b"# from obsidian\n"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("vaults", ["sealed"], indirect=True)
+async def test_a_sealed_vault_stores_no_file_under_its_name(app: Any, secret: str, storage: Path):
+    async with dav_client(app) as client:
+        await client.put("/dav/Areas/dav.md", content=b"# from obsidian\n", headers=basic(secret))
+    names = [path.relative_to(storage).as_posix() for path in storage.rglob("*")]
+    assert names and not any("Areas" in name or "dav" in name for name in names)
+    assert not any(b"obsidian" in path.read_bytes() for path in storage.rglob("*") if path.is_file())
 
 
 @pytest.mark.anyio

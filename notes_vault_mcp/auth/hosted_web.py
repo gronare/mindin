@@ -90,6 +90,9 @@ class Limits:
     def __init__(self) -> None:
         self.sign_in = Window(20, 60)
         self.callback = Window(20, 60)
+        self.device_start = Window(10, 60)
+        self.device_lookup = Window(5, 60)
+        self.token_misses = Window(30, 60)
 
 
 class Browser:
@@ -284,12 +287,14 @@ class Browser:
             else "<p>No keys yet.</p>"
         )
         mcp = esc(self.config.resource_url)
+        device = esc(f"{self.config.public_url.rstrip('/')}/device")
         body = f"""{notice}
 <dl><dt>Signed in as</dt><dd>{esc(account.email)}</dd></dl>
 <h2>Connect</h2>
 <ul>
 <li>claude.ai, Claude Desktop and mobile: add a custom connector with the URL <code>{mcp}</code>.</li>
 <li>Claude Code, Codex, Cursor: add <code>{mcp}</code> as a remote MCP server; each signs in here the first time.</li>
+<li>A machine over ssh: a tool that uses the device flow shows a short code; enter it at <code>{device}</code>.</li>
 <li>A client that only takes a header: make a key below and send <code>Authorization: Bearer &lt;key&gt;</code>.</li>
 <li>Obsidian's Remotely Save: WebDAV at <code>{esc(self.config.dav_url)}</code>, your email as the username
 and a key as the password.</li>

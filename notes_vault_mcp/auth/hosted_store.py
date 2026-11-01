@@ -96,6 +96,21 @@ CREATE TABLE IF NOT EXISTS tokens (
     expires_at INTEGER NOT NULL,
     revoked INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS devices (
+    device_hash TEXT PRIMARY KEY,
+    user_code TEXT NOT NULL UNIQUE,
+    client_id TEXT NOT NULL,
+    client_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    scopes TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    account_id TEXT,
+    granted TEXT,
+    interval INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    last_poll_at REAL
+);
 """
 
 
@@ -432,6 +447,46 @@ class HostedStore:
                 "UPDATE tokens SET revoked = 1 WHERE grant_id IN (SELECT grant_id FROM tokens WHERE token_hash = ?)",
                 (digest(token),),
             )
+
+    def save_device(self, device_code: str, user_code: str, record: dict[str, Any]) -> None:
+        with self.connect() as connection:
+            connection.execute("DELETE FROM devices WHERE expires_at < ?", (record["created_at"] - LOGIN_TTL,))
+            connection.execute(
+                "INSERT INTO devices(device_hash, user_code, client_id, client_name, name, scopes, interval,"
+                " created_at, expires_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    digest(device_code),
+                    user_code,
+                    record["client_id"],
+                    record["client_name"],
+                    record["name"],
+                    " ".join(record["scopes"]),
+                    record["interval"],
+                    record["created_at"],
+                    record["expires_at"],
+                ),
+            )
+
+    def device(self, device_code: str) -> sqlite3.Row | None:
+        with self.connect() as connection:
+            return connection.execute("SELECT * FROM devices WHERE device_hash = ?", (digest(device_code),)).fetchone()
+
+    def device_by_user_code(self, user_code: str) -> sqlite3.Row | None:
+        with self.connect() as connection:
+            return connection.execute(
+                "SELECT * FROM devices WHERE user_code = ? AND status = 'pending'", (user_code,)
+            ).fetchone()
+
+    def update_device(self, device_hash: str, **fields: Any) -> None:
+        assignments = ", ".join(f"{name} = ?" for name in fields)
+        with self.connect() as connection:
+            connection.execute(
+                f"UPDATE devices SET {assignments} WHERE device_hash = ?", (*fields.values(), device_hash)
+            )
+
+    def drop_device(self, device_hash: str) -> bool:
+        with self.connect() as connection:
+            return connection.execute("DELETE FROM devices WHERE device_hash = ?", (device_hash,)).rowcount > 0
 
 
 class ApiKeyCredentials:

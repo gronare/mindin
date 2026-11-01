@@ -138,12 +138,14 @@ def test_hosted_refuses_to_start_without_its_provider(monkeypatch: pytest.Monkey
 
 
 @pytest.mark.anyio
-async def test_the_metadata_advertises_cimd_and_dcr(site: Hosted):
+async def test_the_metadata_advertises_cimd_dcr_and_the_device_grant(site: Hosted):
     async with site.browser() as http:
         metadata = (await http.get("/.well-known/oauth-authorization-server")).json()
     assert metadata["client_id_metadata_document_supported"] is True, MCP_CIMD
     assert "none" in metadata["token_endpoint_auth_methods_supported"], CLAUDE_AUTH
     assert metadata["registration_endpoint"] == f"{BASE}/register"
+    assert metadata["device_authorization_endpoint"] == f"{BASE}/device_authorization"
+    assert "urn:ietf:params:oauth:grant-type:device_code" in metadata["grant_types_supported"]
     assert metadata["code_challenge_methods_supported"] == ["S256"], MCP_SECURITY
     assert metadata["authorization_response_iss_parameter_supported"] is True, MCP_AUTH
     assert metadata["issuer"] == BASE

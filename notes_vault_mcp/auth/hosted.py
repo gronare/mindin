@@ -50,6 +50,7 @@ from notes_vault_mcp.auth.cimd import (
     allowed_redirect,
     is_metadata_url,
 )
+from notes_vault_mcp.auth.device import DEVICE_GRANT, DeviceFlow
 from notes_vault_mcp.auth.hosted_store import Account, ApiKeyCredentials, HostedStore
 from notes_vault_mcp.auth.hosted_web import Browser, Limits, oauth_error
 from notes_vault_mcp.auth.prefix import URL, forwarded_lifespan
@@ -298,9 +299,10 @@ def metadata(config: AuthConfig) -> dict[str, Any]:
         "token_endpoint": f"{base}/token",
         "registration_endpoint": f"{base}/register",
         "revocation_endpoint": f"{base}/revoke",
+        "device_authorization_endpoint": f"{base}/device_authorization",
         "scopes_supported": list(SCOPES),
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "grant_types_supported": ["authorization_code", "refresh_token", DEVICE_GRANT],
         "token_endpoint_auth_methods_supported": client_methods,
         "revocation_endpoint_auth_methods_supported": client_methods,
         "code_challenge_methods_supported": ["S256"],
@@ -320,12 +322,15 @@ def limited(handler: Callable[[Request], Any]) -> ASGIApp:
 
 
 class TokenEndpoint:
-    def __init__(self, provider: HostedProvider) -> None:
+    def __init__(self, provider: HostedProvider, device: DeviceFlow) -> None:
         self.provider = provider
+        self.device = device
         self.handler = TokenHandler(provider, ClientAuthenticator(provider))
 
     async def handle(self, request: Request) -> Response:
         form = await request.form()
+        if form.get("grant_type") == DEVICE_GRANT:
+            return await self.device.token(request, form)
         resource = form.get("resource")
         if isinstance(resource, str) and not self.provider.for_this_resource(resource):
             return oauth_error(
@@ -353,6 +358,7 @@ def build_hosted_app(
     provider = HostedProvider(auth, store, ClientMetadataFetcher(metadata_transport, resolver))
     limits = Limits()
     browser = Browser(auth, store, Upstream(auth, upstream_transport), limits)
+    device = DeviceFlow(auth, store, provider.get_client, browser, limits, clock)
     credentials = ApiKeyCredentials(store)
     server = build_server(vaults, auth, personal_tokens=credentials, dav_url=auth.dav_url)
     mcp_app = server.streamable_http_app(host=host, transport_security=transport_security(auth))
@@ -389,7 +395,7 @@ def build_hosted_app(
         Route(prefix + "/authorize", endpoint=limited(AuthorizationHandler(provider).handle), methods=["GET", "POST"]),
         Route(
             prefix + "/token",
-            endpoint=cors(limited(TokenEndpoint(provider).handle), ["POST", "OPTIONS"]),
+            endpoint=cors(limited(TokenEndpoint(provider, device).handle), ["POST", "OPTIONS"]),
             methods=["POST", "OPTIONS"],
         ),
         Route(
@@ -402,6 +408,13 @@ def build_hosted_app(
             endpoint=cors(limited(RevocationHandler(provider, authenticator).handle), ["POST", "OPTIONS"]),
             methods=["POST", "OPTIONS"],
         ),
+        Route(
+            prefix + "/device_authorization",
+            endpoint=cors(limited(device.start), ["POST", "OPTIONS"]),
+            methods=["POST", "OPTIONS"],
+        ),
+        Route(prefix + "/device", endpoint=device.page, methods=["GET"]),
+        Route(prefix + "/device", endpoint=limited(device.submit), methods=["POST"]),
         Route(prefix + "/login", endpoint=browser.consent_page, methods=["GET"]),
         Route(prefix + "/login", endpoint=limited(consent_submit), methods=["POST"]),
         Route(prefix + "/oidc/callback", endpoint=browser.callback, methods=["GET"]),

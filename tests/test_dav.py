@@ -8,10 +8,9 @@ from typing import Any
 
 import httpx2 as httpx
 import pytest
-from forwarded_support import Proxy, config
+from hosted_support import hosted_config, key_for_subject
 
-from notes_vault_mcp.auth.http import build_http_app
-from notes_vault_mcp.auth.personal import PersonalTokens
+from notes_vault_mcp.auth.hosted import build_hosted_app
 from notes_vault_mcp.vault import SubjectVaults
 
 PROPFIND_ALL = '<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:allprop/></D:propfind>'
@@ -32,12 +31,12 @@ async def dav_client(app: Any) -> AsyncIterator[httpx.AsyncClient]:
 @pytest.fixture
 def secret(vaults: SubjectVaults, tmp_path: Path) -> str:
     vaults.for_subject("1042")
-    return PersonalTokens(tmp_path / "auth").issue("1042", "user1042@example.com")
+    return key_for_subject(tmp_path / "auth", "user1042@example.com", "1042")
 
 
 @pytest.fixture
-def app(vaults: SubjectVaults, proxy: Proxy, tmp_path: Path) -> Any:
-    return build_http_app(vaults, config(proxy, tmp_path))
+def app(vaults: SubjectVaults, tmp_path: Path) -> Any:
+    return build_hosted_app(vaults, hosted_config(tmp_path))
 
 
 def hrefs(response: httpx.Response) -> list[str]:
@@ -216,7 +215,7 @@ async def test_a_path_that_climbs_out_is_refused(app: Any, secret: str):
 async def test_a_second_subjects_token_sees_only_its_own_vault(
     app: Any, secret: str, vaults: SubjectVaults, tmp_path: Path
 ):
-    other = PersonalTokens(tmp_path / "auth").issue("1187", "other@example.com")
+    other = key_for_subject(tmp_path / "auth", "other@example.com", "1187")
     async with dav_client(app) as client:
         await client.put("/dav/Areas/mine.md", content=b"mine", headers=basic(secret))
         assert (await client.get("/dav/Areas/mine.md", headers=basic(other))).status_code == 404
@@ -226,8 +225,8 @@ async def test_a_second_subjects_token_sees_only_its_own_vault(
 
 
 @pytest.mark.anyio
-async def test_dav_under_a_public_url_path(vaults: SubjectVaults, proxy: Proxy, tmp_path: Path, secret: str):
-    app = build_http_app(vaults, config(proxy, tmp_path, public_url="http://localhost/vault"))
+async def test_dav_under_a_public_url_path(vaults: SubjectVaults, tmp_path: Path, secret: str):
+    app = build_hosted_app(vaults, hosted_config(tmp_path, public_url="http://localhost/vault"))
     async with dav_client(app) as client:
         response = await client.request("PROPFIND", "/vault/dav/", headers={"Depth": "1", **basic(secret)})
     assert response.status_code == 207

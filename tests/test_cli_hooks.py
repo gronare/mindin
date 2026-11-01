@@ -401,11 +401,11 @@ def test_changelog_prints_log_commits_and_notes(vault: Vault, tmp_path, capsys):
     assert "[[orchard-fresh]]" in out
 
 
-def test_serve_rejects_http_without_a_token(vault: Vault, monkeypatch: pytest.MonkeyPatch, capsys):
-    monkeypatch.delenv("VAULT_TOKEN", raising=False)
-    monkeypatch.delenv("CLAUDE_PLUGIN_OPTION_VAULT_TOKEN", raising=False)
+def test_serve_rejects_http_without_a_public_url(vault: Vault, monkeypatch: pytest.MonkeyPatch, capsys):
+    monkeypatch.delenv("VAULT_PUBLIC_URL", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_OPTION_VAULT_PUBLIC_URL", raising=False)
     assert main(["serve", "--transport", "http"]) == 2
-    assert "VAULT_TOKEN" in capsys.readouterr().err
+    assert "VAULT_PUBLIC_URL" in capsys.readouterr().err
 
 
 def test_repo_name_falls_back_to_the_directory(tmp_path):

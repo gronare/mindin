@@ -81,12 +81,12 @@ def test_a_handoff_secret_must_be_32_bytes_of_base64url(raw: str):
 def test_billing_settings_come_from_the_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv("VAULT_PUBLIC_URL", "https://vault.example.com")
     monkeypatch.setenv("VAULT_AUTH_DIR", str(tmp_path))
-    for name in ("VAULT_HOSTED_OIDC_ISSUER", "VAULT_HOSTED_OIDC_CLIENT_ID", "VAULT_HOSTED_OIDC_CLIENT_SECRET"):
-        monkeypatch.setenv(name, "https://id.example.com")
+    monkeypatch.setenv("VAULT_SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("VAULT_SMTP_FROM", "vault@example.com")
     monkeypatch.setenv("VAULT_BILLING_URL", BILLING + "/")
     monkeypatch.setenv("VAULT_BILLING_HANDOFF_SECRET", SECRET)
     monkeypatch.setenv("VAULT_PLAN_READ_ONLY_DAYS", "14")
-    config = auth_config("hosted")
+    config = auth_config()
     assert config.plans is False
     assert config.billing_url == BILLING
     assert config.plan_read_only_days == 14
@@ -118,8 +118,8 @@ async def test_a_handoff_signs_in_first(site: Hosted):
     site.invite("ann@example.com")
     async with site.browser() as http:
         first = await http.get("/account/billing/checkout")
-    assert first.status_code == 302
-    assert first.headers["location"].startswith("https://id.example.test/authorize?")
+    assert first.status_code == 303
+    assert first.headers["location"] == "/signin?next=%2Faccount%2Fbilling%2Fcheckout"
 
 
 @pytest.mark.anyio

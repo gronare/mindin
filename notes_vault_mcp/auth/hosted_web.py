@@ -3,7 +3,6 @@ from __future__ import annotations
 import hmac
 import html
 import logging
-import secrets
 import time
 from collections.abc import Callable
 from urllib.parse import quote, urlsplit
@@ -14,10 +13,9 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Re
 
 from notes_vault_mcp.auth import READ_SCOPE, WRITE_SCOPE, AuthConfig
 from notes_vault_mcp.auth.billing import HANDOFF_PATHS, Handoff, entitled, lapse_moment, plan_access
-from notes_vault_mcp.auth.builtin import PAGE, PAGE_HEADERS, stamp
 from notes_vault_mcp.auth.cimd import is_loopback, is_metadata_url
-from notes_vault_mcp.auth.hosted_store import LOGIN_TTL, SESSION_TTL, Account, HostedStore, digest, scope_label
-from notes_vault_mcp.auth.upstream import Upstream, UpstreamError
+from notes_vault_mcp.auth.hosted_store import SESSION_TTL, Account, HostedStore, scope_label
+from notes_vault_mcp.auth.pages import PAGE, PAGE_HEADERS, stamp
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +24,7 @@ LOGIN_COOKIE = "nvm_login"
 REQUEST_TTL = 900
 NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 EXTRA_STYLE = """
-input[type=text] { display: block; width: 100%; box-sizing: border-box; margin-top: .35rem;
+input[type=text], input[type=email] { display: block; width: 100%; box-sizing: border-box; margin-top: .35rem;
   padding: .55rem .6rem; font-size: 1rem; border: 1px solid #cbc8c0; border-radius: 6px; }
 fieldset label { font-family: inherit; }
 button.secondary { color: #1d1c1a; background: #fff; border: 1px solid #cbc8c0; margin-top: .5rem; }
@@ -101,7 +99,6 @@ class Browser:
         self,
         config: AuthConfig,
         store: HostedStore,
-        upstream: Upstream,
         limits: Limits,
         handoff: Handoff,
         clock: Callable[[], float] = time.time,
@@ -110,8 +107,8 @@ class Browser:
         self.handoff = handoff
         self.clock = clock
         self.store = store
-        self.upstream = upstream
         self.limits = limits
+        self.sections: list[Callable[[Account, str], str]] = []
         self.secure = config.public_url.startswith("https://")
         self.cookie_path = config.path_prefix or "/"
 
@@ -131,46 +128,19 @@ class Browser:
         return found
 
     async def start_sign_in(self, request: Request, return_to: str) -> Response:
-        if not self.limits.sign_in.allow(client_address(request)):
-            return page("Slow down", "Too many sign-ins from here. Try again in a minute.", status_code=429)
-        state, nonce, verifier, binding = (secrets.token_urlsafe(32) for _ in range(4))
-        try:
-            target = await self.upstream.authorization_url(state, nonce, verifier)
-        except UpstreamError as exc:
-            logger.warning("hosted sign-in: %s", exc)
-            return page("Sign-in is unavailable", "The identity provider cannot be reached.", status_code=502)
-        self.store.save_login(state, binding, nonce, verifier, return_to)
-        response = RedirectResponse(target, status_code=302, headers={"Cache-Control": "no-store"})
-        self.set_cookie(response, LOGIN_COOKIE, binding, LOGIN_TTL)
-        return response
+        return RedirectResponse(
+            self.local(f"/signin?next={quote(return_to, safe='')}"),
+            status_code=303,
+            headers={"Cache-Control": "no-store"},
+        )
 
     def set_cookie(self, response: Response, name: str, value: str, max_age: int) -> None:
         response.set_cookie(
             name, value, max_age=max_age, path=self.cookie_path, secure=self.secure, httponly=True, samesite="lax"
         )
 
-    async def callback(self, request: Request) -> Response:
-        params = request.query_params
-        state = params.get("state", "")
-        login = self.store.take_login(state) if state else None
-        binding = request.cookies.get(LOGIN_COOKIE, "")
-        if login is None or not binding or not hmac.compare_digest(login["binding_hash"], digest(binding)):
-            return page("Sign-in expired", "Start again from the page you came from.", status_code=400)
-        if params.get("error"):
-            return page("Sign-in cancelled", "The identity provider did not sign you in.", status_code=400)
-        if not self.limits.callback.allow(client_address(request)):
-            return page("Slow down", "Too many sign-ins from here. Try again in a minute.", status_code=429)
-        try:
-            identity = await self.upstream.identity(params.get("code", ""), login["verifier"], login["nonce"])
-        except UpstreamError as exc:
-            logger.warning("hosted sign-in: %s", exc)
-            return page("Sign-in failed", "The identity provider did not confirm the sign-in.", status_code=502)
-        account = self.store.sign_in(identity.sub, identity.email, identity.email_verified, identity.name)
-        if account is None:
-            return self.no_access(identity.email, verified=identity.email_verified)
-        if not account.active:
-            return self.no_access(account.email, suspended=True)
-        response = RedirectResponse(self.safe_return(login["return_to"]), status_code=303)
+    def start_session(self, request: Request, response: Response, account: Account) -> Response:
+        self.store.end_session(request.cookies.get(SESSION_COOKIE, ""))
         self.set_cookie(response, SESSION_COOKIE, self.store.create_session(account.id), SESSION_TTL)
         response.delete_cookie(LOGIN_COOKIE, path=self.cookie_path)
         return response
@@ -184,9 +154,11 @@ class Browser:
         if suspended:
             lead = f"The account for {email} is suspended. Ask the person who runs this vault."
         elif not verified:
-            lead = f"Your identity provider has not verified {email}. Verify it there, then sign in again."
+            lead = (
+                "This sign-in came without a verified email address, so it cannot open an account. Use another way in."
+            )
         else:
-            lead = f"{email} has no account on this vault. Ask the person who runs it to invite this address."
+            lead = f"{email or 'This sign-in'} has no account on this vault. Ask the person who runs it for an invite."
         return page("No access", lead, status_code=403)
 
     def csrf_ok(self, form_value: object, csrf: str) -> bool:
@@ -302,6 +274,7 @@ class Browser:
         body = f"""{notice}
 <dl><dt>Signed in as</dt><dd>{esc(account.email)}</dd></dl>
 {self.plan_section(account)}
+{"".join(section(account, csrf) for section in self.sections)}
 <h2>Connect</h2>
 <ul>
 <li>claude.ai, Claude Desktop and mobile: add a custom connector with the URL <code>{mcp}</code>.</li>

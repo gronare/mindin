@@ -9,69 +9,78 @@ from urllib.parse import urlsplit
 
 from notes_vault_mcp.config import ConfigError, cache_dir, env, private_dir
 
-AuthMode = Literal["bearer", "oidc", "builtin", "forwarded", "hosted"]
+Registration = Literal["invite", "open"]
+SmtpSecurity = Literal["starttls", "ssl", "none"]
 READ_SCOPE = "vault:read"
 WRITE_SCOPE = "vault:write"
 SCOPES = (READ_SCOPE, WRITE_SCOPE)
-DEFAULT_READ_GROUP = "vault"
-DEFAULT_WRITE_GROUP = "vault-writers"
-DEFAULT_IDP_SCOPES = ("openid", "profile", "email", "groups")
 DEFAULT_IDENTITY_HEADER = "X-Forwarded-Identity"
 DEFAULT_SUBJECT_PREFIX = "users"
-DEFAULT_HOSTED_SCOPES = ("openid", "email", "profile")
+DEFAULT_OIDC_SCOPES = ("openid", "email", "profile")
 DEFAULT_READ_ONLY_DAYS = 30
+SMTP_PORTS = {"starttls": 587, "ssl": 465, "none": 25}
 
 NO_PUBLIC_URL = (
-    "notes-vault-mcp: --auth {mode} needs VAULT_PUBLIC_URL, the https address clients reach this server on "
-    "(for example https://home-vault.example.com); there is no default and never a fallback."
+    "notes-vault-mcp: an HTTP server needs VAULT_PUBLIC_URL, the https address clients reach it on "
+    "(for example https://vault.example.com); there is no default and never a fallback."
 )
-NO_ISSUER = "notes-vault-mcp: --auth oidc needs VAULT_OIDC_ISSUER, the identity provider's issuer URL."
-NO_AUDIENCE = (
-    "notes-vault-mcp: --auth oidc needs VAULT_OIDC_AUDIENCE, the client id the provider puts in `aud`; "
-    "without it a token issued for any other application would be accepted."
-)
-NO_IDENTITY_KEY = (
-    "notes-vault-mcp: --auth forwarded needs VAULT_IDENTITY_PUBLIC_KEY, the PEM public key (raw, or base64 on one "
-    "line) the proxy signs its identity tokens with."
-)
-NO_IDENTITY_ISSUER = (
-    "notes-vault-mcp: --auth forwarded needs VAULT_IDENTITY_ISSUER, the `iss` the proxy puts in its identity tokens."
-)
-NO_HOSTED_SETTING = (
-    "notes-vault-mcp: --auth hosted needs {name}, {what}; register this server at the identity provider with the "
-    "redirect URI VAULT_PUBLIC_URL + /oidc/callback."
-)
-HOSTED_SETTINGS = (
-    ("VAULT_HOSTED_OIDC_ISSUER", "the issuer URL of the identity provider people sign in with"),
-    ("VAULT_HOSTED_OIDC_CLIENT_ID", "the client id this server has at that provider"),
-    ("VAULT_HOSTED_OIDC_CLIENT_SECRET", "the client secret this server has at that provider"),
+NO_SIGN_IN = (
+    "notes-vault-mcp: no way to sign in is configured. Set at least one of VAULT_SMTP_HOST (email links), "
+    "VAULT_GITHUB_CLIENT_ID (GitHub), VAULT_OIDC_ISSUER (an OpenID provider) or VAULT_IDENTITY_PUBLIC_KEY "
+    "(a trusted proxy); passkeys are added on the account page after a first sign-in."
 )
 BAD_IDENTITY_KEY = "notes-vault-mcp: VAULT_IDENTITY_PUBLIC_KEY is not a PEM public key: {reason}"
 
 
 @dataclass(frozen=True)
-class AuthConfig:
-    mode: AuthMode
-    public_url: str = ""
-    bearer_token: str = ""
-    issuer: str = ""
-    audience: str = ""
-    read_group: str = DEFAULT_READ_GROUP
-    write_group: str = DEFAULT_WRITE_GROUP
-    idp_scopes: tuple[str, ...] = DEFAULT_IDP_SCOPES
-    auth_dir: Path | None = None
-    identity_header: str = DEFAULT_IDENTITY_HEADER
-    identity_public_key: str = ""
-    identity_issuer: str = ""
-    identity_typ: str = ""
+class SmtpConfig:
+    host: str
+    sender: str
+    port: int = 587
+    security: SmtpSecurity = "starttls"
+    username: str = ""
+    password: str = field(default="", repr=False)
+
+
+@dataclass(frozen=True)
+class GithubConfig:
+    client_id: str
+    client_secret: str = field(repr=False)
+
+
+@dataclass(frozen=True)
+class OidcConfig:
+    issuer: str
+    client_id: str
+    client_secret: str = field(repr=False)
+    scopes: tuple[str, ...] = DEFAULT_OIDC_SCOPES
+    name: str = "your organisation"
+
+
+@dataclass(frozen=True)
+class ForwardedConfig:
+    public_key: str
+    issuer: str
+    header: str = DEFAULT_IDENTITY_HEADER
+    typ: str = ""
     write_claims: tuple[str, ...] = (WRITE_SCOPE,)
     read_claims: tuple[str, ...] = (READ_SCOPE,)
+    name: str = "your company's sign-in"
+
+
+@dataclass(frozen=True)
+class AuthConfig:
+    public_url: str = ""
+    issuer: str = ""
+    auth_dir: Path | None = None
     subject_prefix: str = DEFAULT_SUBJECT_PREFIX
     allowed_hosts: tuple[str, ...] = ()
-    upstream_issuer: str = ""
-    upstream_client_id: str = ""
-    upstream_client_secret: str = field(default="", repr=False)
-    upstream_scopes: tuple[str, ...] = DEFAULT_HOSTED_SCOPES
+    registration: Registration = "invite"
+    passkeys: bool = True
+    smtp: SmtpConfig | None = None
+    github: GithubConfig | None = None
+    oidc: OidcConfig | None = None
+    forwarded: ForwardedConfig | None = None
     plans: bool = False
     plan_read_only_days: int = DEFAULT_READ_ONLY_DAYS
     billing_url: str = ""
@@ -87,6 +96,11 @@ class AuthConfig:
         return urlsplit(url).hostname or ""
 
     @property
+    def public_origin(self) -> str:
+        parts = urlsplit(self.public_url)
+        return f"{parts.scheme}://{parts.netloc}"
+
+    @property
     def resource_url(self) -> str:
         return f"{self.public_url.rstrip('/')}/mcp"
 
@@ -95,14 +109,12 @@ class AuthConfig:
         return f"{self.public_url.rstrip('/')}/dav/"
 
     @property
-    def advertised_scopes(self) -> tuple[str, ...]:
-        if self.mode == "hosted":
-            return SCOPES
-        return self.idp_scopes if self.mode == "oidc" else (READ_SCOPE,)
+    def oidc_redirect_uri(self) -> str:
+        return f"{self.public_url.rstrip('/')}/oidc/callback"
 
     @property
-    def upstream_redirect_uri(self) -> str:
-        return f"{self.public_url.rstrip('/')}/oidc/callback"
+    def github_redirect_uri(self) -> str:
+        return f"{self.public_url.rstrip('/')}/signin/github/callback"
 
 
 def auth_dir() -> Path:
@@ -126,107 +138,120 @@ def public_key_pem(raw: str) -> str:
     return text
 
 
+def _text(name: str) -> str:
+    return (env(name) or "").strip()
+
+
 def _words(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
-    return tuple((env(name) or "").split()) or default
+    return tuple(_text(name).replace(",", " ").split()) or default
 
 
-def _allowed_hosts() -> tuple[str, ...]:
-    return tuple((env("VAULT_ALLOWED_HOSTS") or "").replace(",", " ").split())
+def _needs(name: str, because: str) -> str:
+    value = _text(name)
+    if not value:
+        raise ConfigError(f"notes-vault-mcp: {because} needs {name} as well")
+    return value
 
 
-def auth_config(mode: AuthMode) -> AuthConfig:
-    hosts = _allowed_hosts()
-    if mode == "bearer":
-        token = env("VAULT_TOKEN")
-        if not token:
-            raise ConfigError("notes-vault-mcp: --auth bearer needs VAULT_TOKEN set")
-        return AuthConfig(
-            mode="bearer",
-            public_url=(env("VAULT_PUBLIC_URL") or "").rstrip("/"),
-            bearer_token=token,
-            allowed_hosts=hosts,
-        )
-    public_url = (env("VAULT_PUBLIC_URL") or "").rstrip("/")
+def _choice(name: str, choices: tuple[str, ...], default: str) -> str:
+    value = _text(name).lower() or default
+    if value not in choices:
+        raise ConfigError(f"notes-vault-mcp: {name} must be one of {', '.join(choices)}")
+    return value
+
+
+def auth_config() -> AuthConfig:
+    public_url = _text("VAULT_PUBLIC_URL").rstrip("/")
     if not public_url.startswith("https://") and not public_url.startswith("http://localhost"):
-        raise ConfigError(NO_PUBLIC_URL.format(mode=mode))
-    if mode == "oidc":
-        issuer = (env("VAULT_OIDC_ISSUER") or "").rstrip("/")
-        if not issuer:
-            raise ConfigError(NO_ISSUER)
-        audience = (env("VAULT_OIDC_AUDIENCE") or "").strip()
-        if not audience:
-            raise ConfigError(NO_AUDIENCE)
-        return AuthConfig(
-            mode="oidc",
-            public_url=public_url,
-            issuer=issuer,
-            audience=audience,
-            read_group=env("VAULT_OIDC_READ_GROUP") or DEFAULT_READ_GROUP,
-            write_group=env("VAULT_OIDC_WRITE_GROUP") or DEFAULT_WRITE_GROUP,
-            idp_scopes=_words("VAULT_OIDC_SCOPES", DEFAULT_IDP_SCOPES),
-            allowed_hosts=hosts,
-        )
-    if mode == "forwarded":
-        raw_key = env("VAULT_IDENTITY_PUBLIC_KEY")
-        if not raw_key:
-            raise ConfigError(NO_IDENTITY_KEY)
-        issuer = env("VAULT_IDENTITY_ISSUER") or ""
-        if not issuer:
-            raise ConfigError(NO_IDENTITY_ISSUER)
-        return AuthConfig(
-            mode="forwarded",
-            public_url=public_url,
-            issuer=issuer,
-            auth_dir=auth_dir(),
-            identity_header=env("VAULT_IDENTITY_HEADER") or DEFAULT_IDENTITY_HEADER,
-            identity_public_key=public_key_pem(raw_key),
-            identity_issuer=issuer,
-            identity_typ=env("VAULT_IDENTITY_TYP") or "",
-            write_claims=_words("VAULT_IDENTITY_WRITE_CLAIMS", (WRITE_SCOPE,)),
-            read_claims=_words("VAULT_IDENTITY_READ_CLAIMS", (READ_SCOPE,)),
-            subject_prefix=(env("VAULT_SUBJECT_PREFIX") or DEFAULT_SUBJECT_PREFIX).strip("/"),
-            allowed_hosts=hosts,
-        )
-    if mode == "hosted":
-        return hosted_config(public_url, hosts)
-    return AuthConfig(
-        mode="builtin", public_url=public_url, issuer=public_url, auth_dir=auth_dir(), allowed_hosts=hosts
-    )
-
-
-def hosted_config(public_url: str, hosts: tuple[str, ...]) -> AuthConfig:
-    values = {}
-    for name, what in HOSTED_SETTINGS:
-        value = (env(name) or "").strip()
-        if not value:
-            raise ConfigError(NO_HOSTED_SETTING.format(name=name, what=what))
-        values[name] = value
-    return AuthConfig(
-        mode="hosted",
+        raise ConfigError(NO_PUBLIC_URL)
+    config = AuthConfig(
         public_url=public_url,
         issuer=public_url,
         auth_dir=auth_dir(),
-        subject_prefix=(env("VAULT_SUBJECT_PREFIX") or DEFAULT_SUBJECT_PREFIX).strip("/"),
-        allowed_hosts=hosts,
-        upstream_issuer=values["VAULT_HOSTED_OIDC_ISSUER"].rstrip("/"),
-        upstream_client_id=values["VAULT_HOSTED_OIDC_CLIENT_ID"],
-        upstream_client_secret=values["VAULT_HOSTED_OIDC_CLIENT_SECRET"],
-        upstream_scopes=_words("VAULT_HOSTED_OIDC_SCOPES", DEFAULT_HOSTED_SCOPES),
+        subject_prefix=(_text("VAULT_SUBJECT_PREFIX") or DEFAULT_SUBJECT_PREFIX).strip("/"),
+        allowed_hosts=_words("VAULT_ALLOWED_HOSTS", ()),
+        registration="open" if _choice("VAULT_REGISTRATION", ("invite", "open"), "invite") == "open" else "invite",
+        passkeys=_choice("VAULT_PASSKEYS", ("on", "off"), "on") == "on",
+        smtp=smtp_config(),
+        github=github_config(),
+        oidc=oidc_config(),
+        forwarded=forwarded_config(),
         plan_read_only_days=_read_only_days(),
-        billing_url=(env("VAULT_BILLING_URL") or "").rstrip("/"),
+        billing_url=_text("VAULT_BILLING_URL").rstrip("/"),
         billing_handoff_secret=_handoff_secret(),
+    )
+    if not (config.smtp or config.github or config.oidc or config.forwarded):
+        raise ConfigError(NO_SIGN_IN)
+    return config
+
+
+def smtp_config() -> SmtpConfig | None:
+    host = _text("VAULT_SMTP_HOST")
+    if not host:
+        return None
+    security = _choice("VAULT_SMTP_SECURITY", ("starttls", "ssl", "none"), "starttls")
+    port = _text("VAULT_SMTP_PORT") or str(SMTP_PORTS[security])
+    if not port.isdigit():
+        raise ConfigError("notes-vault-mcp: VAULT_SMTP_PORT must be a port number")
+    username, password = _text("VAULT_SMTP_USERNAME"), env("VAULT_SMTP_PASSWORD") or ""
+    if security == "none" and (username or password):
+        raise ConfigError(
+            "notes-vault-mcp: VAULT_SMTP_SECURITY=none would send the SMTP password in the clear; use starttls or ssl"
+        )
+    return SmtpConfig(
+        host=host,
+        sender=_needs("VAULT_SMTP_FROM", "VAULT_SMTP_HOST"),
+        port=int(port),
+        security="ssl" if security == "ssl" else "none" if security == "none" else "starttls",
+        username=username,
+        password=password,
+    )
+
+
+def github_config() -> GithubConfig | None:
+    client_id = _text("VAULT_GITHUB_CLIENT_ID")
+    if not client_id:
+        return None
+    return GithubConfig(client_id=client_id, client_secret=_needs("VAULT_GITHUB_CLIENT_SECRET", "GitHub sign-in"))
+
+
+def oidc_config() -> OidcConfig | None:
+    issuer = _text("VAULT_OIDC_ISSUER").rstrip("/")
+    if not issuer:
+        return None
+    return OidcConfig(
+        issuer=issuer,
+        client_id=_needs("VAULT_OIDC_CLIENT_ID", "VAULT_OIDC_ISSUER"),
+        client_secret=_needs("VAULT_OIDC_CLIENT_SECRET", "VAULT_OIDC_ISSUER"),
+        scopes=_words("VAULT_OIDC_SCOPES", DEFAULT_OIDC_SCOPES),
+        name=_text("VAULT_OIDC_NAME") or OidcConfig.name,
+    )
+
+
+def forwarded_config() -> ForwardedConfig | None:
+    raw_key = _text("VAULT_IDENTITY_PUBLIC_KEY")
+    if not raw_key:
+        return None
+    return ForwardedConfig(
+        public_key=public_key_pem(raw_key),
+        issuer=_needs("VAULT_IDENTITY_ISSUER", "VAULT_IDENTITY_PUBLIC_KEY"),
+        header=_text("VAULT_IDENTITY_HEADER") or DEFAULT_IDENTITY_HEADER,
+        typ=_text("VAULT_IDENTITY_TYP"),
+        write_claims=_words("VAULT_IDENTITY_WRITE_CLAIMS", (WRITE_SCOPE,)),
+        read_claims=_words("VAULT_IDENTITY_READ_CLAIMS", (READ_SCOPE,)),
+        name=_text("VAULT_IDENTITY_NAME") or ForwardedConfig.name,
     )
 
 
 def _read_only_days() -> int:
-    raw = (env("VAULT_PLAN_READ_ONLY_DAYS") or str(DEFAULT_READ_ONLY_DAYS)).strip()
+    raw = _text("VAULT_PLAN_READ_ONLY_DAYS") or str(DEFAULT_READ_ONLY_DAYS)
     if not raw.isdigit():
         raise ConfigError("notes-vault-mcp: VAULT_PLAN_READ_ONLY_DAYS must be a whole number of days")
     return int(raw)
 
 
 def _handoff_secret() -> str:
-    raw = (env("VAULT_BILLING_HANDOFF_SECRET") or "").strip()
+    raw = _text("VAULT_BILLING_HANDOFF_SECRET")
     if raw:
         from notes_vault_mcp.auth.billing import handoff_secret
 

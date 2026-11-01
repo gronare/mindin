@@ -23,6 +23,7 @@ dependencies = [
     "pyjwt[crypto]>=2.15",
     "httpx2>=2.5",
     "snowballstemmer>=3.1.1",
+    "webauthn>=3.0.1",
 ]
 
 [project.optional-dependencies]

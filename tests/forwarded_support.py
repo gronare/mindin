@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import time
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-
-from notes_vault_mcp.auth import AuthConfig
 
 ISSUER = "mcp-proxy.example.com"
 HOST = "localhost"
@@ -60,15 +57,3 @@ class Proxy:
         now = int(time.time())
         payload = {"iss": ISSUER, "aud": HOST, "sub": "1", "entitlements": ["vault:write"], "exp": now + 60, "typ": TYP}
         return jwt.encode(payload, self.stranger, algorithm="RS256")
-
-
-def config(proxy: Proxy, tmp_path: Path, **overrides: Any) -> AuthConfig:
-    settings: dict[str, Any] = {
-        "public_url": "http://localhost",
-        "identity_public_key": proxy.pem,
-        "identity_issuer": ISSUER,
-        "identity_typ": TYP,
-        "auth_dir": tmp_path / "auth",
-    }
-    settings.update(overrides)
-    return AuthConfig(mode="forwarded", **settings)

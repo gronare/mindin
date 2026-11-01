@@ -6,13 +6,13 @@ from typing import Any
 
 import boto3
 import pytest
-from forwarded_support import Proxy, config
+from hosted_support import hosted_config, key_for_subject
 from moto import mock_aws
 from test_notes import VALID
 
 from notes_vault_mcp import notes
-from notes_vault_mcp.auth.http import build_http_app
-from notes_vault_mcp.auth.personal import PersonalTokens
+from notes_vault_mcp.auth.hosted import build_hosted_app
+from notes_vault_mcp.auth.hosted_store import ApiKeyCredentials, HostedStore
 from notes_vault_mcp.backends import NotFound, VaultError, make_subject_backend
 from notes_vault_mcp.backends.local import LocalBackend
 from notes_vault_mcp.backends.s3 import S3Backend
@@ -259,10 +259,10 @@ def _basic(secret: str) -> dict[str, str]:
 
 
 @pytest.fixture
-def dav(vaults: SubjectVaults, proxy: Proxy, tmp_path: Path) -> tuple[Any, str]:
+def dav(vaults: SubjectVaults, tmp_path: Path) -> tuple[Any, str]:
     vaults.for_subject("1042")
-    secret = PersonalTokens(tmp_path / "auth").issue("1042")
-    return build_http_app(vaults, config(proxy, tmp_path)), secret
+    secret = key_for_subject(tmp_path / "auth", "user1042@example.com", "1042")
+    return build_hosted_app(vaults, hosted_config(tmp_path)), secret
 
 
 async def _call(app: Any, method: str, path: str, headers: dict[str, str], body: bytes = b"") -> tuple[int, bytes]:
@@ -342,7 +342,7 @@ async def test_dav_basic_auth_with_an_undecodable_credential_is_refused(dav: tup
 @pytest.mark.anyio
 async def test_dav_ignores_the_username_and_trusts_only_the_token(dav: tuple[Any, str], tmp_path: Path):
     app, secret = dav
-    other = PersonalTokens(tmp_path / "auth").issue("1187")
+    other = key_for_subject(tmp_path / "auth", "other@example.com", "1187")
     headers = {"Authorization": "Basic " + base64.b64encode(f"user1042@example.com:{other}".encode()).decode()}
     async with app.router.lifespan_context(app):
         await _call(app, "PUT", "/dav/Areas/mine.md", _basic(secret), b"mine")
@@ -365,8 +365,8 @@ async def test_dav_put_refuses_a_declared_body_over_the_cap(dav: tuple[Any, str]
 async def test_dav_put_refuses_a_streamed_body_over_the_cap(vaults: SubjectVaults, tmp_path: Path, storage: Path):
     from notes_vault_mcp.dav import WebDav
 
-    tokens = PersonalTokens(tmp_path / "auth")
-    secret = tokens.issue("1042")
+    secret = key_for_subject(tmp_path / "auth", "user1042@example.com", "1042")
+    tokens = ApiKeyCredentials(HostedStore(tmp_path / "auth"))
     status, _ = await _call(WebDav(vaults, tokens, max_body=10), "PUT", "/dav/Areas/x.md", _basic(secret), b"x" * 11)
     assert status == 413
     assert not (storage / "users" / "1042" / "Areas" / "x.md").exists()

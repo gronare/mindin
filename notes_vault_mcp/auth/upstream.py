@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 import httpx2
 import jwt
 
-from notes_vault_mcp.auth import AuthConfig
+from notes_vault_mcp.auth import OidcConfig
 
 ALGORITHMS = ["RS256", "ES256", "EdDSA"]
 DISCOVERY_SECONDS = 3600.0
@@ -39,11 +39,13 @@ def pkce_challenge(verifier: str) -> str:
 class Upstream:
     def __init__(
         self,
-        config: AuthConfig,
+        config: OidcConfig,
+        redirect_uri: str,
         transport: httpx2.AsyncBaseTransport | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.config = config
+        self.redirect_uri = redirect_uri
         self.transport = transport
         self.clock = clock
         self._discovery: tuple[dict[str, Any], float] | None = None
@@ -55,9 +57,9 @@ class Upstream:
     async def discovery(self) -> dict[str, Any]:
         if self._discovery is not None and self._discovery[1] > self.clock():
             return self._discovery[0]
-        url = f"{self.config.upstream_issuer}/.well-known/openid-configuration"
+        url = f"{self.config.issuer}/.well-known/openid-configuration"
         document = await self._get_json(url)
-        if document.get("issuer", "").rstrip("/") != self.config.upstream_issuer:
+        if document.get("issuer", "").rstrip("/") != self.config.issuer:
             raise UpstreamError("the identity provider's discovery names another issuer")
         for key in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
             if not isinstance(document.get(key), str):
@@ -70,9 +72,9 @@ class Upstream:
         query = urlencode(
             {
                 "response_type": "code",
-                "client_id": self.config.upstream_client_id,
-                "redirect_uri": self.config.upstream_redirect_uri,
-                "scope": " ".join(self.config.upstream_scopes),
+                "client_id": self.config.client_id,
+                "redirect_uri": self.redirect_uri,
+                "scope": " ".join(self.config.scopes),
                 "state": state,
                 "nonce": nonce,
                 "code_challenge": pkce_challenge(verifier),
@@ -91,10 +93,10 @@ class Upstream:
                     data={
                         "grant_type": "authorization_code",
                         "code": code,
-                        "redirect_uri": self.config.upstream_redirect_uri,
+                        "redirect_uri": self.redirect_uri,
                         "code_verifier": verifier,
                     },
-                    auth=(self.config.upstream_client_id, self.config.upstream_client_secret),
+                    auth=(self.config.client_id, self.config.client_secret),
                     headers={"Accept": "application/json"},
                 )
             except httpx2.HTTPError as exc:
@@ -126,8 +128,8 @@ class Upstream:
                 id_token,
                 key=key,
                 algorithms=ALGORITHMS,
-                audience=self.config.upstream_client_id,
-                issuer=[self.config.upstream_issuer, self.config.upstream_issuer + "/"],
+                audience=self.config.client_id,
+                issuer=[self.config.issuer, self.config.issuer + "/"],
                 options={"require": ["exp", "iat", "sub", "iss", "aud"]},
             )
         except jwt.PyJWTError as exc:

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from notes_vault_mcp.auth import READ_SCOPE, WRITE_SCOPE, auth_dir
-from notes_vault_mcp.auth.builtin import stamp
+from notes_vault_mcp.auth.pages import stamp
 from notes_vault_mcp.config import private_dir
 
 AccountStatus = Literal["invited", "active", "suspended"]
@@ -69,14 +69,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     csrf TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS logins (
-    state TEXT PRIMARY KEY,
-    binding_hash TEXT NOT NULL,
-    nonce TEXT NOT NULL,
-    verifier TEXT NOT NULL,
-    return_to TEXT NOT NULL,
-    created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS clients (
     client_id TEXT PRIMARY KEY,
@@ -299,28 +291,6 @@ class HostedStore:
             )
         return self.account(account.id)
 
-    def sign_in(self, sub: str, email: str, email_verified: bool, name: str) -> Account | None:
-        with self.connect() as connection:
-            row = connection.execute("SELECT * FROM accounts WHERE sub = ?", (sub,)).fetchone()
-            if row is None:
-                if not email_verified:
-                    return None
-                row = connection.execute(
-                    "SELECT * FROM accounts WHERE email = ? AND sub IS NULL", (email.lower(),)
-                ).fetchone()
-                if row is None:
-                    return None
-                connection.execute("UPDATE accounts SET sub = ? WHERE id = ?", (sub, row["id"]))
-                if row["status"] == "invited":
-                    connection.execute(
-                        "UPDATE accounts SET status = 'active', status_source = 'invite', status_changed_at = ?"
-                        " WHERE id = ?",
-                        (now(), row["id"]),
-                    )
-            connection.execute("UPDATE accounts SET last_login_at = ?, name = ? WHERE id = ?", (now(), name, row["id"]))
-            row = connection.execute("SELECT * FROM accounts WHERE id = ?", (row["id"],)).fetchone()
-        return account_of(row)
-
     def create_key(self, account_id: str, name: str, scopes: list[str], purpose: str = "api") -> str:
         key_id = secrets.token_hex(KEY_ID_LENGTH // 2)
         key = f"{KEY_PREFIX}{key_id}{secrets.token_urlsafe(32)}"
@@ -408,24 +378,6 @@ class HostedStore:
     def end_session(self, session: str) -> None:
         with self.connect() as connection:
             connection.execute("DELETE FROM sessions WHERE id_hash = ?", (digest(session),))
-
-    def save_login(self, state: str, binding: str, nonce: str, verifier: str, return_to: str) -> None:
-        moment = now()
-        with self.connect() as connection:
-            connection.execute("DELETE FROM logins WHERE created_at < ?", (moment - LOGIN_TTL,))
-            connection.execute(
-                "INSERT INTO logins(state, binding_hash, nonce, verifier, return_to, created_at)"
-                " VALUES(?, ?, ?, ?, ?, ?)",
-                (state, digest(binding), nonce, verifier, return_to, moment),
-            )
-
-    def take_login(self, state: str) -> sqlite3.Row | None:
-        with self.connect() as connection:
-            row = connection.execute(
-                "SELECT * FROM logins WHERE state = ? AND created_at >= ?", (state, now() - LOGIN_TTL)
-            ).fetchone()
-            connection.execute("DELETE FROM logins WHERE state = ?", (state,))
-        return row
 
     def save_client(self, client_id: str, client_name: str, document: str) -> None:
         moment = now()

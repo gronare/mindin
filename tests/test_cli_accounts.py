@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from notes_vault_mcp.auth.hosted_store import HostedStore
+from notes_vault_mcp.auth.identities import Identities, Proof
 from notes_vault_mcp.cli import main
 
 
@@ -32,7 +33,7 @@ def test_list_shows_status_keys_and_last_sign_in(store: HostedStore, capsys: pyt
     assert main(["accounts", "list"]) == 0
     assert "no accounts yet" in capsys.readouterr().out
     store.invite("ann@example.com")
-    account = store.sign_in("sub-ann", "ann@example.com", True, "Ann")
+    account = Identities(store).sign_in(Proof("oidc", "sub-ann", ("ann@example.com",), name="Ann"), "invite").account
     store.create_key(account.id, "laptop", ["vault:read"])
     store.invite("bo@example.com")
     assert main(["accounts", "list"]) == 0
@@ -60,7 +61,7 @@ def test_an_unknown_account_is_an_error(store: HostedStore, capsys: pytest.Captu
 def test_a_suspended_invite_is_not_activated_by_signing_in(store: HostedStore):
     store.invite("ann@example.com")
     store.set_status("ann@example.com", "suspended")
-    account = store.sign_in("sub-ann", "ann@example.com", True, "Ann")
+    account = Identities(store).sign_in(Proof("oidc", "sub-ann", ("ann@example.com",)), "invite").account
     assert account is not None and account.status == "suspended"
 
 

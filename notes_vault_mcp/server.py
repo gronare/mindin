@@ -7,13 +7,13 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from notes_vault_mcp import notes, provision
 from notes_vault_mcp.auth import AuthConfig
-from notes_vault_mcp.auth.personal import DavCredentials
 from notes_vault_mcp.auth.scopes import ScopeError, require_write
 from notes_vault_mcp.backends import VaultError
+from notes_vault_mcp.dav import DavCredentials
 from notes_vault_mcp.frontmatter import FrontmatterError
 from notes_vault_mcp.schema import instructions
 from notes_vault_mcp.search import QueryError, render, search
-from notes_vault_mcp.vault import SingleVault, Vault, VaultResolver, open_vault
+from notes_vault_mcp.vault import SingleVault, SubjectVaults, Vault, VaultResolver, open_vault
 
 VERSION = "0.9.2"
 
@@ -39,16 +39,11 @@ MEANING_DESCRIPTION = (
 
 def build_server(
     vaults: Vault | VaultResolver,
-    auth: AuthConfig | None = None,
     personal_tokens: DavCredentials | None = None,
     dav_url: str = "",
 ) -> MCPServer:
-    from notes_vault_mcp.auth.http import server_auth_kwargs
-
     resolver: VaultResolver = SingleVault(vaults) if isinstance(vaults, Vault) else vaults
-    server = MCPServer(
-        "vault", instructions=instructions(resolver.instruction_schema), version=VERSION, **server_auth_kwargs(auth)
-    )
+    server = MCPServer("vault", instructions=instructions(resolver.instruction_schema), version=VERSION)
 
     def run(action: Callable[[Vault], str], force: bool = False, write: bool = False) -> str:
         try:
@@ -301,12 +296,12 @@ def run_stdio(vault: Vault) -> None:
     build_server(vault).run("stdio")
 
 
-def run_http(vaults: Vault | VaultResolver, host: str, port: int, auth: AuthConfig) -> None:
+def run_http(vaults: SubjectVaults, host: str, port: int, auth: AuthConfig) -> None:
     import uvicorn
 
-    from notes_vault_mcp.auth.http import build_http_app
+    from notes_vault_mcp.auth.hosted import build_hosted_app
 
-    uvicorn.run(build_http_app(vaults, auth, host), host=host, port=port, log_level="info")
+    uvicorn.run(build_hosted_app(vaults, auth, host), host=host, port=port, log_level="info")
 
 
 def create_server() -> MCPServer:

@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 from mcp.client import Client
 
-from notes_vault_mcp.auth.http import BearerToken
 from notes_vault_mcp.server import build_server
 from notes_vault_mcp.vault import Vault
 
@@ -103,48 +102,6 @@ async def test_context_and_lint_return_text(vault: Vault):
         findings = await text_of(client, "lint", {})
     assert "## open tasks" in context
     assert "## stale_active" in findings
-
-
-async def _collect(app, headers: list[tuple[bytes, bytes]]) -> int:
-    sent: list[dict] = []
-
-    async def send(message: dict) -> None:
-        sent.append(message)
-
-    async def receive() -> dict:
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    await app({"type": "http", "headers": headers, "path": "/mcp", "method": "POST"}, receive, send)
-    return sent[0]["status"]
-
-
-class _Unreached:
-    def __init__(self) -> None:
-        self.called = False
-
-    async def __call__(self, scope, receive, send) -> None:
-        self.called = True
-        await send({"type": "http.response.start", "status": 200, "headers": []})
-        await send({"type": "http.response.body", "body": b"ok"})
-
-
-@pytest.mark.anyio
-async def test_http_rejects_a_request_without_the_token():
-    inner = _Unreached()
-    assert await _collect(BearerToken(inner, "s3cret"), []) == 401
-    assert inner.called is False
-
-
-@pytest.mark.anyio
-async def test_http_rejects_the_wrong_token():
-    assert await _collect(BearerToken(_Unreached(), "s3cret"), [(b"authorization", b"Bearer nope")]) == 401
-
-
-@pytest.mark.anyio
-async def test_http_passes_the_right_token_through():
-    inner = _Unreached()
-    assert await _collect(BearerToken(inner, "s3cret"), [(b"authorization", b"Bearer s3cret")]) == 200
-    assert inner.called is True
 
 
 @pytest.mark.anyio

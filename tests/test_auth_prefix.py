@@ -1,108 +1,55 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
-from test_auth_oidc import NOTE, Idp, oidc_app, session
+from hosted_support import Hosted, hosted, query
 
-from notes_vault_mcp.auth import AuthConfig
-from notes_vault_mcp.auth.http import build_http_app
-from notes_vault_mcp.vault import Vault
+from notes_vault_mcp.vault import SubjectVaults
 
 PUBLIC_URL = "http://localhost/home-vault"
-MCP_PATH = "/home-vault/mcp"
-METADATA_PATH = "/.well-known/oauth-protected-resource/home-vault/mcp"
-AUTHORIZATION_SERVER_METADATA_PATH = "/.well-known/oauth-authorization-server/home-vault"
 
 
 @pytest.fixture
-def idp() -> Idp:
-    return Idp()
-
-
-def builtin_app(vault: Vault, auth_dir: Path) -> Any:
-    config = AuthConfig(mode="builtin", public_url=PUBLIC_URL, issuer=PUBLIC_URL, auth_dir=auth_dir)
-    return build_http_app(vault, config)
+async def site(vaults: SubjectVaults, tmp_path: Path):
+    async with hosted(vaults, tmp_path, public_url=PUBLIC_URL, issuer=PUBLIC_URL) as running:
+        yield running
 
 
 @pytest.mark.anyio
-async def test_the_protected_resource_metadata_sits_at_the_root_well_known_path(vault: Vault, idp: Idp, monkeypatch):
-    app = oidc_app(vault, idp, monkeypatch, public_url=PUBLIC_URL)
-    async with session(app, "", MCP_PATH) as opened:
-        response = await opened.client.get(METADATA_PATH)
-    assert response.status_code == 200
-    assert response.json()["resource"] == "http://localhost/home-vault/mcp"
+async def test_the_metadata_sits_at_the_root_well_known_paths(site: Hosted):
+    async with site.browser() as http:
+        resource = await http.get("/.well-known/oauth-protected-resource/home-vault/mcp")
+        server = await http.get("/.well-known/oauth-authorization-server/home-vault")
+    assert resource.json()["resource"] == f"{PUBLIC_URL}/mcp"
+    assert resource.json()["authorization_servers"] == [PUBLIC_URL]
+    assert server.json()["authorization_endpoint"] == f"{PUBLIC_URL}/authorize"
 
 
 @pytest.mark.anyio
-async def test_the_metadata_names_the_issuer_and_the_provider_scopes(vault: Vault, idp: Idp, monkeypatch):
-    app = oidc_app(vault, idp, monkeypatch, public_url=PUBLIC_URL)
-    async with session(app, "", MCP_PATH) as opened:
-        metadata = (await opened.client.get(METADATA_PATH)).json()
-    assert metadata["authorization_servers"] == [idp.issuer]
-    assert metadata["scopes_supported"] == ["openid", "profile", "email", "groups"]
-
-
-@pytest.mark.anyio
-async def test_the_builtin_login_still_advertises_the_vault_read_scope(vault: Vault, tmp_path: Path):
-    app = builtin_app(vault, tmp_path / "auth")
-    async with session(app, "", MCP_PATH) as opened:
-        metadata = (await opened.client.get(METADATA_PATH)).json()
-    assert metadata["authorization_servers"] == [PUBLIC_URL]
-    assert metadata["scopes_supported"] == ["vault:read"]
-
-
-@pytest.mark.anyio
-async def test_the_mcp_endpoint_under_the_prefix_refuses_a_request_without_a_token(vault: Vault, idp: Idp, monkeypatch):
-    app = oidc_app(vault, idp, monkeypatch, public_url=PUBLIC_URL)
-    async with session(app, "", MCP_PATH) as opened:
-        response = await opened.post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+async def test_the_mcp_endpoint_under_the_prefix_asks_for_a_token(site: Hosted):
+    async with site.browser() as http:
+        response = await http.post("/home-vault/mcp", json={})
+        outside = await http.post("/mcp", json={})
     assert response.status_code == 401
-    assert f'resource_metadata="http://localhost{METADATA_PATH}"' in response.headers["www-authenticate"]
+    assert "/.well-known/oauth-protected-resource/home-vault/mcp" in response.headers["www-authenticate"]
+    assert outside.status_code == 404
 
 
 @pytest.mark.anyio
-async def test_a_read_token_reaches_the_tools_under_the_prefix(vault: Vault, idp: Idp, monkeypatch):
-    app = oidc_app(vault, idp, monkeypatch, public_url=PUBLIC_URL)
-    async with session(app, idp.token(groups=["vault"]), MCP_PATH) as opened:
-        await opened.initialize()
-        listing = await opened.call(2, "tools/list", {})
-    assert "search" in {tool["name"] for tool in listing["result"]["tools"]}
-
-
-@pytest.mark.anyio
-async def test_a_write_token_writes_through_the_prefix(vault: Vault, idp: Idp, monkeypatch):
-    app = oidc_app(vault, idp, monkeypatch, public_url=PUBLIC_URL)
-    async with session(app, idp.token(groups=["vault-writers"]), MCP_PATH) as opened:
-        await opened.initialize()
-        result = await opened.tool("write_file", {"path": "Areas/prefix.md", "content": NOTE})
-    assert not result.get("isError")
-
-
-@pytest.mark.anyio
-async def test_nothing_answers_outside_the_prefix(vault: Vault, idp: Idp, monkeypatch):
-    app = oidc_app(vault, idp, monkeypatch, public_url=PUBLIC_URL)
-    async with session(app, "", MCP_PATH) as opened:
-        response = await opened.client.get("/mcp")
-    assert response.status_code == 404
-
-
-@pytest.mark.anyio
-async def test_the_builtin_login_publishes_its_metadata_at_the_root_well_known_path(vault: Vault, tmp_path: Path):
-    app = builtin_app(vault, tmp_path / "auth")
-    async with session(app, "", MCP_PATH) as opened:
-        response = await opened.client.get(AUTHORIZATION_SERVER_METADATA_PATH)
-    assert response.status_code == 200
-    metadata = response.json()
-    assert metadata["issuer"] == PUBLIC_URL
-    assert metadata["authorization_endpoint"] == f"{PUBLIC_URL}/authorize"
-    assert metadata["token_endpoint"] == f"{PUBLIC_URL}/token"
-
-
-@pytest.mark.anyio
-async def test_an_external_provider_publishes_no_authorization_server_metadata(vault: Vault, idp: Idp, monkeypatch):
-    app = oidc_app(vault, idp, monkeypatch, public_url=PUBLIC_URL)
-    async with session(app, "", MCP_PATH) as opened:
-        response = await opened.client.get(AUTHORIZATION_SERVER_METADATA_PATH)
-    assert response.status_code == 404
+async def test_signing_in_stays_under_the_prefix(site: Hosted):
+    site.invite("ann@example.com")
+    async with site.browser() as http:
+        first = await http.get("/home-vault/account")
+        page = await http.get(first.headers["location"])
+        email = await http.post("/home-vault/signin/email", data={"email": "ann@example.com", "next": "/account"})
+        token = query(site.smtp.last_link("ann@example.com"))["token"]
+        landed = await http.post("/home-vault/signin/email/confirm", data={"token": token})
+        account = await http.get(landed.headers["location"])
+    assert first.headers["location"] == "/home-vault/signin?next=%2Fhome-vault%2Faccount"
+    assert 'action="/home-vault/signin/email"' in page.text
+    assert email.status_code == 200
+    assert site.smtp.last_link("ann@example.com").startswith(f"{PUBLIC_URL}/signin/email/confirm?token=")
+    assert landed.headers["location"] == "/home-vault/account", "a next outside the prefix falls back to the account"
+    assert account.status_code == 200
+    assert "Path=/home-vault" in landed.headers["set-cookie"]

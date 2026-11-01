@@ -84,13 +84,6 @@
           "format": "filepath"
         },
         {
-          "name": "VAULT_TOKEN",
-          "description": "Bearer token required by the streamable HTTP transport",
-          "isRequired": false,
-          "isSecret": true,
-          "format": "string"
-        },
-        {
           "name": "VAULT_STOP_HOOK",
           "description": "Set to off to disable the stop hook",
           "isRequired": false,

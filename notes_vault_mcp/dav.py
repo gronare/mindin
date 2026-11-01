@@ -6,6 +6,7 @@ import mimetypes
 import posixpath
 from datetime import UTC, datetime
 from email.utils import format_datetime
+from typing import Protocol
 from urllib.parse import quote, unquote, urlsplit
 from xml.sax.saxutils import escape
 
@@ -13,7 +14,6 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from notes_vault_mcp.auth.personal import DavCredentials
 from notes_vault_mcp.backends import Entry, NotFound, VaultBackend
 from notes_vault_mcp.vault import SubjectVaults
 
@@ -21,6 +21,12 @@ ALLOW = "OPTIONS, PROPFIND, GET, HEAD, PUT, DELETE, MKCOL, MOVE, COPY"
 READING_METHODS = frozenset({"OPTIONS", "PROPFIND", "GET", "HEAD"})
 XML = "application/xml; charset=utf-8"
 MAX_BODY_BYTES = 32 * 1024 * 1024
+
+
+class DavCredentials(Protocol):
+    def issue(self, subject: str, label: str = "") -> str: ...
+
+    def lookup(self, secret: str) -> tuple[str, bool] | None: ...
 
 
 class BodyTooLarge(Exception):

@@ -37,18 +37,18 @@ perl -pi -e 's/^VERSION = "[^"]*"/VERSION = "'"$version"'"/' notes_vault_mcp/ser
 perl -pi -e 's/"version": "[^"]*"/"version": "'"$version"'"/' server.json
 perl -0pi -e 's/(\[\[package\]\]\nname = "notes-vault-mcp"\nversion = )"[^"]*"/$1"'"$version"'"/' uv.lock
 perl -pi -e 's/^(# \{"configured": true, "version": )"[^"]*"/$1"'"$version"'"/; s#(\Q'"$image"'\E):v[0-9][0-9.]*-semantic#$1:'"$tag"'-semantic#' README.md
-perl -pi -e 's#(\Q'"$image"'\E):v[0-9][0-9.]*$#$1:'"$tag"'#' deploy/k8s/deployment.yaml deploy/caddy-builtin/docker-compose.yml deploy/caddy-oidc/docker-compose.yml
+perl -pi -e 's#(\Q'"$image"'\E):v[0-9][0-9.]*$#$1:'"$tag"'#' deploy/k8s/deployment.yaml deploy/caddy/docker-compose.yml
 
 expect pyproject.toml "version = \"$version\"" 1
 expect notes_vault_mcp/server.py "VERSION = \"$version\"" 1
 expect server.json "\"version\": \"$version\"" 2
 expect README.md "\"version\": \"$version\"" 2
 expect README.md "$image:$tag-semantic" 1
-for file in deploy/k8s/deployment.yaml deploy/caddy-builtin/docker-compose.yml deploy/caddy-oidc/docker-compose.yml; do expect "$file" "$image:$tag" 1; done
+for file in deploy/k8s/deployment.yaml deploy/caddy/docker-compose.yml; do expect "$file" "$image:$tag" 1; done
 grep -A1 '^name = "notes-vault-mcp"$' uv.lock | grep -q "^version = \"$version\"$" || fail "uv.lock still names another notes-vault-mcp version"
 uv lock --check --quiet || fail "uv.lock does not agree with pyproject.toml"
 
-files="CHANGES.md pyproject.toml uv.lock notes_vault_mcp/server.py server.json README.md deploy/k8s/deployment.yaml deploy/caddy-builtin/docker-compose.yml deploy/caddy-oidc/docker-compose.yml"
+files="CHANGES.md pyproject.toml uv.lock notes_vault_mcp/server.py server.json README.md deploy/k8s/deployment.yaml deploy/caddy/docker-compose.yml"
 # shellcheck disable=SC2086
 git add $files
 [ -z "$(git status --porcelain --untracked-files=all | grep -v '^M  ' || true)" ] || fail "the bump changed files outside $files"

@@ -20,9 +20,7 @@ from hosted_support import (
     text_of,
 )
 
-from notes_vault_mcp.auth import auth_config
 from notes_vault_mcp.auth.hosted_store import UNUSED_CLIENT_TTL
-from notes_vault_mcp.config import ConfigError
 from notes_vault_mcp.vault import SubjectVaults
 
 MCP_CIMD = "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration"
@@ -103,37 +101,6 @@ async def connect(site: Hosted, http: httpx2.AsyncClient, client_id: str, redire
     return response.json()
 
 
-# --- configuration ------------------------------------------------------------------------------------------
-
-
-def test_hosted_reads_its_provider_from_the_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    monkeypatch.setenv("VAULT_PUBLIC_URL", "https://vault.example.com/")
-    monkeypatch.setenv("VAULT_AUTH_DIR", str(tmp_path))
-    monkeypatch.setenv("VAULT_HOSTED_OIDC_ISSUER", "https://id.example.com/")
-    monkeypatch.setenv("VAULT_HOSTED_OIDC_CLIENT_ID", "vault")
-    monkeypatch.setenv("VAULT_HOSTED_OIDC_CLIENT_SECRET", "s3cret")
-    config = auth_config("hosted")
-    assert config.mode == "hosted"
-    assert config.issuer == "https://vault.example.com"
-    assert config.upstream_issuer == "https://id.example.com"
-    assert config.upstream_redirect_uri == "https://vault.example.com/oidc/callback"
-    assert config.upstream_scopes == ("openid", "email", "profile")
-    assert "s3cret" not in repr(config)
-
-
-@pytest.mark.parametrize(
-    "missing", ["VAULT_HOSTED_OIDC_ISSUER", "VAULT_HOSTED_OIDC_CLIENT_ID", "VAULT_HOSTED_OIDC_CLIENT_SECRET"]
-)
-def test_hosted_refuses_to_start_without_its_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, missing: str):
-    monkeypatch.setenv("VAULT_PUBLIC_URL", "https://vault.example.com")
-    monkeypatch.setenv("VAULT_AUTH_DIR", str(tmp_path))
-    for name in ("VAULT_HOSTED_OIDC_ISSUER", "VAULT_HOSTED_OIDC_CLIENT_ID", "VAULT_HOSTED_OIDC_CLIENT_SECRET"):
-        monkeypatch.setenv(name, "x")
-    monkeypatch.delenv(missing)
-    with pytest.raises(ConfigError, match=missing):
-        auth_config("hosted")
-
-
 # --- discovery ----------------------------------------------------------------------------------------------
 
 
@@ -172,10 +139,14 @@ async def test_an_invited_address_signs_in_and_becomes_active(site: Hosted):
     site.invite("Ann@Example.com")
     async with site.browser() as http:
         first = await http.get("/account")
-        assert first.headers["location"].startswith(f"{IDP}/authorize?")
-        params = query(first.headers["location"])
+        assert first.headers["location"] == "/signin?next=%2Faccount"
+        chooser = await http.get(first.headers["location"])
+        assert "Continue with Pocket ID" in chooser.text
+        started = await http.get("/signin/oidc", params={"next": "/account"})
+        assert started.headers["location"].startswith(f"{IDP}/authorize?")
+        params = query(started.headers["location"])
         assert params["nonce"] and params["state"] and params["code_challenge"]
-        state, code = site.idp.approve(first.headers["location"], "sub-ann", "ann@example.com")
+        state, code = site.idp.approve(started.headers["location"], "sub-ann", "ann@example.com")
         landed = await http.get("/oidc/callback", params={"state": state, "code": code})
         assert landed.status_code == 303
         assert landed.headers["location"] == "/account"
@@ -183,9 +154,10 @@ async def test_an_invited_address_signs_in_and_becomes_active(site: Hosted):
     assert page.status_code == 200
     assert "ann@example.com" in page.text
     assert f"{BASE}/mcp" in page.text
-    assert "<script" not in page.text
+    assert "<script>" not in page.text, "scripts load from this server, never inline"
     account = site.store.account("ann@example.com")
-    assert account is not None and account.status == "active" and account.sub == "sub-ann"
+    assert account is not None and account.status == "active" and account.sub
+    assert site.identities.account_for("oidc", "sub-ann") == account
 
 
 @pytest.mark.anyio
@@ -203,7 +175,7 @@ async def test_an_unverified_email_does_not_claim_an_invite(site: Hosted):
     async with site.browser() as http:
         refused = await site.sign_in(http, "ann@example.com", verified=False)
     assert refused.status_code == 403
-    assert "not verified" in refused.text
+    assert "without a verified email" in refused.text
     account = site.store.account("ann@example.com")
     assert account is not None and account.sub is None and account.status == "invited"
 
@@ -212,7 +184,7 @@ async def test_an_unverified_email_does_not_claim_an_invite(site: Hosted):
 async def test_a_callback_without_the_browser_that_started_it_is_refused(site: Hosted):
     site.invite("ann@example.com")
     async with site.browser() as starter, site.browser() as attacker:
-        first = await starter.get("/account")
+        first = await starter.get("/signin/oidc", params={"next": "/account"})
         state, code = site.idp.approve(first.headers["location"], "sub-ann", "ann@example.com")
         refused = await attacker.get("/oidc/callback", params={"state": state, "code": code})
         replayed = await starter.get("/oidc/callback", params={"state": state, "code": code})
@@ -234,7 +206,7 @@ async def test_a_suspended_account_cannot_sign_in(site: Hosted):
 @pytest.mark.anyio
 async def test_sign_in_is_rate_limited_per_address(site: Hosted):
     async with site.browser() as http:
-        answers = [(await http.get("/account")).status_code for _ in range(21)]
+        answers = [(await http.get("/signin/oidc")).status_code for _ in range(21)]
     assert answers[:20] == [302] * 20
     assert answers[20] == 429
 
@@ -254,7 +226,7 @@ async def test_a_dcr_client_connects_and_reaches_its_own_vault(site: Hosted, sto
             http, tokens["access_token"], "write_file", {"path": "Areas/a.md", "content": NOTE_BODY}
         )
     assert not written.get("isError"), text_of(written)
-    assert (storage / "users" / "sub-ann" / "Areas" / "a.md").exists()
+    assert (storage / "users" / site.sub_of("ann@example.com") / "Areas" / "a.md").exists()
 
 
 @pytest.mark.anyio
@@ -580,7 +552,7 @@ async def test_two_accounts_never_see_each_others_notes_or_index(site: Hosted, s
     assert "Areas/secret.md" not in text_of(listing)
     assert missing.get("isError")
     assert dav.status_code == 404
-    assert not (storage / "users" / "sub-bo" / "Areas" / "secret.md").exists()
+    assert not (storage / "users" / site.sub_of("bo@example.com") / "Areas" / "secret.md").exists()
     indexes = sorted(path.name for path in (tmp_path / "cache").glob("*.sqlite"))
     assert len(indexes) == 2, indexes
 

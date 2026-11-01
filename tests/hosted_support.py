@@ -16,10 +16,12 @@ import httpx2
 import jwt
 from cimd_support import MetadataHost
 from forwarded_support import _keys
+from login_support import GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, FakeGithub, FakeSmtp
 
-from notes_vault_mcp.auth import AuthConfig
+from notes_vault_mcp.auth import AuthConfig, GithubConfig, OidcConfig, SmtpConfig
 from notes_vault_mcp.auth.hosted import build_hosted_app
 from notes_vault_mcp.auth.hosted_store import HostedStore
+from notes_vault_mcp.auth.identities import Identities
 
 BASE = "http://localhost"
 IDP = "https://id.example.test"
@@ -127,12 +129,14 @@ def hosted_config(tmp_path: Path, **overrides: Any) -> AuthConfig:
         "public_url": BASE,
         "issuer": BASE,
         "auth_dir": tmp_path / "auth",
-        "upstream_issuer": IDP,
-        "upstream_client_id": CLIENT_ID,
-        "upstream_client_secret": CLIENT_SECRET,
+        "oidc": OidcConfig(issuer=IDP, client_id=CLIENT_ID, client_secret=CLIENT_SECRET, name="Pocket ID"),
+        "smtp": SmtpConfig(
+            host="smtp.example.test", sender="vault@example.test", username="mailer", password="smtp-password"
+        ),
+        "github": GithubConfig(client_id=GITHUB_CLIENT_ID, client_secret=GITHUB_CLIENT_SECRET),
     }
     settings.update(overrides)
-    return AuthConfig(mode="hosted", **settings)
+    return AuthConfig(**settings)
 
 
 class Clock:
@@ -158,6 +162,8 @@ class Hosted:
     idp: FakeIdentityProvider
     metadata: MetadataHost
     clock: Clock
+    github: FakeGithub
+    smtp: FakeSmtp
 
     @property
     def store(self) -> HostedStore:
@@ -170,9 +176,21 @@ class Hosted:
         self, http: httpx2.AsyncClient, email: str, sub: str = "", path: str = "/account", verified: bool = True
     ) -> httpx2.Response:
         first = await http.get(path)
-        assert first.status_code == 302, first.text
-        state, code = self.idp.approve(first.headers["location"], sub or f"sub-{email.split('@')[0]}", email, verified)
+        assert first.status_code == 303, first.text
+        assert first.headers["location"].startswith("/signin?next="), first.headers["location"]
+        start = await http.get("/signin/oidc", params={"next": query(first.headers["location"])["next"]})
+        assert start.status_code == 302, start.text
+        state, code = self.idp.approve(start.headers["location"], sub or f"sub-{email.split('@')[0]}", email, verified)
         return await http.get("/oidc/callback", params={"state": state, "code": code})
+
+    @property
+    def identities(self) -> Identities:
+        return Identities(self.store)
+
+    def sub_of(self, email: str) -> str:
+        account = self.store.account(email)
+        assert account is not None and account.sub
+        return account.sub
 
     def invite(self, email: str) -> None:
         self.store.invite(email)
@@ -196,17 +214,29 @@ async def hosted(vaults: Any, tmp_path: Path, **overrides: Any) -> AsyncIterator
     idp = FakeIdentityProvider()
     metadata = MetadataHost()
     clock = Clock()
+    github = FakeGithub()
+    smtp = FakeSmtp()
     config = hosted_config(tmp_path, **overrides)
     app = build_hosted_app(
         vaults,
         config,
-        upstream_transport=idp.transport(),
+        oidc_transport=idp.transport(),
+        github_transport=github.transport(),
+        smtp_factory=smtp.factory,
         metadata_transport=metadata.transport(),
         resolver=metadata.resolve,
         clock=clock,
     )
     async with app.router.lifespan_context(app):
-        yield Hosted(app=app, config=config, idp=idp, metadata=metadata, clock=clock)
+        yield Hosted(app=app, config=config, idp=idp, metadata=metadata, clock=clock, github=github, smtp=smtp)
+
+
+def key_for_subject(auth_dir: Path, email: str, sub: str, write: bool = True) -> str:
+    store = HostedStore(auth_dir)
+    account, _ = store.invite(email)
+    with store.connect() as connection:
+        connection.execute("UPDATE accounts SET status = 'active', sub = ? WHERE id = ?", (sub, account.id))
+    return store.create_key(account.id, "dav", ["vault:read", "vault:write"] if write else ["vault:read"])
 
 
 def csrf_of(page: str) -> str:

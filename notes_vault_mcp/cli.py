@@ -16,7 +16,7 @@ from notes_vault_mcp.embedding import keep_warm
 from notes_vault_mcp.schema import CLAIM_KEY
 from notes_vault_mcp.search import render, search
 from notes_vault_mcp.server import run_http, run_stdio
-from notes_vault_mcp.vault import Vault, open_vault
+from notes_vault_mcp.vault import SubjectVaults, Vault, open_vault
 
 template = provision.template
 
@@ -27,20 +27,10 @@ def command_serve(args: argparse.Namespace) -> int:
         vault.start_embedding()
         run_stdio(vault)
         return 0
-    auth = auth_config(args.auth)
-    if auth.mode == "hosted" and args.plans == "on":
-        auth = dataclasses.replace(auth, plans=True)
-    if auth.mode in ("forwarded", "hosted"):
-        from notes_vault_mcp.vault import SubjectVaults
-
-        vaults = SubjectVaults(prefix=auth.subject_prefix, dav_url=auth.dav_url, vectors="background")
-        keep_warm(vaults.embedder)
-        run_http(vaults, args.host, args.port, auth)
-        return 0
-    vault = open_vault(vectors="background")
-    keep_warm(vault.embedder)
-    vault.start_embedding()
-    run_http(vault, args.host, args.port, auth)
+    auth = dataclasses.replace(auth_config(), plans=args.plans == "on")
+    vaults = SubjectVaults(prefix=auth.subject_prefix, dav_url=auth.dav_url, vectors="background")
+    keep_warm(vaults.embedder)
+    run_http(vaults, args.host, args.port, auth)
     return 0
 
 
@@ -123,18 +113,6 @@ def command_sync(args: argparse.Namespace) -> int:
     if vault.index.vectors is not None:
         print(f"{vault.index.vectors.count()} notes carry vectors for search by meaning")
     return 0
-
-
-def command_owner(args: argparse.Namespace) -> int:
-    from notes_vault_mcp.auth import builtin
-
-    return builtin.command_owner(args)
-
-
-def command_tokens(args: argparse.Namespace) -> int:
-    from notes_vault_mcp.auth import builtin
-
-    return builtin.command_tokens(args)
 
 
 def command_accounts(args: argparse.Namespace) -> int:
@@ -275,20 +253,10 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument(
-        "--auth",
-        choices=("bearer", "oidc", "builtin", "forwarded", "hosted"),
-        default="bearer",
-        help=(
-            "http only: a static VAULT_TOKEN, an identity provider (VAULT_OIDC_ISSUER), the built-in owner login, "
-            "a signed identity header from a trusted proxy (VAULT_IDENTITY_*), one vault per subject, or accounts "
-            "signing in through an identity provider (VAULT_HOSTED_OIDC_*), one vault per account"
-        ),
-    )
-    serve.add_argument(
         "--plans",
         choices=("off", "on"),
         default="off",
-        help="hosted only: on checks each account's billing plan on every request; off ignores plans",
+        help="http only: on checks each account's billing plan on every request; off ignores plans",
     )
     serve.set_defaults(func=command_serve)
 
@@ -321,20 +289,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--rebuild", action="store_true", help="drop the index and read every note again")
     sync.set_defaults(func=command_sync)
 
-    owner = sub.add_parser("owner", help="the built-in login's owner (--auth builtin)")
-    owner_sub = owner.add_subparsers(dest="owner_command", required=True)
-    set_password = owner_sub.add_parser("set-password", help="set or replace the owner's password")
-    set_password.add_argument("--password", help="read from the terminal when omitted")
-    set_password.set_defaults(func=command_owner)
-
-    tokens = sub.add_parser("tokens", help="the clients the built-in login has authorized")
-    tokens_sub = tokens.add_subparsers(dest="tokens_command", required=True)
-    tokens_sub.add_parser("list", help="list authorized clients and their tokens").set_defaults(func=command_tokens)
-    revoke = tokens_sub.add_parser("revoke", help="revoke a client's tokens")
-    revoke.add_argument("client_id")
-    revoke.set_defaults(func=command_tokens)
-
-    accounts = sub.add_parser("accounts", help="the accounts of --auth hosted")
+    accounts = sub.add_parser("accounts", help="the accounts of the HTTP server")
     accounts_sub = accounts.add_subparsers(dest="accounts_command", required=True)
     accounts_sub.add_parser("list", help="list accounts with status and key count").set_defaults(func=command_accounts)
     inviting = accounts_sub.add_parser("invite", help="let this email address sign in and get a vault")
@@ -348,7 +303,7 @@ def build_parser() -> argparse.ArgumentParser:
         changing.add_argument("account", help="the account's email or id")
         changing.set_defaults(func=command_accounts)
 
-    admin = sub.add_parser("admin", help="tokens for the admin API of --auth hosted")
+    admin = sub.add_parser("admin", help="tokens for the admin API of the HTTP server")
     admin_sub = admin.add_subparsers(dest="admin_command", required=True)
     minting = admin_sub.add_parser("token", help="make (or replace) a named admin token and print it once")
     minting.add_argument("--name", required=True)

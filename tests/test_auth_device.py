@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx2
 import pytest
-from hosted_support import BASE, IDP, Hosted, call_tool, csrf_of, hosted, text_of
+from hosted_support import BASE, IDP, Hosted, call_tool, csrf_of, hosted, query, text_of
 
 from notes_vault_mcp.auth.device import DEVICE_GRANT, USER_CODE_ALPHABET
 from notes_vault_mcp.vault import SubjectVaults
@@ -150,8 +150,12 @@ async def test_the_device_page_signs_in_first_and_returns_with_the_code(site: Ho
     async with site.browser() as machine, site.browser() as person:
         device = await start(machine)
         first = await person.get("/device", params={"user_code": device["user_code"].lower()})
-        assert first.headers["location"].startswith(f"{IDP}/authorize?")
-        state, code = site.idp.approve(first.headers["location"], "sub-ann", "ann@example.com")
+        assert first.headers["location"].startswith("/signin?next=")
+        chooser = await person.get(first.headers["location"])
+        assert chooser.status_code == 200
+        started = await person.get("/signin/oidc", params={"next": query(first.headers["location"])["next"]})
+        assert started.headers["location"].startswith(f"{IDP}/authorize?")
+        state, code = site.idp.approve(started.headers["location"], "sub-ann", "ann@example.com")
         landed = await person.get("/oidc/callback", params={"state": state, "code": code})
     assert landed.status_code == 303
     assert landed.headers["location"] == f"/device?user_code={device['user_code']}"

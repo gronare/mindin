@@ -15,6 +15,8 @@ jobs:
           package=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)
           server=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' notes_vault_mcp/server.py)
           if [ "$package" != "$tag" ] || [ "$server" != "$tag" ]; then echo "::error::pyproject.toml says $package, server.py says $server, the tag says $tag"; exit 1; fi
+      - name: CHANGES.md says what the version brings
+        run: sh scripts/release-notes.sh "${GITHUB_REF_NAME#v}"
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen
       - run: uv run ruff check .
@@ -125,12 +127,26 @@ jobs:
           git push origin HEAD:main
 
   release:
-    needs: [pypi, ghcr]
+    needs: [pypi, ghcr, registry, plugin]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: GitHub Release with notes from the commits since the last tag
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            CHANGES.md
+            scripts/release-notes.sh
+          sparse-checkout-cone-mode: false
+      - name: The release notes, from the version's section of CHANGES.md
+        run: sh scripts/release-notes.sh "${GITHUB_REF_NAME#v}" > release-notes.md
+      - name: Publish the GitHub release with the version's notes, as latest
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes --title "notes-vault-mcp ${GITHUB_REF_NAME#v}"
+        run: |
+          title="notes-vault-mcp ${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file release-notes.md --title "$title" --draft=false --latest
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --notes-file release-notes.md --title "$title" --latest
+          fi

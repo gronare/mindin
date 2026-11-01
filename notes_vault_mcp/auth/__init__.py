@@ -19,6 +19,7 @@ DEFAULT_IDP_SCOPES = ("openid", "profile", "email", "groups")
 DEFAULT_IDENTITY_HEADER = "X-Forwarded-Identity"
 DEFAULT_SUBJECT_PREFIX = "users"
 DEFAULT_HOSTED_SCOPES = ("openid", "email", "profile")
+DEFAULT_READ_ONLY_DAYS = 30
 
 NO_PUBLIC_URL = (
     "notes-vault-mcp: --auth {mode} needs VAULT_PUBLIC_URL, the https address clients reach this server on "
@@ -71,6 +72,10 @@ class AuthConfig:
     upstream_client_id: str = ""
     upstream_client_secret: str = field(default="", repr=False)
     upstream_scopes: tuple[str, ...] = DEFAULT_HOSTED_SCOPES
+    plans: bool = False
+    plan_read_only_days: int = DEFAULT_READ_ONLY_DAYS
+    billing_url: str = ""
+    billing_handoff_secret: str = field(default="", repr=False)
 
     @property
     def path_prefix(self) -> str:
@@ -207,4 +212,23 @@ def hosted_config(public_url: str, hosts: tuple[str, ...]) -> AuthConfig:
         upstream_client_id=values["VAULT_HOSTED_OIDC_CLIENT_ID"],
         upstream_client_secret=values["VAULT_HOSTED_OIDC_CLIENT_SECRET"],
         upstream_scopes=_words("VAULT_HOSTED_OIDC_SCOPES", DEFAULT_HOSTED_SCOPES),
+        plan_read_only_days=_read_only_days(),
+        billing_url=(env("VAULT_BILLING_URL") or "").rstrip("/"),
+        billing_handoff_secret=_handoff_secret(),
     )
+
+
+def _read_only_days() -> int:
+    raw = (env("VAULT_PLAN_READ_ONLY_DAYS") or str(DEFAULT_READ_ONLY_DAYS)).strip()
+    if not raw.isdigit():
+        raise ConfigError("notes-vault-mcp: VAULT_PLAN_READ_ONLY_DAYS must be a whole number of days")
+    return int(raw)
+
+
+def _handoff_secret() -> str:
+    raw = (env("VAULT_BILLING_HANDOFF_SECRET") or "").strip()
+    if raw:
+        from notes_vault_mcp.auth.billing import handoff_secret
+
+        handoff_secret(raw)
+    return raw

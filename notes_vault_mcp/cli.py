@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 from collections.abc import Callable
@@ -23,6 +24,8 @@ def command_serve(args: argparse.Namespace) -> int:
         run_stdio(open_vault(vectors="background"))
         return 0
     auth = auth_config(args.auth)
+    if auth.mode == "hosted" and args.plans == "on":
+        auth = dataclasses.replace(auth, plans=True)
     if auth.mode in ("forwarded", "hosted"):
         from notes_vault_mcp.vault import SubjectVaults
 
@@ -130,6 +133,12 @@ def command_accounts(args: argparse.Namespace) -> int:
     from notes_vault_mcp.auth import hosted_store
 
     return hosted_store.command_accounts(args)
+
+
+def command_admin(args: argparse.Namespace) -> int:
+    from notes_vault_mcp.auth import hosted_store
+
+    return hosted_store.command_admin(args)
 
 
 def command_backlog(args: argparse.Namespace) -> int:
@@ -267,6 +276,12 @@ def build_parser() -> argparse.ArgumentParser:
             "signing in through an identity provider (VAULT_HOSTED_OIDC_*), one vault per account"
         ),
     )
+    serve.add_argument(
+        "--plans",
+        choices=("off", "on"),
+        default="off",
+        help="hosted only: on checks each account's billing plan on every request; off ignores plans",
+    )
     serve.set_defaults(func=command_serve)
 
     init = sub.add_parser("init", help="write the schema and the Obsidian bases into the vault")
@@ -324,6 +339,16 @@ def build_parser() -> argparse.ArgumentParser:
         changing = accounts_sub.add_parser(name, help=summary)
         changing.add_argument("account", help="the account's email or id")
         changing.set_defaults(func=command_accounts)
+
+    admin = sub.add_parser("admin", help="tokens for the admin API of --auth hosted")
+    admin_sub = admin.add_subparsers(dest="admin_command", required=True)
+    minting = admin_sub.add_parser("token", help="make (or replace) a named admin token and print it once")
+    minting.add_argument("--name", required=True)
+    minting.add_argument("--scope", choices=("billing",), required=True)
+    minting.set_defaults(func=command_admin)
+    revoking = admin_sub.add_parser("revoke", help="revoke the admin token with this name")
+    revoking.add_argument("name")
+    revoking.set_defaults(func=command_admin)
 
     queue = sub.add_parser("backlog", help="list the backlog, sorted by priority then age")
     queue.add_argument("--area", help="a system note stem, or the prefix a family of stems shares")

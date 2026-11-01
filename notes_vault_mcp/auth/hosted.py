@@ -42,6 +42,7 @@ from starlette.routing import BaseRoute, Mount, Route, request_response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from notes_vault_mcp.auth import READ_SCOPE, SCOPES, AuthConfig, auth_dir
+from notes_vault_mcp.auth.billing import BillingApi, Handoff, effective_scopes
 from notes_vault_mcp.auth.cimd import (
     ClientMetadataError,
     ClientMetadataFetcher,
@@ -80,10 +81,20 @@ class Verdict:
 
 
 class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]):
-    def __init__(self, config: AuthConfig, store: HostedStore, fetcher: ClientMetadataFetcher) -> None:
+    def __init__(
+        self,
+        config: AuthConfig,
+        store: HostedStore,
+        fetcher: ClientMetadataFetcher,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
         self.config = config
         self.store = store
         self.fetcher = fetcher
+        self.clock = clock
+
+    def allowed(self, account: Account, scopes: list[str]) -> list[str]:
+        return effective_scopes(self.config, account, scopes, self.clock())
 
     def for_this_resource(self, resource: str | None) -> bool:
         return resource is None or canonical(resource) == canonical(self.config.resource_url)
@@ -234,10 +245,13 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
     ) -> Verdict:
         if not account.active or not account.sub:
             return Verdict(None, 403, "account_suspended", "the account is not active")
+        allowed = self.allowed(account, scopes)
+        if not allowed:
+            return Verdict(None, 403, "plan-inactive", "the account's plan has ended")
         access = AccessToken(
             token=token,
             client_id=client_id,
-            scopes=scopes,
+            scopes=allowed,
             expires_at=expires_at,
             resource=self.config.resource_url,
             subject=account.sub,
@@ -355,11 +369,12 @@ def build_hosted_app(
     from notes_vault_mcp.vault import SubjectVaults
 
     store = HostedStore(auth.auth_dir or auth_dir())
-    provider = HostedProvider(auth, store, ClientMetadataFetcher(metadata_transport, resolver))
+    provider = HostedProvider(auth, store, ClientMetadataFetcher(metadata_transport, resolver), clock)
     limits = Limits()
-    browser = Browser(auth, store, Upstream(auth, upstream_transport), limits)
+    browser = Browser(auth, store, Upstream(auth, upstream_transport), limits, Handoff(auth, clock), clock)
     device = DeviceFlow(auth, store, provider.get_client, browser, limits, clock)
-    credentials = ApiKeyCredentials(store)
+    credentials = ApiKeyCredentials(store, provider.allowed)
+    billing = BillingApi(auth, store, clock)
     server = build_server(vaults, auth, personal_tokens=credentials, dav_url=auth.dav_url)
     mcp_app = server.streamable_http_app(host=host, transport_security=transport_security(auth))
     prefix = auth.path_prefix
@@ -422,6 +437,12 @@ def build_hosted_app(
         Route(prefix + "/account/keys", endpoint=limited(browser.create_key), methods=["POST"]),
         Route(prefix + "/account/keys/revoke", endpoint=limited(browser.revoke_key), methods=["POST"]),
         Route(prefix + "/logout", endpoint=limited(browser.sign_out), methods=["POST"]),
+        Route(prefix + "/account/billing/{purpose}", endpoint=browser.billing, methods=["GET"]),
+        Route(prefix + "/v1/admin/accounts", endpoint=billing.list_accounts, methods=["GET"]),
+        Route(prefix + "/v1/admin/accounts/{account}", endpoint=billing.show, methods=["GET"]),
+        Route(prefix + "/v1/admin/accounts/{account}/plan", endpoint=limited(billing.set_plan), methods=["PUT"]),
+        Route(prefix + "/v1/admin/accounts/{account}/deactivate", endpoint=billing.deactivate, methods=["POST"]),
+        Route(prefix + "/v1/admin/accounts/{account}/activate", endpoint=billing.activate, methods=["POST"]),
     ]
     if isinstance(vaults, SubjectVaults):
         routes.append(Mount(prefix + "/dav", app=WebDav(vaults, credentials, mount=prefix + "/dav")))

@@ -123,9 +123,10 @@ def client_from_document(url: str, document: Any) -> HostedClient:
     method = document.get("token_endpoint_auth_method") or "none"
     if method != "none" or "client_secret" in document:
         raise ClientMetadataError("only public clients (token_endpoint_auth_method none) may use a metadata document")
-    grants = document.get("grant_types") or ["authorization_code"]
-    if not isinstance(grants, list) or not set(grants) <= ALLOWED_GRANTS:
-        raise ClientMetadataError("the document asks for a grant type this server does not offer")
+    listed = document.get("grant_types") or ["authorization_code"]
+    if not isinstance(listed, list) or "authorization_code" not in listed:
+        raise ClientMetadataError("the document does not ask for the authorization_code grant")
+    grants = [grant for grant in listed if grant in ALLOWED_GRANTS]
     name = document.get("client_name")
     try:
         return HostedClient(

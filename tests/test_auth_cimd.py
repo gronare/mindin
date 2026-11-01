@@ -58,6 +58,17 @@ async def test_a_valid_document_becomes_a_public_client():
 
 
 @pytest.mark.anyio
+async def test_grants_this_server_lacks_are_left_out_of_the_client():
+    host = MetadataHost()
+    host.serve(
+        URL,
+        document(grant_types=["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"]),
+    )
+    client = await fetcher(host).client(URL)
+    assert client.grant_types == ["authorization_code", "refresh_token"]
+
+
+@pytest.mark.anyio
 async def test_a_mismatched_client_id_is_refused():
     host = MetadataHost()
     host.serve(URL, document(client_id="https://app.example.com/oauth/other.json"))
@@ -112,6 +123,7 @@ async def test_a_client_id_url_must_be_https_with_a_plain_path(url: str):
         {"token_endpoint_auth_method": "private_key_jwt"},
         {"client_secret": "x"},
         {"grant_types": ["client_credentials"]},
+        {"grant_types": ["refresh_token"]},
     ],
 )
 @pytest.mark.anyio

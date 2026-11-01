@@ -126,6 +126,7 @@ async def test_an_unauthenticated_mcp_request_gets_401_pointing_at_the_metadata(
     assert response.status_code == 401, CLAUDE_AUTH
     challenge = response.headers["www-authenticate"]
     assert 'resource_metadata="http://localhost/.well-known/oauth-protected-resource/mcp"' in challenge
+    assert 'scope="vault:read vault:write"' in challenge
     assert resource["resource"] == f"{BASE}/mcp"
     assert resource["authorization_servers"] == [BASE]
     assert set(resource["scopes_supported"]) == {"vault:read", "vault:write"}

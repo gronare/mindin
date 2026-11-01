@@ -7,6 +7,8 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 ### What's new
 
 ### Fixed
+- claude.ai connects with its published client identity, whose metadata lists a grant the server does not use.
+- A client that signs in is asked for read and write access, not only read, so a connector can write notes.
 
 ## 0.10.2
 

@@ -324,7 +324,7 @@ class HostedGuard:
         return self.provider.verdict(account, "", "forwarded", forwarded.scopes, forwarded.expires_at)
 
     async def refuse(self, send: Send, verdict: Verdict) -> None:
-        challenge = f'Bearer resource_metadata="{self.metadata_url}", scope="{READ_SCOPE}"'
+        challenge = f'Bearer resource_metadata="{self.metadata_url}", scope="{" ".join(SCOPES)}"'
         if verdict.error == "invalid_token":
             challenge += f', error="invalid_token", error_description="{verdict.description}"'
         body = json.dumps({"error": verdict.error or "invalid_token", "error_description": verdict.description})

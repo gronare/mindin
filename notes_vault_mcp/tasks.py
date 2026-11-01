@@ -8,7 +8,7 @@ from pathlib import Path
 
 from notes_vault_mcp import notes
 from notes_vault_mcp.backends import MUST_NOT_EXIST, VersionConflict
-from notes_vault_mcp.frontmatter import CLAIM_KEY, claim_fields, dump, folder_of, parse
+from notes_vault_mcp.frontmatter import CLAIM_KEY, claim_fields, dump, parse
 from notes_vault_mcp.git import current_branch, in_main_checkout, main_checkout, repo_name
 from notes_vault_mcp.index import Note, stem_of
 from notes_vault_mcp.vault import Vault
@@ -74,7 +74,7 @@ def open_task(vault: Vault, name: str, cwd: str, branch: str | None = None) -> d
         raise ValueError("task open needs --name, or --note to claim a note")
     where = place(vault, cwd)
     area_stem = where.area.stem if where.area else None
-    key = free_key(vault, vault.schema.task_folders[0], task_stem(where.repo, name))
+    key = free_key(vault, vault.schema.task_folder, task_stem(where.repo, name))
     frontmatter: dict = {
         "title": name.strip(),
         "date": notes.stamp(),
@@ -96,7 +96,7 @@ def open_task(vault: Vault, name: str, cwd: str, branch: str | None = None) -> d
 
 def claim_task(vault: Vault, path: str, cwd: str) -> dict:
     path = notes.note_key(path)
-    if folder_of(path) not in vault.schema.task_folders:
+    if vault.schema.folder_of(path) not in vault.schema.task_folders:
         raise ValueError(f"{path} is not in a task folder ({', '.join(vault.schema.task_folders)})")
     text, _ = vault.backend.get(path)
     frontmatter, _ = parse(text)
@@ -111,7 +111,7 @@ def claim_stamp() -> str:
 
 def _task_note(vault: Vault, path: str) -> str:
     key = notes.note_key(path)
-    if folder_of(key) not in vault.schema.task_folders:
+    if vault.schema.folder_of(key) not in vault.schema.task_folders:
         raise ValueError(f"{key} is not in a task folder ({', '.join(vault.schema.task_folders)})")
     return key
 

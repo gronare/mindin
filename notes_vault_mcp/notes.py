@@ -12,7 +12,7 @@ from pathlib import Path
 from notes_vault_mcp.backends import SCHEMA_KEY, NotFound
 from notes_vault_mcp.frontmatter import CLAIM_KEY, FrontmatterError, claim_fields, dump, parse, validate
 from notes_vault_mcp.index import Note, expand_home, stem_of
-from notes_vault_mcp.schema import CLAIM_STALE_DAYS
+from notes_vault_mcp.schema import CLAIM_STALE_DAYS, broken_schema_lines
 from notes_vault_mcp.search import age_days, humanize_age
 from notes_vault_mcp.vault import Vault
 
@@ -27,6 +27,12 @@ TRIAGE_HINT = (
 )
 PRIORITY_ORDER = ("urgent", "high", "medium", "low")
 SLUG_MAX = 60
+
+
+SCHEMA_REFUSAL = (
+    f"{SCHEMA_KEY} is not written through the tools it checks: edit it as a file, on disk or over WebDAV, "
+    "or switch layouts with init; context and lint say what is wrong with it"
+)
 
 
 class ValidationError(Exception):
@@ -49,6 +55,8 @@ def note_key(path: str, readable: bool = False) -> str:
     segments = path.split("/")
     if any(segment in ("", ".", "..") for segment in segments):
         raise InvalidKey(f"not a vault path: {path!r} (empty, '.' and '..' segments are refused)")
+    if path == SCHEMA_KEY:
+        raise InvalidKey(SCHEMA_REFUSAL)
     if any(segment.startswith(".") for segment in segments):
         raise InvalidKey(f"not a vault path: {path!r} (dot-folders and dot-files are outside the note set)")
     if not path.endswith(READABLE_SUFFIXES if readable else NOTE_SUFFIX):
@@ -221,7 +229,8 @@ def park_stale(vault: Vault) -> list[str]:
     task_folders = set(vault.schema.task_folders)
     parked = []
     for note in vault.index.all_notes():
-        if not note.valid or note.folder not in task_folders or note.status not in OPEN_STATUSES:
+        in_tasks = vault.schema.folder_of(note.key) in task_folders
+        if not note.valid or not in_tasks or note.status not in OPEN_STATUSES:
             continue
         if age_days(note, now) <= vault.schema.stale_after_days or claim_is_fresh(note):
             continue
@@ -247,7 +256,7 @@ def close(vault: Vault, path: str, merged_into: str | None = None, status: str |
         frontmatter["status"] = status or "complete"
     frontmatter.pop(CLAIM_KEY, None)
     archive = vault.schema.archive_folder
-    archived = path.split("/", 1)[0] == archive
+    archived = archive is None or vault.schema.under(path, [archive])
     destination = path if archived else _free_key(vault, archive, path.rsplit("/", 1)[-1])
     stamped = _with_dates(frontmatter)
     _require_valid(vault, stamped, destination, "cannot be closed into a valid note")
@@ -344,7 +353,7 @@ def backlog_add(
     family = area_stem.split("-")[0]
     slug = _title_slug(title)
     stem = slug if slug == family or slug.startswith(f"{family}-") else f"{family}-{slug}"
-    key = note_key(_free_key(vault, vault.schema.task_folders[0], stem))
+    key = note_key(_free_key(vault, vault.schema.backlog_folder, stem))
     frontmatter: dict = {
         "title": title,
         "date": stamp(),
@@ -381,7 +390,7 @@ def backlog(vault: Vault, area: str | None = None, priority: str | None = None) 
         note
         for note in vault.index.all_notes()
         if note.valid
-        and note.folder in task_folders
+        and vault.schema.folder_of(note.key) in task_folders
         and note.status == BACKLOG_STATUS
         and _in_area(note, area)
         and (not priority or note.priority == priority)
@@ -391,7 +400,9 @@ def backlog(vault: Vault, area: str | None = None, priority: str | None = None) 
     return rows
 
 
-def render_backlog(rows: list[Note]) -> str:
+def render_backlog(rows: list[Note], vault: Vault | None = None) -> str:
+    if not rows and vault is not None and not vault.schema.task_folders:
+        return str(vault.schema.no_home("task folder", "backlog_add and the backlog", "task"))
     if not rows:
         return "The backlog is empty."
     now = time.time()
@@ -441,10 +452,13 @@ class ContextBundle:
     log_tail: list[str] = field(default_factory=list)
     repo: str | None = None
     stale_after_days: int = 30
+    schema_problems: list[str] = field(default_factory=list)
 
     def render(self) -> str:
         now = time.time()
         blocks = []
+        if self.schema_problems:
+            blocks.append("## schema\n" + "\n".join(self.schema_problems))
         if self.system:
             blocks.append("## system notes\n" + "\n\n".join(f"### {note.key}\n{text}" for note, text in self.system))
         if self.system_rows:
@@ -504,7 +518,8 @@ def _system_notes(
     vault: Vault, notes: list[Note], path: str | None, repo: str | None
 ) -> tuple[list[tuple[Note, str]], list[Note]]:
     folders = set(vault.schema.system_folders)
-    candidates = [n for n in notes if (n.kind == "system" or n.folder in folders) and _relevant(n, path, repo)]
+    system = [n for n in notes if n.kind == "system" or vault.schema.folder_of(n.key) in folders]
+    candidates = [n for n in system if _relevant(n, path, repo)]
     candidates.sort(key=lambda note: _system_rank(note, path, repo))
     hub = next((n for n in candidates if n.stem == repo), None)
     floor = path_overlap(hub, path) if hub else -1
@@ -539,26 +554,28 @@ def context(
     query: str | None = None,
     limit: int = 10,
 ) -> ContextBundle:
+    schema = vault.schema
     notes = [note for note in vault.index.all_notes() if note.valid]
-    task_folders = set(vault.schema.task_folders)
-    reference_folders = set(vault.schema.reference_folders)
+    task_folders = set(schema.task_folders)
+    reference_folders = set(schema.reference_folders)
     needle = (query or "").lower()
+    folder = {note.key: schema.folder_of(note.key) for note in notes}
 
     tasks = [
         note
         for note in notes
-        if note.folder in task_folders and note.status in OPEN_STATUSES and _relevant(note, path, repo)
+        if folder[note.key] in task_folders and note.status in OPEN_STATUSES and _relevant(note, path, repo)
     ]
     references = [
         note
         for note in notes
-        if note.folder in reference_folders
+        if folder[note.key] in reference_folders
         and (_relevant(note, path, repo) or (needle and needle in f"{note.title} {' '.join(note.tags)}".lower()))
     ]
     backlog_rows = [
         note
         for note in notes
-        if note.folder in task_folders and note.status == BACKLOG_STATUS and _relevant(note, path, repo)
+        if folder[note.key] in task_folders and note.status == BACKLOG_STATUS and _relevant(note, path, repo)
     ]
     tasks.sort(key=lambda note: note.updated, reverse=True)
     references.sort(key=lambda note: note.updated, reverse=True)
@@ -580,6 +597,7 @@ def context(
         log_tail=_log_tail(vault, repo),
         repo=repo,
         stale_after_days=vault.schema.stale_after_days,
+        schema_problems=broken_schema_lines(vault.schema),
     )
 
 
@@ -627,14 +645,16 @@ def _lint_frontmatter(vault: Vault, note: Note, findings: Findings) -> None:
 
 def _lint_links(vault: Vault, notes: list[Note], findings: Findings) -> None:
     stems = vault.index.stems()
+    bases = {entry.key.rsplit("/", 1)[-1].lower() for entry in vault.backend.list() if entry.key.endswith(".base")}
     rows = vault.index.db.execute("SELECT src, target FROM links ORDER BY src, target").fetchall()
     for row in rows:
-        if row["target"] not in stems:
+        if row["target"] not in stems and row["target"] not in bases:
             findings.add("unresolved_links", f"{row['src']} -> [[{row['target']}]]")
     linked = vault.index.inbound_targets()
-    ignored = {vault.schema.log_folder, vault.schema.archive_folder}
+    unsearched = vault.schema.unsearched_folders
+    ignored = [folder for folder in (vault.schema.log_folder, vault.schema.archive_folder, *unsearched) if folder]
     for note in notes:
-        if note.folder in ignored or note.area:
+        if vault.schema.under(note.key, ignored) or note.area:
             continue
         if note.stem.lower() not in linked:
             findings.add("orphans", note.key)
@@ -642,21 +662,23 @@ def _lint_links(vault: Vault, notes: list[Note], findings: Findings) -> None:
 
 def _lint_lifecycle(vault: Vault, notes: list[Note], findings: Findings) -> None:
     now = time.time()
-    task_folders = set(vault.schema.task_folders)
-    archive = vault.schema.archive_folder
+    schema = vault.schema
+    task_folders = set(schema.task_folders)
+    archive = [schema.archive_folder] if schema.archive_folder else []
     stems = vault.index.stems()
-    log = vault.schema.log_folder
+    log = [schema.log_folder] if schema.log_folder else []
     by_stem: dict[str, list[str]] = {}
     for note in notes:
-        if note.folder != log:
+        folder = schema.folder_of(note.key)
+        if not schema.under(note.key, log):
             by_stem.setdefault(note.stem.lower(), []).append(note.key)
-        if note.folder in task_folders and note.status in OPEN_STATUSES:
+        if folder in task_folders and note.status in OPEN_STATUSES:
             days = age_days(note, now)
-            if days > vault.schema.stale_after_days:
+            if days > schema.stale_after_days:
                 findings.add("stale_active", f"{note.key}: {humanize_age(days)} old, status {note.status}")
-        if note.folder in task_folders and note.status in ("complete", "superseded"):
-            findings.add("done_not_closed", f"{note.key}: status {note.status}, still in {note.folder}/")
-        if note.folder == archive and note.status not in ("complete", "superseded"):
+        if archive and folder in task_folders and note.status in ("complete", "superseded"):
+            findings.add("done_not_closed", f"{note.key}: status {note.status}, still in {folder}/")
+        if schema.under(note.key, archive) and note.status not in ("complete", "superseded"):
             findings.add("archive_status_mismatch", f"{note.key}: status {note.status or '-'}")
         if note.superseded_by:
             target = note.superseded_by.strip("[]").split("|")[0].strip().lower()
@@ -669,6 +691,8 @@ def _lint_lifecycle(vault: Vault, notes: list[Note], findings: Findings) -> None
 
 def lint(vault: Vault) -> Findings:
     findings = Findings()
+    for problem in (*vault.schema.notices, *vault.schema.problems):
+        findings.add("schema", f"{SCHEMA_KEY}: {problem}")
     notes = vault.index.all_notes()
     for note in notes:
         _lint_frontmatter(vault, note, findings)

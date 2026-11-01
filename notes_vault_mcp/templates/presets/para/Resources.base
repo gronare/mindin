@@ -1,0 +1,47 @@
+filters:
+  and:
+    - file.inFolder("Resources")
+    - "!file.inFolder(\"Resources/Logs\")"
+    - file.ext == "md"
+formulas:
+  age: if(updated, (today() - date(updated)).days, "")
+properties:
+  file.name:
+    displayName: Note
+  note.summary:
+    displayName: Summary
+  note.kind:
+    displayName: Kind
+  note.tags:
+    displayName: Tags
+  note.updated:
+    displayName: Updated
+  formula.age:
+    displayName: Days since
+views:
+  - type: cards
+    name: Resources
+    order:
+      - file.name
+      - summary
+      - kind
+      - tags
+      - updated
+    sort:
+      - property: updated
+        direction: DESC
+  - type: table
+    name: Table
+    groupBy:
+      property: kind
+      direction: ASC
+    order:
+      - file.name
+      - summary
+      - kind
+      - tags
+      - updated
+      - formula.age
+    sort:
+      - property: updated
+        direction: DESC

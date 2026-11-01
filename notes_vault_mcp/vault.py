@@ -33,9 +33,12 @@ class Vault:
         index: Index | None = None,
         embedder: Embedder | None = None,
         background: bool = False,
+        schema_path: str | None = None,
     ):
         self.backend = backend
         self.schema = schema
+        self.schema_path = schema_path
+        self.schema_version: str | None = None
         self.index_path = index_path
         self.embedder = embedder
         self.background = background
@@ -55,6 +58,22 @@ class Vault:
     def index_opened(self) -> bool:
         return self._index is not None
 
+    def reload_schema(self) -> None:
+        fresh = load_schema(self.backend, self.schema_path)
+        relanguaged = fresh.languages != self.schema.languages
+        self.schema = fresh
+        if relanguaged and self._index is not None:
+            self.close()
+            self.index.rebuild()
+
+    def sync(self, force: bool = False) -> int:
+        count = self.index.sync(force=force)
+        seen = self.index.schema_version
+        if seen is not None and seen != self.schema_version:
+            self.reload_schema()
+            self.schema_version = seen
+        return count
+
     def start_embedding(self) -> None:
         if self.embedder is not None and self.index.vectors is not None:
             self.index.vectors.refresh()
@@ -67,11 +86,13 @@ class Vault:
 
 def open_vault(cache: Path | None = None, vectors: Vectoring = "off") -> Vault:
     backend, identifier = make_backend()
-    schema = load_schema(backend, env("VAULT_SCHEMA"))
+    schema_path = env("VAULT_SCHEMA")
+    schema = load_schema(backend, schema_path)
     folder = cache or cache_dir()
     return Vault(
         backend=backend,
         schema=schema,
+        schema_path=schema_path,
         index_path=folder / f"{identifier}.sqlite",
         embedder=configured_embedder(folder) if vectors != "off" else None,
         background=vectors == "background",
@@ -189,6 +210,12 @@ class SubjectVaults:
                 if not self._in_use[key]:
                     del self._in_use[key]
                 self._open[key] = (vault, self.clock())
+
+    def refresh(self, subject: str) -> None:
+        with self._lock:
+            opened = self._open.get(subject_key(subject))
+        if opened is not None:
+            opened[0].reload_schema()
 
     def for_subject(self, subject: str) -> Vault:
         with self._lock:

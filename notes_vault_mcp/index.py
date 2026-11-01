@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from notes_vault_mcp.backends import FETCH_WORKERS, Entry, VaultBackend
+from notes_vault_mcp.backends import FETCH_WORKERS, SCHEMA_KEY, Entry, VaultBackend
 from notes_vault_mcp.frontmatter import CLAIM_KEY, FrontmatterError, claim_fields, folder_of, parse, tags_of
 from notes_vault_mcp.stemming import algorithms_of, stemmed
 
@@ -202,6 +202,7 @@ class Index:
         self.backend = backend
         self.languages = tuple(languages)
         self.algorithms = algorithms_of(self.languages)
+        self.schema_version: str | None = None
         self.vectors: Vectors | None = None
         if embedder is not None:
             from notes_vault_mcp.vectors import Vectors
@@ -426,7 +427,9 @@ class Index:
         if not force and (time.time() - last) < SYNC_THROTTLE_SECONDS:
             self._refresh_vectors()
             return 0
-        entries = [entry for entry in self.backend.list() if entry.key.endswith(".md")]
+        listing = self.backend.list()
+        self.schema_version = next((entry.version for entry in listing if entry.key == SCHEMA_KEY), "")
+        entries = [entry for entry in listing if entry.key.endswith(".md")]
         known = self._versions()
         seen = {entry.key for entry in entries}
         changed = [entry for entry in entries if known.get(entry.key) != entry.version]

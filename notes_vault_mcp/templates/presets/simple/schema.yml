@@ -1,0 +1,29 @@
+version: 1
+preset: simple
+language: en
+other_languages: []
+root_description: "Most notes: what you write yourself, and notes that relate to you. A note's type is its categories property, a link to the category's overview note in the root, like categories: [\"[[Books]]\"]."
+folders:
+  Projects:    { kind: task,      weight: 1.5, description: "Open work, one note per project, and the backlog (status backlog): where an AI files what is left for later. Closed with close, which marks it complete and leaves it here." }
+  References:  { kind: reference, weight: 1.5, description: "Things outside your world: books, films, places, people, podcasts. One note each, named by its title." }
+  Clippings:   { kind: reference, weight: 1.0, description: "Articles and essays written by others." }
+  Daily:       { kind: reference, weight: 0.5, description: "Daily notes named YYYY-MM-DD, from Templates/Daily Note Template (Daily notes settings: folder Daily). Rarely written in; other notes link to them." }
+  Templates:   { kind: reference, weight: 0.3, searched: false, description: "One template per category, its properties at the top. Bases/ holds the views the category notes embed." }
+  Attachments: { kind: reference, weight: 0.3, searched: false, description: "Images, audio, video and PDFs." }
+frontmatter:
+  required: []
+  optional: [categories, tags, created, status, type, topics, author, url, rating, summary, priority, source, area, path, superseded_by, kebbie]
+  area_required_in: []
+  status_values: [draft, active, backlog, complete, superseded]
+  kind_values: [task]
+  priority_values: [urgent, high, medium, low]
+kinds:
+  task: "open work in Projects; something is left to do"
+tags:
+  strict: false
+  vocabulary: [categories, daily]
+synonyms: []
+task:
+  sections:
+    en: { problem: Problem, solution: Solution, decisions: Decisions, tests: Test decisions, scope: Out of scope }
+stale_after_days: 30

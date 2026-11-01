@@ -1,0 +1,25 @@
+filters:
+  and:
+    - file.path != this.file.path
+    - '!file.inFolder("Templates")'
+    - or:
+        - file.hasLink(this.file)
+        - note.created.toString().contains(this.file.basename)
+        - note.date.toString().contains(this.file.basename)
+properties:
+  file.name:
+    displayName: Entry
+  note.categories:
+    displayName: Categories
+  note.tags:
+    displayName: Tags
+views:
+  - type: table
+    name: This day
+    order:
+      - file.name
+      - categories
+      - tags
+    sort:
+      - property: file.name
+        direction: ASC

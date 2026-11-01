@@ -1,0 +1,32 @@
+filters:
+  and:
+    - note.categories.contains(link(this.file.basename))
+    - '!file.inFolder("Templates")'
+properties:
+  file.name:
+    displayName: Note
+  note.created:
+    displayName: Created
+  note.status:
+    displayName: Status
+  note.tags:
+    displayName: Tags
+views:
+  - type: table
+    name: Notes
+    order:
+      - file.name
+      - created
+      - status
+      - tags
+    sort:
+      - property: created
+        direction: DESC
+  - type: cards
+    name: Cards
+    order:
+      - file.name
+      - created
+    sort:
+      - property: file.mtime
+        direction: DESC

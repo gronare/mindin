@@ -11,14 +11,19 @@ summary: What this vault is, how Claude uses it, and how to open it in Obsidian.
 ## What this is
 
 Your own notes, private to you. Claude reads and writes them through the vault
-tools: one living note per system or subsystem in `Areas/`, open work in
-`Projects/`, gotchas and how-tos in `Resources/`, one log per repo in `Log/`,
-history in `Archive/`. The schema in `.vault/schema.yml` describes the
-frontmatter and the tag vocabulary; it is yours to edit.
+tools. The folders of your layout:
+
+{{FOLDERS}}
+
+The schema in `.vault/schema.yml` describes the folders, the frontmatter and the
+tag vocabulary. It is yours to edit as a file over WebDAV, with the address
+below in any WebDAV client (Finder's Connect to Server, Cyberduck); Obsidian
+hides dot-folders, so it does not show it. An edit that does not hold leaves
+the vault on the layout the file names, and `context`, `lint` and your account
+page say what is wrong until it is fixed.
 
 Start a session with `context` (the working directory and repo name). Before
-the first code change, make sure a note for the work exists. End a session
-with `log_append`, one line per repo with the commits it produced.
+the first code change, make sure a note for the work exists.
 
 ## Open it in Obsidian
 

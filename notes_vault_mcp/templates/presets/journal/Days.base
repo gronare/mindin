@@ -1,0 +1,29 @@
+filters:
+  and:
+    - file.inFolder("Daily")
+    - file.ext == "md"
+properties:
+  file.name:
+    displayName: Day
+  note.summary:
+    displayName: Summary
+  note.tags:
+    displayName: Tags
+views:
+  - type: table
+    name: Newest first
+    order:
+      - file.name
+      - summary
+      - tags
+    sort:
+      - property: file.name
+        direction: DESC
+  - type: cards
+    name: Cards
+    order:
+      - file.name
+      - summary
+    sort:
+      - property: file.name
+        direction: DESC

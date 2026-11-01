@@ -1,0 +1,39 @@
+filters:
+  and:
+    - file.ext == "md"
+properties:
+  file.name:
+    displayName: Note
+  file.folder:
+    displayName: Folder
+  note.summary:
+    displayName: Summary
+  note.status:
+    displayName: Status
+  note.updated:
+    displayName: Updated
+views:
+  - type: table
+    name: Recently changed
+    order:
+      - file.name
+      - file.folder
+      - summary
+      - status
+      - updated
+    sort:
+      - property: updated
+        direction: DESC
+  - type: table
+    name: By folder
+    groupBy:
+      property: file.folder
+      direction: ASC
+    order:
+      - file.name
+      - summary
+      - status
+      - updated
+    sort:
+      - property: updated
+        direction: DESC

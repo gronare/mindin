@@ -155,8 +155,8 @@ def validate(frontmatter: dict[str, Any], key: str, schema: Schema) -> list[str]
     if claim is not None and claim_fields(claim) is None:
         problems.append(f"{CLAIM_KEY} must be a mapping with machine, task and since (and optionally repo)")
 
-    folder = folder_of(key)
-    if folder in schema.area_required_in:
+    folder = next((name for name in schema.area_required_in if key.startswith(f"{name}/")), None)
+    if folder is not None:
         area = frontmatter.get("area")
         if area is None or str(area).strip() == "":
             problems.append(f'missing area: notes in {folder}/ must link their system note as area: "[[stem]]"')

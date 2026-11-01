@@ -1,0 +1,40 @@
+filters:
+  and:
+    - file.inFolder("Resources/Logs")
+    - file.ext == "md"
+properties:
+  file.name:
+    displayName: Page
+  note.summary:
+    displayName: Summary
+  note.area:
+    displayName: Area
+  note.date:
+    displayName: Month
+views:
+  - type: table
+    name: Monthly pages
+    filters:
+      and:
+        - kind == "log"
+        - status == "complete"
+    order:
+      - file.name
+      - summary
+      - area
+      - date
+    sort:
+      - property: date
+        direction: DESC
+  - type: table
+    name: Running logs
+    filters:
+      and:
+        - status == "active"
+    order:
+      - file.name
+      - area
+      - updated
+    sort:
+      - property: updated
+        direction: DESC

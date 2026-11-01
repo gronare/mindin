@@ -1,0 +1,25 @@
+version: 1
+preset: custom
+language: en
+other_languages: []
+# Name your folders here. A folder's kind decides what the tools do with it:
+#   system: one living note per system, loaded by context; reference: kept knowledge;
+#   task: open work and the backlog (backlog_add, task open); log: the repo logs (log_append);
+#   archive: where close moves finished notes. A layout without a task, log or archive folder
+#   keeps those tools off and they say so. Nested folders are written as paths, "Work/Logs".
+# Example:
+#   Notes: { kind: reference, weight: 1.0, description: "Everything you keep." }
+folders: {}
+frontmatter:
+  required: [title, date, updated]
+  optional: [tags, status, kind, area, summary, superseded_by, source]
+  area_required_in: []
+  status_values: [draft, active, backlog, complete, superseded]
+  kind_values: []
+  priority_values: [urgent, high, medium, low]
+kinds: {}
+tags:
+  strict: false
+  vocabulary: []
+synonyms: []
+stale_after_days: 30

@@ -149,6 +149,8 @@ def live_repos(vault: Vault) -> list[tuple[str, str]]:
 
 
 def write_all(vault: Vault, periods: list[str] | None = None, repos: list[tuple[str, str]] | None = None) -> list[str]:
+    if vault.schema.log_folder is None:
+        return []
     written = []
     for repo, root in repos if repos is not None else live_repos(vault):
         path = Path(root)

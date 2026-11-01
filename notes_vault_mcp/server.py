@@ -11,13 +11,14 @@ from notes_vault_mcp.auth.scopes import ScopeError, require_write
 from notes_vault_mcp.backends import VaultError
 from notes_vault_mcp.dav import DavCredentials
 from notes_vault_mcp.frontmatter import FrontmatterError
-from notes_vault_mcp.schema import instructions
+from notes_vault_mcp.presets import PRESETS
+from notes_vault_mcp.schema import NoHome, instructions
 from notes_vault_mcp.search import QueryError, render, search
 from notes_vault_mcp.vault import SingleVault, SubjectVaults, Vault, VaultResolver, open_vault
 
 VERSION = "0.9.2"
 
-EXPECTED_FAILURES = (VaultError, FrontmatterError, notes.ValidationError, ScopeError, QueryError)
+EXPECTED_FAILURES = (VaultError, FrontmatterError, notes.ValidationError, ScopeError, QueryError, NoHome)
 
 SEARCH_DESCRIPTION = (
     "CHEAP — start here. Full-text search over the local SQLite index of the vault; it never "
@@ -50,7 +51,7 @@ def build_server(
             if write:
                 require_write()
             with resolver.using() as vault:
-                vault.index.sync(force=force)
+                vault.sync(force=force)
                 return action(vault)
         except EXPECTED_FAILURES as exc:
             raise ToolError(str(exc)) from exc
@@ -95,7 +96,8 @@ def build_server(
         name="read_file",
         description=(
             "MODERATE — one round trip to storage. Returns the note with an `etag:` first line; pass "
-            "that etag back to write_file to refuse a write over someone else's change. Search first."
+            "that etag back to write_file to refuse a write over someone else's change. Search first. "
+            "`.vault/schema.yml` reads the vault's schema."
         ),
     )
     def read_file(path: str) -> str:
@@ -191,7 +193,9 @@ def build_server(
         ),
     )
     def backlog_tool(area: str | None = None, priority: str | None = None, limit: int = 50) -> str:
-        return run(lambda vault: notes.render_backlog(notes.backlog(vault, area=area, priority=priority)[:limit]))
+        return run(
+            lambda vault: notes.render_backlog(notes.backlog(vault, area=area, priority=priority)[:limit], vault)
+        )
 
     @server.tool(
         name="log_append",
@@ -241,12 +245,14 @@ def build_server(
         name="init",
         description=(
             "WRITE — sets a vault up: writes `.vault/schema.yml` and the Obsidian Bases views into the vault "
-            "root and keeps whatever already exists; force overwrites them, the schema included. Run once per "
-            "vault, right after installing."
+            "root. Run once per vault, right after installing. preset picks the layout of a vault without a "
+            f"schema: {', '.join(PRESETS)}; without it, the vault gets default. On a vault that has a schema, it "
+            "only writes the views that are missing and keeps the rest; a layout is switched with the CLI "
+            "(`init --preset <name> --force`) or on the account page, never through this tool."
         ),
     )
-    def init_tool(force: bool = False) -> str:
-        return run(lambda vault: _init(vault, force), write=True)
+    def init_tool(force: bool = False, preset: str | None = None) -> str:
+        return run(lambda vault: _init(vault, force, preset), write=True)
 
     if personal_tokens is not None:
 
@@ -264,9 +270,20 @@ def build_server(
     return server
 
 
-def _init(vault: Vault, force: bool) -> str:
-    written, kept = provision.initialize(vault.backend, force=force)
-    lines = [f"wrote {key}" for key in written] + [f"kept {key} (force overwrites)" for key in kept]
+def _init(vault: Vault, force: bool, preset: str | None) -> str:
+    if preset is not None and preset not in PRESETS:
+        raise notes.ValidationError(f"no preset named {preset!r}; the presets are: {', '.join(PRESETS)}")
+    current = provision.current_preset(vault.backend)
+    if current is not None and (force or preset not in (None, current)):
+        raise notes.ValidationError(
+            f"This vault already has a layout ({current}). The init tool only sets up a vault without a schema, "
+            "so a client cannot change the rules that check its own writes. Switch layouts with the CLI "
+            f"(notes-vault-mcp init --preset {preset or '<name>'} --force) or on the account page."
+        )
+    result = provision.initialize(vault.backend, force=force and current is None, preset=preset)
+    vault.reload_schema()
+    lines = [f"layout: {result.preset}"]
+    lines += [f"wrote {key}" for key in result.written] + [f"kept {key}" for key in result.kept]
     return "\n".join(lines)
 
 

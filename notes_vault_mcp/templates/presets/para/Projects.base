@@ -1,0 +1,64 @@
+filters:
+  and:
+    - file.inFolder("Projects")
+    - file.ext == "md"
+    - or:
+        - status == "active"
+        - status == "draft"
+formulas:
+  age: if(updated, (today() - date(updated)).days, "")
+  stale: if(updated, if((today() - date(updated)).days > {{STALE_DAYS}}, "stale", ""), "")
+properties:
+  file.name:
+    displayName: Note
+  note.summary:
+    displayName: Summary
+  note.area:
+    displayName: Area
+  note.status:
+    displayName: Status
+  note.updated:
+    displayName: Updated
+  formula.age:
+    displayName: Days
+  formula.stale:
+    displayName: Flag
+views:
+  - type: table
+    name: Open projects
+    order:
+      - file.name
+      - area
+      - status
+      - updated
+      - formula.age
+      - formula.stale
+    sort:
+      - property: updated
+        direction: DESC
+  - type: table
+    name: By area
+    groupBy:
+      property: area
+      direction: ASC
+    order:
+      - file.name
+      - status
+      - updated
+      - formula.age
+    sort:
+      - property: updated
+        direction: DESC
+  - type: table
+    name: Stale
+    filters:
+      and:
+        - formula.stale == "stale"
+    order:
+      - file.name
+      - area
+      - updated
+      - formula.age
+    sort:
+      - property: updated
+        direction: ASC

@@ -1,0 +1,62 @@
+filters:
+  and:
+    - file.inFolder("Projects")
+    - file.ext == "md"
+    - status == "backlog"
+formulas:
+  rank: if(priority == "urgent", 1, if(priority == "high", 2, if(priority == "medium", 3, if(priority == "low", 4, 5))))
+  age: if(updated, (today() - date(updated)).days, "")
+properties:
+  file.name:
+    displayName: Note
+  note.summary:
+    displayName: Summary
+  note.priority:
+    displayName: Priority
+  note.area:
+    displayName: Area
+  note.source:
+    displayName: Source
+  note.updated:
+    displayName: Updated
+  formula.age:
+    displayName: Days
+views:
+  - type: table
+    name: By priority
+    order:
+      - file.name
+      - priority
+      - area
+      - summary
+      - source
+      - formula.age
+    sort:
+      - property: formula.rank
+        direction: ASC
+      - property: updated
+        direction: DESC
+  - type: table
+    name: By area
+    groupBy:
+      property: area
+      direction: ASC
+    order:
+      - file.name
+      - priority
+      - summary
+      - formula.age
+    sort:
+      - property: formula.rank
+        direction: ASC
+  - type: table
+    name: Newest
+    order:
+      - file.name
+      - priority
+      - area
+      - summary
+      - updated
+    sort:
+      - property: updated
+        direction: DESC

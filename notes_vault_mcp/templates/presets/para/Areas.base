@@ -1,0 +1,39 @@
+filters:
+  and:
+    - file.inFolder("Areas")
+    - file.ext == "md"
+formulas:
+  age: if(updated, (today() - date(updated)).days, "")
+properties:
+  file.name:
+    displayName: Note
+  note.summary:
+    displayName: Summary
+  note.tags:
+    displayName: Tags
+  note.updated:
+    displayName: Updated
+  formula.age:
+    displayName: Days since
+views:
+  - type: cards
+    name: Areas
+    order:
+      - file.name
+      - summary
+      - tags
+      - updated
+    sort:
+      - property: updated
+        direction: DESC
+  - type: table
+    name: Table
+    order:
+      - file.name
+      - summary
+      - tags
+      - updated
+      - formula.age
+    sort:
+      - property: updated
+        direction: DESC

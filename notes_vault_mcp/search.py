@@ -167,7 +167,7 @@ def status_factor(status: str) -> float:
 
 
 def score_of(note: Note, base: float, schema: Schema, now: float) -> float:
-    weight = schema.folder_weight(note.folder)
+    weight = schema.folder_weight(schema.folder_of(note.key))
     recency = recency_factor(age_days(note, now), schema.recency_half_life_days)
     return base * weight * recency * status_factor(note.status)
 
@@ -191,7 +191,7 @@ def _matches_filters(
     path_prefix: str | None,
     since: str | None,
 ) -> bool:
-    if folder and note.folder != folder:
+    if folder and not note.key.startswith(f"{folder.strip('/')}/"):
         return False
     if status and note.status != status:
         return False
@@ -350,7 +350,7 @@ def search(
             note = row.note
             if note.key in pinned_keys or not wanted(note):
                 continue
-            if note.folder in unsearched and not include_archive:
+            if schema.folder_of(note.key) in unsearched and not include_archive:
                 result.hidden_archive += counted
                 continue
             if _is_superseded(note) and not include_superseded:

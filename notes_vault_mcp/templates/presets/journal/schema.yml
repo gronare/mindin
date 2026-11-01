@@ -1,0 +1,37 @@
+version: 1
+preset: journal
+language: en
+other_languages: []
+root_description: "Nothing lives here but the views; every note has a folder."
+folders:
+  Daily:     { kind: reference, weight: 2.0, description: "One note per day, Daily/YYYY/YYYY-MM-DD.md, from Templates/Daily Note Template (Daily notes settings: folder Daily, date format YYYY/YYYY-MM-DD): what happened, what was on your mind, links to everything that came up." }
+  Notes:     { kind: reference, weight: 2.0, description: "Everything that is not a day: ideas, people, references. Linked from the days they came up." }
+  Projects:  { kind: task,      weight: 1.5, description: "Open work that spans days, one note each, and the backlog (status backlog). Closed with close." }
+  Logs:      { kind: log,       weight: 0.5, description: "Append-only log per repo, one line per session, and the compiled monthly pages." }
+  Templates: { kind: reference, weight: 0.3, searched: false, description: "The daily note template and the views it embeds." }
+  Archive:   { kind: archive,   weight: 0.3, searched: false, description: "Finished and dropped work. Kept, not searched by default." }
+frontmatter:
+  required: []
+  optional: [title, tags, status, kind, area, summary, priority, source, path, superseded_by, kebbie]
+  area_required_in: [Projects, Logs]
+  status_values: [draft, active, backlog, complete, superseded]
+  kind_values: [day, note, task, log]
+  priority_values: [urgent, high, medium, low]
+kinds:
+  day: "the note for one date: what happened and what was on your mind"
+  note: "anything that is not a day, linked from the days it came up"
+  task: "open work that spans days; something is left to do"
+  log: "append-only lines per repo, one per session, with commit shas"
+tags:
+  strict: false
+  vocabulary: [daily]
+synonyms: []
+log:
+  folder: Logs
+  file_format: "{repo}-log.md"
+  period_format: "{repo}-{period}.md"
+  entry_format: "- [{date}] {line} | branch: {branch} | commits: {commits} | {area}"
+task:
+  sections:
+    en: { problem: Problem, solution: Solution, decisions: Decisions, tests: Test decisions, scope: Out of scope }
+stale_after_days: 30

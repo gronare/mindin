@@ -1,0 +1,37 @@
+version: 1
+preset: para
+language: en
+other_languages: []
+folders:
+  Projects:       { kind: task,      weight: 2.0, description: "Short-term efforts toward a goal, with an end: one note per project, open or parked in the backlog. Finished projects go to the archive with close." }
+  Areas:          { kind: system,    weight: 3.0, description: "Ongoing responsibilities with a standard to keep and no end date: one living note per area, current state only." }
+  Resources:      { kind: reference, weight: 1.5, description: "Topics and interests you collect material on, useful later and not tied to a goal." }
+  Resources/Logs: { kind: log,       weight: 0.5, description: "Append-only log per repo, one line per session, and the compiled monthly pages." }
+  Archive:        { kind: archive,   weight: 0.3, searched: false, description: "Inactive items from the other three: finished or paused projects, areas you no longer keep, resources you lost interest in." }
+frontmatter:
+  required: [title, date, updated, tags, status]
+  optional: [kind, area, summary, due, path, superseded_by, priority, source, kebbie]
+  area_required_in: [Projects, Resources/Logs]
+  status_values: [draft, active, backlog, complete, superseded]
+  kind_values: [task, area, resource, howto, decision, log]
+  priority_values: [urgent, high, medium, low]
+kinds:
+  task: "a project: an outcome with an end; something is left to do"
+  area: "an ongoing responsibility with a standard to keep; current state only, never history"
+  resource: "material on a topic, kept because it may be useful later"
+  howto: "steps that are known to work; nothing chosen, nothing open"
+  decision: "a choice and its reasons; something was chosen, alternatives were dropped"
+  log: "append-only lines per repo, one per session, with commit shas"
+tags:
+  strict: false
+  vocabulary: [work, personal, health, finance, home, learning]
+synonyms: []
+log:
+  folder: Resources/Logs
+  file_format: "{repo}-log.md"
+  period_format: "{repo}-{period}.md"
+  entry_format: "- [{date}] {line} | branch: {branch} | commits: {commits} | {area}"
+task:
+  sections:
+    en: { problem: Outcome, solution: Plan, decisions: Decisions, tests: Done when, scope: Out of scope }
+stale_after_days: 30

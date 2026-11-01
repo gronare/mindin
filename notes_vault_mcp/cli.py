@@ -13,6 +13,7 @@ from notes_vault_mcp.auth import auth_config
 from notes_vault_mcp.backends import NotFound
 from notes_vault_mcp.config import ConfigError, adopt_plugin_config, local_root, s3_settings
 from notes_vault_mcp.embedding import keep_warm
+from notes_vault_mcp.presets import PRESETS
 from notes_vault_mcp.schema import CLAIM_KEY
 from notes_vault_mcp.search import render, search
 from notes_vault_mcp.server import run_http, run_stdio
@@ -36,11 +37,22 @@ def command_serve(args: argparse.Namespace) -> int:
 
 def command_init(args: argparse.Namespace) -> int:
     vault = open_vault()
-    written, kept = provision.initialize(vault.backend, force=args.force)
-    for key in kept:
+    result = provision.initialize(vault.backend, force=args.force, preset=args.preset)
+    print(f"layout: {result.preset}", file=sys.stderr)
+    if result.preset not in PRESETS:
+        print(
+            f"notes-vault-mcp: the schema names {result.preset!r}, which this version does not ship; it is read "
+            "as written and kept. Switch with --preset <name> --force",
+            file=sys.stderr,
+        )
+        return 0
+    for key in result.kept:
         print(f"notes-vault-mcp: {key} exists, keeping it (--force overwrites)", file=sys.stderr)
-    for key in written:
-        print(f"wrote {key}", file=sys.stderr)
+    for line in result.lines():
+        if not line.startswith("kept "):
+            print(line, file=sys.stderr)
+    if result.backup:
+        print("No note was moved or deleted.", file=sys.stderr)
     print(template("claude-md-snippet.md"))
     return 0
 
@@ -159,7 +171,7 @@ def command_admin(args: argparse.Namespace) -> int:
 def command_backlog(args: argparse.Namespace) -> int:
     vault = open_vault()
     vault.index.sync()
-    print(notes.render_backlog(notes.backlog(vault, area=args.area, priority=args.priority)))
+    print(notes.render_backlog(notes.backlog(vault, area=args.area, priority=args.priority), vault))
     return 0
 
 
@@ -291,6 +303,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     init = sub.add_parser("init", help="write the schema and the Obsidian bases into the vault")
     init.add_argument("--force", action="store_true", help="overwrite files that already exist")
+    init.add_argument(
+        "--preset",
+        choices=tuple(PRESETS),
+        help=(
+            "the layout to write; a new vault defaults to default, an existing one keeps its own. "
+            "With --force it switches an existing vault's schema and views; notes are never moved or deleted"
+        ),
+    )
     init.set_defaults(func=command_init)
 
     hook = sub.add_parser("hook", help="Claude Code hook entry points, reading the hook JSON on stdin")

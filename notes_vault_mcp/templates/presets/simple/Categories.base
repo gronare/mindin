@@ -1,0 +1,16 @@
+filters:
+  and:
+    - file.hasTag("categories")
+    - '!file.inFolder("Templates")'
+properties:
+  file.name:
+    displayName: Category
+views:
+  - type: table
+    name: Categories
+    order:
+      - file.name
+      - file.mtime
+    sort:
+      - property: file.name
+        direction: ASC

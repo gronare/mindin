@@ -1,0 +1,36 @@
+filters:
+  and:
+    - file.ext == "md"
+    - '!file.inFolder("Templates")'
+properties:
+  file.name:
+    displayName: Note
+  file.folder:
+    displayName: Folder
+  note.categories:
+    displayName: Categories
+views:
+  - type: table
+    name: Recently changed
+    order:
+      - file.name
+      - categories
+      - file.folder
+      - file.mtime
+    sort:
+      - property: file.mtime
+        direction: DESC
+  - type: table
+    name: Without a category
+    filters:
+      and:
+        - note.categories.isEmpty()
+        - '!file.inFolder("Daily")'
+        - '!file.inFolder("Projects")'
+    order:
+      - file.name
+      - file.folder
+      - file.mtime
+    sort:
+      - property: file.mtime
+        direction: DESC

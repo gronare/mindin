@@ -161,7 +161,7 @@ def test_log_append_records_the_branch(vault: Vault):
 def test_log_append_creates_a_missing_log(vault: Vault):
     notes.log_append(vault, "frame", "Första raden")
     frontmatter, body = body_of(vault, "Log/frame-log.md")
-    assert frontmatter["title"] == "Logg — frame"
+    assert frontmatter["title"] == "Log — frame"
     assert frontmatter["kind"] == "log"
     assert frontmatter["tags"] == ["log", "frame"]
     assert frontmatter["area"] == "[[frame]]"

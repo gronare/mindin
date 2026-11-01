@@ -1,5 +1,5 @@
 ---
-title: Logg — orchard
+title: Log — orchard
 date: 2026-01-02
 updated: @@D5@@
 tags: [log, orchard]

@@ -276,7 +276,7 @@ def _area_link(area: str | None, repo: str) -> str:
 
 def _new_log(repo: str, area: str | None) -> tuple[dict, str]:
     frontmatter = {
-        "title": f"Logg — {repo}",
+        "title": f"Log — {repo}",
         "date": stamp(),
         "updated": stamp(),
         "tags": ["log", repo],

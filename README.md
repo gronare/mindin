@@ -190,7 +190,7 @@ note claimed through `task claim` within the last 14 days is left alone. Run it 
 | `move_file` | write | Moves or renames a note; it must satisfy the schema at the destination. |
 | `delete_file` | write | Deletes for good. Prefer `close`. |
 | `init` | write | Writes the schema and the Bases views into the vault root and keeps what exists; `force` overwrites. |
-| `obsidian_access` | write | `--auth forwarded` only. Mints the WebDAV token for Obsidian's Remotely Save and shows it once. |
+| `obsidian_access` | write | `--auth forwarded` and `hosted` only. Mints the WebDAV token for Obsidian's Remotely Save and shows it once. |
 
 Over HTTP with OAuth, a token carries `vault:read` or `vault:read vault:write`. A write tool called
 with a read-only token fails with an error saying so, rather than half-writing.
@@ -284,7 +284,7 @@ mobile app. One server instance serves one vault.
 notes-vault-mcp serve --transport http --host 0.0.0.0 --port 8765 --auth builtin
 ```
 
-Streamable HTTP on `/mcp`, with four ways to authenticate:
+Streamable HTTP on `/mcp`, with five ways to authenticate:
 
 | `--auth` | Who logs in | Client registration | Read-only clients | State on disk |
 | --- | --- | --- | --- | --- |
@@ -292,10 +292,12 @@ Streamable HTTP on `/mcp`, with four ways to authenticate:
 | `oidc` | anyone your OpenID Connect provider admits | dynamic when the provider supports it, otherwise a client id and secret pasted into claude.ai | group membership | none |
 | `bearer` | anything carrying `Authorization: Bearer $VAULT_TOKEN` | none | no | none |
 | `forwarded` | whoever a trusted proxy identifies in a signed header | the proxy's | by entitlement | `personal.sqlite` under `VAULT_AUTH_DIR` |
+| `hosted` | invited people, through your OpenID Connect provider, one vault each | metadata documents and dynamic, nothing to configure in claude.ai | read or read and write per connection and key | `hosted.sqlite` under `VAULT_AUTH_DIR` |
 
 `bearer` is the default and the LAN mode: one token with full access, refused without `VAULT_TOKEN`,
 and claude.ai cannot use it. `forwarded` serves one vault per person behind a proxy that did the OAuth;
-see [Behind a proxy](#behind-a-proxy-one-vault-per-person).
+see [Behind a proxy](#behind-a-proxy-one-vault-per-person). `hosted` signs a group in through your
+identity provider and gives each person a vault; see [Hosted mode](#hosted-mode-accounts-for-a-small-group).
 
 You need a domain pointing at the machine and TLS in front of the server. The examples under `deploy/`
 put Caddy there, which fetches the certificate itself. `VAULT_PUBLIC_URL` is the https address clients
@@ -337,6 +339,76 @@ gives anything else `421`. With `VAULT_PUBLIC_URL` set, its hostname and localho
 the rest get `421`; a Service name or a LAN hostname next to the public one goes in
 `VAULT_ALLOWED_HOSTS`. Bound to another address with neither set, every `Host` is answered. In
 `forwarded` mode the header is not checked.
+
+### Hosted mode: accounts for a small group
+
+`--auth hosted` serves a vault to each person in a group you choose: a household, a team, you on
+several machines. People sign in through your OpenID Connect provider (Pocket ID, Authentik, Keycloak
+and the like), and each account gets its own vault under `VAULT_SUBJECT_PREFIX/<sub>/` with its own
+index. Nobody sees anyone else's notes.
+
+At the provider, register one confidential client for this server with the redirect URI
+`VAULT_PUBLIC_URL` + `/oidc/callback` and the scopes `openid email profile`. On the server:
+
+```sh
+export VAULT_PUBLIC_URL=https://vault.example.com
+export VAULT_HOSTED_OIDC_ISSUER=https://id.example.com
+export VAULT_HOSTED_OIDC_CLIENT_ID=...
+export VAULT_HOSTED_OIDC_CLIENT_SECRET=...
+notes-vault-mcp serve --transport http --host 0.0.0.0 --port 8765 --auth hosted
+```
+
+Access is by invitation. Invite an address, and the first time someone signs in with that address,
+verified by the provider, the account is theirs:
+
+```sh
+notes-vault-mcp accounts invite anna@example.com
+notes-vault-mcp accounts list
+notes-vault-mcp accounts suspend anna@example.com     # every key and token stops at once
+notes-vault-mcp accounts activate anna@example.com
+```
+
+Each person then opens `VAULT_PUBLIC_URL/account`, which shows who they are, their keys and how to
+connect:
+
+- **claude.ai, Claude Desktop and mobile**: add a custom connector with `VAULT_PUBLIC_URL/mcp`. The
+  server takes claude.ai's client metadata document, so there is nothing to paste.
+- **Claude Code, Codex, Cursor**: add `VAULT_PUBLIC_URL/mcp` as a remote server. Each registers itself
+  (a metadata document or dynamic registration) and signs in through the browser the first time.
+- **A machine without a browser** (a laptop's setup script, a devbox over ssh): a tool that speaks the
+  OAuth device flow shows a code such as `BCDF-GHJK`. Open `VAULT_PUBLIC_URL/device`, enter it, and
+  choose read or read and write. The machine receives an API key and keeps it.
+- **A client that only takes a header**: make a key on `/account` and send
+  `Authorization: Bearer nvm_...`.
+- **Obsidian's Remotely Save**: WebDAV at `VAULT_PUBLIC_URL/dav/`, the account's email as the username
+  and a key as the password.
+
+Every connection asks for read or read and write. Keys are shown once, named after where they live,
+show when they were last used, and are revoked on `/account`.
+
+A device flow for scripts. `POST /device_authorization` with `name=<machine>` (and optionally
+`scope=vault:read`) answers `device_code`, `user_code`, `verification_uri`,
+`verification_uri_complete`, `interval` and `expires_in`. Poll `POST /token` with
+`grant_type=urn:ietf:params:oauth:grant-type:device_code` and the `device_code` every `interval`
+seconds; it answers `authorization_pending` until the person approves, `slow_down` when polled too
+often, `access_denied` or `expired_token`, and once `{"access_token": "nvm_...", "token_type": "Bearer",
+"scope": "...", "key_name": "...", "resource": ".../mcp"}`.
+
+`hosted.sqlite` under `VAULT_AUTH_DIR` holds the accounts, the hashed keys and tokens and the
+registered clients. Back it up.
+
+**Plans.** With `--plans on` each account also carries a plan, `active` or `inactive` with an `until`
+time, set through an admin API by a billing service. A plan past its end leaves the vault readable,
+WebDAV export included, for `VAULT_PLAN_READ_ONLY_DAYS`, and then refuses it until the plan is renewed;
+the person can still sign in to `/account`. `--plans off`, the default, ignores plans. The admin API
+takes a token made with `notes-vault-mcp admin token --name billing --scope billing`:
+`GET /v1/admin/accounts` (paged with `after` and `limit`), `GET /v1/admin/accounts/{id}`,
+`PUT /v1/admin/accounts/{id}/plan` with `{"status": "active", "until": 1764547200}`, and
+`POST /v1/admin/accounts/{id}/deactivate` or `/activate`. With `VAULT_BILLING_URL` and
+`VAULT_BILLING_HANDOFF_SECRET` set, `/account` links to the billing service's checkout and portal
+through `/account/billing/checkout` and `/account/billing/portal`, which redirect with
+`account`, `expires` and `signature`: base64url of HMAC-SHA256 over `vault-billing-handoff-v1`,
+the purpose, a zero byte, the account id, a zero byte and the expiry.
 
 ## Search by meaning
 
@@ -411,6 +483,8 @@ notes-vault-mcp changelog --all                  # this month, and last month du
 notes-vault-mcp hook session-start | stop        # the Claude Code hooks, JSON on stdin
 notes-vault-mcp owner set-password [--password ...]
 notes-vault-mcp tokens list | revoke <client_id>
+notes-vault-mcp accounts list | invite <email> | suspend <account> | activate <account>
+notes-vault-mcp admin token --name billing --scope billing | revoke <name>
 notes-vault-mcp status [--probe]
 ```
 
@@ -516,14 +590,15 @@ Every variable is also read from `CLAUDE_PLUGIN_OPTION_<NAME>`; the bare name wi
 ### HTTP and authentication
 
 `serve --transport http` takes `--host` (default `127.0.0.1`), `--port` (default `8765`) and `--auth`
-(`bearer`, the default, `oidc`, `builtin` or `forwarded`).
+(`bearer`, the default, `oidc`, `builtin`, `forwarded` or `hosted`). In hosted mode `--plans on` checks
+each account's plan; the default `off` ignores plans.
 
 | Variable | Mode | Meaning |
 | --- | --- | --- |
 | `VAULT_TOKEN` | bearer | Required. The static token every request must carry. |
-| `VAULT_PUBLIC_URL` | oidc, builtin, forwarded | Required. The address clients reach, path included when the server is not at the root. Must be `https://`, or `http://localhost` for a local trial. Optional in bearer mode, where it only widens the `Host` check. |
+| `VAULT_PUBLIC_URL` | oidc, builtin, forwarded, hosted | Required. The address clients reach, path included when the server is not at the root. Must be `https://`, or `http://localhost` for a local trial. Optional in bearer mode, where it only widens the `Host` check. |
 | `VAULT_ALLOWED_HOSTS` | all | Extra `Host` header values the server answers on, space or comma separated. |
-| `VAULT_AUTH_DIR` | builtin, forwarded | Where `auth.sqlite` (the owner's password hash, the registered clients, the hashed tokens) or `personal.sqlite` (the hashed WebDAV tokens) lives. Default `~/.cache/notes-vault-mcp/auth`. |
+| `VAULT_AUTH_DIR` | builtin, forwarded, hosted | Where `auth.sqlite` (the owner's password hash, the registered clients, the hashed tokens), `personal.sqlite` (the hashed WebDAV tokens) or `hosted.sqlite` (accounts, hashed keys and tokens, clients) lives. Default `~/.cache/notes-vault-mcp/auth`. |
 | `VAULT_OIDC_ISSUER` | oidc | Required. The provider's issuer URL. |
 | `VAULT_OIDC_AUDIENCE` | oidc | Required. The value the provider puts in `aud`; a token without it, or for another audience, is refused. |
 | `VAULT_OIDC_READ_GROUP` | oidc | Group granting `vault:read`. Default `vault`. |
@@ -535,7 +610,14 @@ Every variable is also read from `CLAUDE_PLUGIN_OPTION_<NAME>`; the bare name wi
 | `VAULT_IDENTITY_TYP` | forwarded | When set, the token's `typ` must match. |
 | `VAULT_IDENTITY_WRITE_CLAIMS` | forwarded | Entitlement names (in the token's `entitlements` list or `scope`) that grant `vault:read` and `vault:write`, space separated. Default `vault:write`. |
 | `VAULT_IDENTITY_READ_CLAIMS` | forwarded | Entitlement names that grant `vault:read` only. Default `vault:read`. A token with neither gets `403 insufficient_scope`. |
-| `VAULT_SUBJECT_PREFIX` | forwarded | Where the per-person vaults live under the bucket or folder: `<prefix>/<sub>/`. Default `users`. |
+| `VAULT_SUBJECT_PREFIX` | forwarded, hosted | Where the per-person vaults live under the bucket or folder: `<prefix>/<sub>/`. Default `users`. |
+| `VAULT_HOSTED_OIDC_ISSUER` | hosted | Required. The issuer URL of the provider people sign in with. |
+| `VAULT_HOSTED_OIDC_CLIENT_ID` | hosted | Required. This server's client id at that provider. |
+| `VAULT_HOSTED_OIDC_CLIENT_SECRET` | hosted | Required. This server's client secret at that provider. |
+| `VAULT_HOSTED_OIDC_SCOPES` | hosted | Scopes asked of the provider, space separated. Default `openid email profile`. |
+| `VAULT_PLAN_READ_ONLY_DAYS` | hosted | With `--plans on`, how many days a vault stays readable after its plan ends. Default `30`. |
+| `VAULT_BILLING_URL` | hosted | The billing service the `/account` checkout and portal links go to. |
+| `VAULT_BILLING_HANDOFF_SECRET` | hosted | 32 random bytes, base64url, shared with the billing service to sign those links. |
 
 ## Deploy
 

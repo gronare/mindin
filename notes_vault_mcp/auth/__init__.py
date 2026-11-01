@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import base64
 import binascii
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
 from notes_vault_mcp.config import ConfigError, cache_dir, env, private_dir
 
-AuthMode = Literal["bearer", "oidc", "builtin", "forwarded"]
+AuthMode = Literal["bearer", "oidc", "builtin", "forwarded", "hosted"]
 READ_SCOPE = "vault:read"
 WRITE_SCOPE = "vault:write"
 SCOPES = (READ_SCOPE, WRITE_SCOPE)
@@ -18,6 +18,7 @@ DEFAULT_WRITE_GROUP = "vault-writers"
 DEFAULT_IDP_SCOPES = ("openid", "profile", "email", "groups")
 DEFAULT_IDENTITY_HEADER = "X-Forwarded-Identity"
 DEFAULT_SUBJECT_PREFIX = "users"
+DEFAULT_HOSTED_SCOPES = ("openid", "email", "profile")
 
 NO_PUBLIC_URL = (
     "notes-vault-mcp: --auth {mode} needs VAULT_PUBLIC_URL, the https address clients reach this server on "
@@ -34,6 +35,15 @@ NO_IDENTITY_KEY = (
 )
 NO_IDENTITY_ISSUER = (
     "notes-vault-mcp: --auth forwarded needs VAULT_IDENTITY_ISSUER, the `iss` the proxy puts in its identity tokens."
+)
+NO_HOSTED_SETTING = (
+    "notes-vault-mcp: --auth hosted needs {name}, {what}; register this server at the identity provider with the "
+    "redirect URI VAULT_PUBLIC_URL + /oidc/callback."
+)
+HOSTED_SETTINGS = (
+    ("VAULT_HOSTED_OIDC_ISSUER", "the issuer URL of the identity provider people sign in with"),
+    ("VAULT_HOSTED_OIDC_CLIENT_ID", "the client id this server has at that provider"),
+    ("VAULT_HOSTED_OIDC_CLIENT_SECRET", "the client secret this server has at that provider"),
 )
 BAD_IDENTITY_KEY = "notes-vault-mcp: VAULT_IDENTITY_PUBLIC_KEY is not a PEM public key: {reason}"
 
@@ -57,6 +67,10 @@ class AuthConfig:
     read_claims: tuple[str, ...] = (READ_SCOPE,)
     subject_prefix: str = DEFAULT_SUBJECT_PREFIX
     allowed_hosts: tuple[str, ...] = ()
+    upstream_issuer: str = ""
+    upstream_client_id: str = ""
+    upstream_client_secret: str = field(default="", repr=False)
+    upstream_scopes: tuple[str, ...] = DEFAULT_HOSTED_SCOPES
 
     @property
     def path_prefix(self) -> str:
@@ -77,7 +91,13 @@ class AuthConfig:
 
     @property
     def advertised_scopes(self) -> tuple[str, ...]:
+        if self.mode == "hosted":
+            return SCOPES
         return self.idp_scopes if self.mode == "oidc" else (READ_SCOPE,)
+
+    @property
+    def upstream_redirect_uri(self) -> str:
+        return f"{self.public_url.rstrip('/')}/oidc/callback"
 
 
 def auth_dir() -> Path:
@@ -162,6 +182,29 @@ def auth_config(mode: AuthMode) -> AuthConfig:
             subject_prefix=(env("VAULT_SUBJECT_PREFIX") or DEFAULT_SUBJECT_PREFIX).strip("/"),
             allowed_hosts=hosts,
         )
+    if mode == "hosted":
+        return hosted_config(public_url, hosts)
     return AuthConfig(
         mode="builtin", public_url=public_url, issuer=public_url, auth_dir=auth_dir(), allowed_hosts=hosts
+    )
+
+
+def hosted_config(public_url: str, hosts: tuple[str, ...]) -> AuthConfig:
+    values = {}
+    for name, what in HOSTED_SETTINGS:
+        value = (env(name) or "").strip()
+        if not value:
+            raise ConfigError(NO_HOSTED_SETTING.format(name=name, what=what))
+        values[name] = value
+    return AuthConfig(
+        mode="hosted",
+        public_url=public_url,
+        issuer=public_url,
+        auth_dir=auth_dir(),
+        subject_prefix=(env("VAULT_SUBJECT_PREFIX") or DEFAULT_SUBJECT_PREFIX).strip("/"),
+        allowed_hosts=hosts,
+        upstream_issuer=values["VAULT_HOSTED_OIDC_ISSUER"].rstrip("/"),
+        upstream_client_id=values["VAULT_HOSTED_OIDC_CLIENT_ID"],
+        upstream_client_secret=values["VAULT_HOSTED_OIDC_CLIENT_SECRET"],
+        upstream_scopes=_words("VAULT_HOSTED_OIDC_SCOPES", DEFAULT_HOSTED_SCOPES),
     )

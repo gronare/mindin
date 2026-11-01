@@ -23,7 +23,7 @@ def command_serve(args: argparse.Namespace) -> int:
         run_stdio(open_vault(vectors="background"))
         return 0
     auth = auth_config(args.auth)
-    if auth.mode == "forwarded":
+    if auth.mode in ("forwarded", "hosted"):
         from notes_vault_mcp.vault import SubjectVaults
 
         vaults = SubjectVaults(prefix=auth.subject_prefix, dav_url=auth.dav_url, vectors="background")
@@ -124,6 +124,12 @@ def command_tokens(args: argparse.Namespace) -> int:
     from notes_vault_mcp.auth import builtin
 
     return builtin.command_tokens(args)
+
+
+def command_accounts(args: argparse.Namespace) -> int:
+    from notes_vault_mcp.auth import hosted_store
+
+    return hosted_store.command_accounts(args)
 
 
 def command_backlog(args: argparse.Namespace) -> int:
@@ -253,11 +259,12 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument(
         "--auth",
-        choices=("bearer", "oidc", "builtin", "forwarded"),
+        choices=("bearer", "oidc", "builtin", "forwarded", "hosted"),
         default="bearer",
         help=(
             "http only: a static VAULT_TOKEN, an identity provider (VAULT_OIDC_ISSUER), the built-in owner login, "
-            "or a signed identity header from a trusted proxy (VAULT_IDENTITY_*), one vault per subject"
+            "a signed identity header from a trusted proxy (VAULT_IDENTITY_*), one vault per subject, or accounts "
+            "signing in through an identity provider (VAULT_HOSTED_OIDC_*), one vault per account"
         ),
     )
     serve.set_defaults(func=command_serve)
@@ -303,6 +310,20 @@ def build_parser() -> argparse.ArgumentParser:
     revoke = tokens_sub.add_parser("revoke", help="revoke a client's tokens")
     revoke.add_argument("client_id")
     revoke.set_defaults(func=command_tokens)
+
+    accounts = sub.add_parser("accounts", help="the accounts of --auth hosted")
+    accounts_sub = accounts.add_subparsers(dest="accounts_command", required=True)
+    accounts_sub.add_parser("list", help="list accounts with status and key count").set_defaults(func=command_accounts)
+    inviting = accounts_sub.add_parser("invite", help="let this email address sign in and get a vault")
+    inviting.add_argument("email")
+    inviting.set_defaults(func=command_accounts)
+    for name, summary in (
+        ("suspend", "refuse the account's keys and tokens at once"),
+        ("activate", "lift a suspension"),
+    ):
+        changing = accounts_sub.add_parser(name, help=summary)
+        changing.add_argument("account", help="the account's email or id")
+        changing.set_defaults(func=command_accounts)
 
     queue = sub.add_parser("backlog", help="list the backlog, sorted by priority then age")
     queue.add_argument("--area", help="a system note stem, or the prefix a family of stems shares")

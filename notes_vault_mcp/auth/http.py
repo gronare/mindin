@@ -27,7 +27,7 @@ def auth_settings(auth: AuthConfig) -> AuthSettings:
 
 
 def server_auth_kwargs(auth: AuthConfig | None) -> dict[str, Any]:
-    if auth is None or auth.mode in ("bearer", "forwarded"):
+    if auth is None or auth.mode in ("bearer", "forwarded", "hosted"):
         return {}
     if auth.mode == "oidc":
         from notes_vault_mcp.auth.oidc import OidcVerifier
@@ -86,6 +86,10 @@ def build_http_app(vaults: Vault | VaultResolver, auth: AuthConfig, host: str = 
 
     if auth.mode == "forwarded":
         return forwarded_app(vaults, auth, host)
+    if auth.mode == "hosted":
+        from notes_vault_mcp.auth.hosted import build_hosted_app
+
+        return build_hosted_app(vaults, auth, host)
     server: MCPServer = build_server(vaults, auth)
     if auth.mode == "builtin":
         provider = server._auth_server_provider

@@ -248,3 +248,20 @@ async def test_dav_under_a_public_url_path(tmp_path: Path, secret: str, keyring:
     assert response.status_code == 207
     assert hrefs(response)[0] == "/vault/dav/"
     assert "/vault/dav/Welcome.md" in hrefs(response)
+
+
+@pytest.mark.anyio
+async def test_a_remotely_save_walk_lists_the_storage_once(
+    app: Any, secret: str, vaults: SubjectVaults, monkeypatch: pytest.MonkeyPatch
+):
+    async with dav_client(app) as client:
+        for path in ("Areas/a.md", "Projects/b.md", "Projects/Deep/c.md"):
+            await client.put(f"/dav/{path}", content=b"x", headers=basic(secret))
+        inner = vaults.for_subject("1042").backend.inner
+        listings: list[str] = []
+        real = inner.list_all
+        monkeypatch.setattr(inner, "list_all", lambda prefix="": listings.append(prefix) or real(prefix))
+        for folder in ("", "Areas/", "Projects/", "Projects/Deep/"):
+            walked = await client.request("PROPFIND", f"/dav/{folder}", headers={"Depth": "1", **basic(secret)})
+            assert walked.status_code == 207
+    assert len(listings) == 1

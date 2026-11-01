@@ -10,7 +10,7 @@ from moto import mock_aws
 from notes_vault_mcp.backends import MUST_NOT_EXIST, NotFound, VaultError, VersionConflict
 from notes_vault_mcp.backends.local import LocalBackend
 from notes_vault_mcp.backends.s3 import S3Backend
-from notes_vault_mcp.backends.sealed import MAX_PATH_BYTES, SealedBackend, Unreadable
+from notes_vault_mcp.backends.sealed import LISTING_TTL, MAX_PATH_BYTES, SealedBackend, Unreadable
 from notes_vault_mcp.vault import SubjectVaults, open_vault
 
 BUCKET = "sealed-test"
@@ -25,6 +25,7 @@ class Counting:
     def __init__(self, inner: LocalBackend) -> None:
         self.inner = inner
         self.fetches = 0
+        self.listings = 0
 
     def __getattr__(self, name: str):
         return getattr(self.inner, name)
@@ -32,6 +33,10 @@ class Counting:
     def get_bytes(self, key: str) -> tuple[bytes, str]:
         self.fetches += 1
         return self.inner.get_bytes(key)
+
+    def list_all(self, prefix: str = "") -> list:
+        self.listings += 1
+        return self.inner.list_all(prefix)
 
 
 @pytest.fixture
@@ -163,3 +168,71 @@ def test_a_local_vault_still_writes_plaintext(vault_dir: Path, tmp_path: Path, m
     assert not getattr(vault.backend, "sealed", False)
     assert (vault_dir / "Areas" / "plain.md").read_text(encoding="utf-8") == NOTE
     vault.close()
+
+
+class Ticking:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_a_folder_walk_lists_the_storage_once(tmp_path: Path):
+    counting = Counting(LocalBackend(tmp_path / "raw"))
+    sealed = SealedBackend(counting, os.urandom(32), clock=Ticking())
+    for path in ("Areas/a.md", "Projects/b.md", "Projects/Deep/c.md", "Inbox/d.md"):
+        sealed.put(path, "x")
+    counting.listings = 0
+    walked = [sealed.list_all(folder) for folder in ("", "Areas/", "Projects/", "Projects/Deep/", "Inbox/")]
+    assert [len(found) for found in walked] == [4, 1, 2, 1, 1]
+    assert [entry.key for entry in sealed.list()] == ["Areas/a.md", "Inbox/d.md", "Projects/Deep/c.md", "Projects/b.md"]
+    assert counting.listings == 1
+
+
+@pytest.mark.parametrize(
+    ("change", "expected"),
+    [
+        (lambda sealed: sealed.put("new.md", "n"), {"a.md", "b.md", "new.md"}),
+        (lambda sealed: sealed.put_bytes("new.png", b"n"), {"a.md", "b.md", "new.png"}),
+        (lambda sealed: sealed.mkdir("Folder/"), {"a.md", "b.md", "Folder/"}),
+        (lambda sealed: sealed.delete("a.md"), {"b.md"}),
+        (lambda sealed: sealed.move("a.md", "c.md"), {"b.md", "c.md"}),
+    ],
+    ids=["put", "put_bytes", "mkdir", "delete", "move"],
+)
+def test_every_change_through_the_vault_drops_the_cached_listing(tmp_path: Path, change, expected: set[str]):
+    sealed = SealedBackend(LocalBackend(tmp_path / "raw"), os.urandom(32), clock=Ticking())
+    sealed.put("a.md", "a")
+    sealed.put("b.md", "b")
+    assert {entry.key for entry in sealed.list_all()} == {"a.md", "b.md"}
+    change(sealed)
+    assert {entry.key for entry in sealed.list_all()} == expected
+
+
+def test_a_write_from_elsewhere_shows_once_the_cached_listing_expires(tmp_path: Path):
+    key, clock = os.urandom(32), Ticking()
+    sealed = SealedBackend(LocalBackend(tmp_path / "raw"), key, clock=clock)
+    sealed.put("a.md", "a")
+    assert [entry.key for entry in sealed.list_all()] == ["a.md"]
+    SealedBackend(LocalBackend(tmp_path / "raw"), key).put("b.md", "b")
+    assert [entry.key for entry in sealed.list_all()] == ["a.md"]
+    clock.now += LISTING_TTL
+    assert [entry.key for entry in sealed.list_all()] == ["a.md", "b.md"]
+
+
+def test_a_listing_that_raced_a_write_is_not_kept(tmp_path: Path):
+    inner = LocalBackend(tmp_path / "raw")
+    sealed = SealedBackend(inner, os.urandom(32), clock=Ticking())
+    sealed.put("a.md", "a")
+    real = inner.list_all
+
+    def listing_then_a_write(prefix: str = "") -> list:
+        found = real(prefix)
+        inner.list_all = real
+        sealed.put("late.md", "late")
+        return found
+
+    inner.list_all = listing_then_a_write
+    assert [entry.key for entry in sealed.list_all()] == ["a.md"]
+    assert [entry.key for entry in sealed.list_all()] == ["a.md", "late.md"]

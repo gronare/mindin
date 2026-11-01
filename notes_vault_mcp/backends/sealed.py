@@ -4,6 +4,9 @@ import base64
 import binascii
 import logging
 import os
+import threading
+import time
+from collections.abc import Callable
 from typing import Protocol
 
 from cryptography.exceptions import InvalidTag
@@ -22,6 +25,7 @@ MAX_PATH_BYTES = 512
 SEGMENT_CHARS = 200
 SEALED_TYPE = "application/octet-stream"
 NAME_CONTEXT = b"notes-vault-mcp name v1"
+LISTING_TTL = 5.0
 log = logging.getLogger(__name__)
 
 
@@ -46,10 +50,14 @@ def new_data_key() -> bytes:
 class SealedBackend:
     sealed = True
 
-    def __init__(self, inner: Storage, data_key: bytes) -> None:
+    def __init__(self, inner: Storage, data_key: bytes, clock: Callable[[], float] = time.monotonic) -> None:
         if len(data_key) != DATA_KEY_BYTES:
             raise ValueError("a data key is 32 bytes")
         self.inner = inner
+        self.clock = clock
+        self._lock = threading.Lock()
+        self._listing: tuple[float, list[Entry]] | None = None
+        self._generation = 0
         self._contents = AESGCM(_subkey(data_key, b"notes-vault-mcp contents v1", 32))
         self._names = AESSIV(_subkey(data_key, b"notes-vault-mcp names v1", 64))
 
@@ -84,6 +92,27 @@ class SealedBackend:
             raise Unreadable(f"{path} does not decrypt under this vault's key") from exc
 
     def list_all(self, prefix: str = "") -> list[Entry]:
+        return [entry for entry in self._entries() if entry.key.startswith(prefix)]
+
+    # Writes from another process show here only after LISTING_TTL: serve each bucket from one replica.
+    def _entries(self) -> list[Entry]:
+        with self._lock:
+            if self._listing is not None and self.clock() - self._listing[0] < LISTING_TTL:
+                return self._listing[1]
+            generation = self._generation
+        moment = self.clock()
+        entries = self._read_listing()
+        with self._lock:
+            if generation == self._generation:
+                self._listing = (moment, entries)
+        return entries
+
+    def _changed(self) -> None:
+        with self._lock:
+            self._generation += 1
+            self._listing = None
+
+    def _read_listing(self) -> list[Entry]:
         entries: list[Entry] = []
         foreign = 0
         for entry in self.inner.list_all(""):
@@ -93,9 +122,8 @@ class SealedBackend:
             if path is None:
                 foreign += 1
                 continue
-            if path.startswith(prefix):
-                size = max(entry.size - OVERHEAD, 0)
-                entries.append(Entry(key=path, version=entry.version, mtime=entry.mtime, size=size))
+            size = max(entry.size - OVERHEAD, 0)
+            entries.append(Entry(key=path, version=entry.version, mtime=entry.mtime, size=size))
         if foreign:
             log.warning("notes-vault-mcp: %d objects under a sealed vault do not decrypt; skipping them", foreign)
         return sorted(entries, key=lambda entry: entry.key)
@@ -117,7 +145,10 @@ class SealedBackend:
     def put_checked(
         self, key: str, data: bytes, expected_version: str | None = None, content_type: str = SEALED_TYPE
     ) -> str:
-        return self.inner.put_checked(self.object_key(key), self.seal(key, data), expected_version, SEALED_TYPE)
+        try:
+            return self.inner.put_checked(self.object_key(key), self.seal(key, data), expected_version, SEALED_TYPE)
+        finally:
+            self._changed()
 
     def put(self, key: str, text: str, expected_version: str | None = None) -> str:
         return self.put_checked(key, text.encode("utf-8"), expected_version)
@@ -127,13 +158,18 @@ class SealedBackend:
 
     def mkdir(self, key: str) -> None:
         folder = key.rstrip("/") + "/"
-        self.inner.put_bytes(self.object_key(folder), self.seal(folder, b""), SEALED_TYPE)
+        try:
+            self.inner.put_bytes(self.object_key(folder), self.seal(folder, b""), SEALED_TYPE)
+        finally:
+            self._changed()
 
     def delete(self, key: str) -> None:
         try:
             self.inner.delete(self.object_key(key))
         except NotFound:
             raise NotFound(key) from None
+        finally:
+            self._changed()
 
     def move(self, src: str, dst: str) -> None:
         if src.endswith("/"):

@@ -7,7 +7,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from notes_vault_mcp import notes, provision
 from notes_vault_mcp.auth import AuthConfig
-from notes_vault_mcp.auth.personal import PersonalTokens
+from notes_vault_mcp.auth.personal import DavCredentials
 from notes_vault_mcp.auth.scopes import ScopeError, require_write
 from notes_vault_mcp.backends import VaultError
 from notes_vault_mcp.frontmatter import FrontmatterError
@@ -40,7 +40,7 @@ MEANING_DESCRIPTION = (
 def build_server(
     vaults: Vault | VaultResolver,
     auth: AuthConfig | None = None,
-    personal_tokens: PersonalTokens | None = None,
+    personal_tokens: DavCredentials | None = None,
     dav_url: str = "",
 ) -> MCPServer:
     from notes_vault_mcp.auth.http import server_auth_kwargs
@@ -275,7 +275,7 @@ def _init(vault: Vault, force: bool) -> str:
     return "\n".join(lines)
 
 
-def _obsidian_access(tokens: PersonalTokens, dav_url: str) -> str:
+def _obsidian_access(tokens: DavCredentials, dav_url: str) -> str:
     from mcp.server.auth.middleware.auth_context import get_access_token
 
     token = get_access_token()

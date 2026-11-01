@@ -7,6 +7,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Protocol
 
 from notes_vault_mcp.config import private_dir
 
@@ -20,6 +21,12 @@ CREATE TABLE IF NOT EXISTS personal_tokens (
 );
 CREATE INDEX IF NOT EXISTS personal_tokens_subject ON personal_tokens(subject);
 """
+
+
+class DavCredentials(Protocol):
+    def issue(self, subject: str, label: str = "") -> str: ...
+
+    def lookup(self, secret: str) -> tuple[str, bool] | None: ...
 
 
 def token_hash(token: str) -> str:
@@ -62,6 +69,10 @@ class PersonalTokens:
                 "SELECT subject FROM personal_tokens WHERE token_hash = ? AND revoked = 0", (token_hash(token),)
             ).fetchone()
         return str(row["subject"]) if row else None
+
+    def lookup(self, secret: str) -> tuple[str, bool] | None:
+        subject = self.subject_for(secret)
+        return (subject, True) if subject else None
 
     def revoke(self, subject: str) -> int:
         with self.connect() as connection:

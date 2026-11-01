@@ -13,11 +13,12 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from notes_vault_mcp.auth.personal import PersonalTokens
+from notes_vault_mcp.auth.personal import DavCredentials
 from notes_vault_mcp.backends import Entry, NotFound, VaultBackend
 from notes_vault_mcp.vault import SubjectVaults
 
 ALLOW = "OPTIONS, PROPFIND, GET, HEAD, PUT, DELETE, MKCOL, MOVE, COPY"
+READING_METHODS = frozenset({"OPTIONS", "PROPFIND", "GET", "HEAD"})
 XML = "application/xml; charset=utf-8"
 MAX_BODY_BYTES = 32 * 1024 * 1024
 
@@ -69,7 +70,7 @@ class WebDav:
     # A small WebDAV server over one subject's prefix: what Remotely Save needs, nothing more. The caller
     # authenticates with the personal token the `obsidian_access` tool minted; the username is informational.
     def __init__(
-        self, vaults: SubjectVaults, tokens: PersonalTokens, mount: str = "/dav", max_body: int = MAX_BODY_BYTES
+        self, vaults: SubjectVaults, tokens: DavCredentials, mount: str = "/dav", max_body: int = MAX_BODY_BYTES
     ) -> None:
         self.vaults = vaults
         self.tokens = tokens
@@ -84,9 +85,12 @@ class WebDav:
         await response(scope, receive, send)
 
     async def handle(self, request: Request) -> Response:
-        subject = self._subject(request)
-        if subject is None:
+        grant = self._grant(request)
+        if grant is None:
             return Response("unauthorized", 401, headers={"WWW-Authenticate": 'Basic realm="vault"'})
+        subject, writable = grant
+        if not writable and request.method.upper() not in READING_METHODS:
+            return Response("this key may only read the vault", 403)
         key = self._key(request.scope)
         if key is None:
             return Response("forbidden", 403)
@@ -101,7 +105,7 @@ class WebDav:
         except BodyTooLarge:
             return Response(f"body larger than {self.max_body} bytes", 413)
 
-    def _subject(self, request: Request) -> str | None:
+    def _grant(self, request: Request) -> tuple[str, bool] | None:
         header = request.headers.get("authorization", "")
         scheme, _, value = header.partition(" ")
         if scheme.lower() == "basic":
@@ -110,9 +114,9 @@ class WebDav:
             except (ValueError, UnicodeDecodeError):
                 return None
             _, _, secret = decoded.partition(":")
-            return self.tokens.subject_for(secret)
+            return self.tokens.lookup(secret)
         if scheme.lower() == "bearer":
-            return self.tokens.subject_for(value.strip())
+            return self.tokens.lookup(value.strip())
         return None
 
     def _key(self, scope: Scope) -> str | None:

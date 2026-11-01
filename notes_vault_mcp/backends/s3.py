@@ -102,15 +102,19 @@ class S3Backend:
         return _etag(response.get("ETag"))
 
     def put(self, key: str, text: str, expected_version: str | None = None) -> str:
-        data = text.encode("utf-8")
+        return self.put_checked(key, text.encode("utf-8"), expected_version, MARKDOWN)
+
+    def put_checked(
+        self, key: str, data: bytes, expected_version: str | None = None, content_type: str = MARKDOWN
+    ) -> str:
         if expected_version is None:
-            return self.put_bytes(key, data, MARKDOWN)
+            return self.put_bytes(key, data, content_type)
         if self.conditional_puts:
             condition = (
                 {"IfNoneMatch": "*"} if expected_version == MUST_NOT_EXIST else {"IfMatch": f'"{expected_version}"'}
             )
             try:
-                return self.put_bytes(key, data, MARKDOWN, condition)
+                return self.put_bytes(key, data, content_type, condition)
             except ClientError as exc:
                 code = exc.response["Error"]["Code"]
                 if code in CONFLICT_CODES:
@@ -124,7 +128,7 @@ class S3Backend:
         current = self.current_version(key)
         if (current is not None) if expected_version == MUST_NOT_EXIST else (current != expected_version):
             raise VersionConflict(f"{key} changed since it was read (etag {current}, expected {expected_version})")
-        return self.put_bytes(key, data, MARKDOWN)
+        return self.put_bytes(key, data, content_type)
 
     def put_bytes(self, key: str, data: bytes, content_type: str | None = None, condition: dict | None = None) -> str:
         response = self.client.put_object(

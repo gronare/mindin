@@ -86,11 +86,16 @@ class LocalBackend:
         return _version(path.stat()) if path.exists() else None
 
     def put(self, key: str, text: str, expected_version: str | None = None) -> str:
+        return self.put_checked(key, text.encode("utf-8"), expected_version)
+
+    def put_checked(
+        self, key: str, data: bytes, expected_version: str | None = None, content_type: str | None = None
+    ) -> str:
         if expected_version is not None:
             current = self.current_version(key)
             if (current is not None) if expected_version == MUST_NOT_EXIST else (current != expected_version):
                 raise VersionConflict(f"{key} changed since it was read (etag {current}, expected {expected_version})")
-        return self.put_bytes(key, text.encode("utf-8"))
+        return self.put_bytes(key, data)
 
     def put_bytes(self, key: str, data: bytes, content_type: str | None = None) -> str:
         path = self._path(key)

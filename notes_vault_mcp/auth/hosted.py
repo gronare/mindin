@@ -52,7 +52,10 @@ from notes_vault_mcp.auth.cimd import (
     is_metadata_url,
 )
 from notes_vault_mcp.auth.device import DEVICE_GRANT, DeviceFlow
+from notes_vault_mcp.auth.hosted_access import SupportAccess, SupportDesk
+from notes_vault_mcp.auth.hosted_keys import AccountKeys, Keyring, SealedVaults
 from notes_vault_mcp.auth.hosted_store import Account, ApiKeyCredentials, HostedStore
+from notes_vault_mcp.auth.hosted_transfer import VaultTransfer
 from notes_vault_mcp.auth.hosted_web import Browser, Limits, oauth_error
 from notes_vault_mcp.auth.login import Login
 from notes_vault_mcp.auth.login_email import EmailSignIn, Mailer, SmtpFactory
@@ -61,6 +64,7 @@ from notes_vault_mcp.auth.login_github import GithubSignIn
 from notes_vault_mcp.auth.login_oidc import OidcSignIn
 from notes_vault_mcp.auth.login_passkey import PasskeySignIn
 from notes_vault_mcp.auth.prefix import URL, inner_lifespan
+from notes_vault_mcp.config import ConfigError
 
 logger = logging.getLogger(__name__)
 
@@ -435,12 +439,18 @@ def build_hosted_app(
     metadata_transport: httpx2.AsyncBaseTransport | None = None,
     resolver: Resolver | None = None,
     clock: Callable[[], float] = time.time,
+    keyring: Keyring | None = None,
 ) -> Starlette:
     from notes_vault_mcp.dav import WebDav
     from notes_vault_mcp.server import build_server
     from notes_vault_mcp.vault import SubjectVaults
 
     store = HostedStore(auth.auth_dir or auth_dir())
+    if not isinstance(vaults, SubjectVaults):
+        raise ConfigError("notes-vault-mcp: the HTTP server serves one sealed vault per account")
+    keys = AccountKeys(store, keyring or Keyring.from_env())
+    keys.verify()
+    vaults.use_backends(SealedVaults(store, keys, vaults.prefix))
     provider = HostedProvider(auth, store, ClientMetadataFetcher(metadata_transport, resolver), clock)
     limits = Limits()
     browser = Browser(auth, store, limits, Handoff(auth, clock), clock)
@@ -449,6 +459,9 @@ def build_hosted_app(
     device = DeviceFlow(auth, store, provider.get_client, browser, limits, clock)
     credentials = ApiKeyCredentials(store, provider.allowed)
     billing = BillingApi(auth, store, clock)
+    transfer = VaultTransfer(browser, vaults)
+    support = SupportDesk(browser, SupportAccess(store, clock))
+    browser.sections += [transfer.section, support.section]
     server = build_server(vaults, personal_tokens=credentials, dav_url=auth.dav_url)
     mcp_app = server.streamable_http_app(host=host, transport_security=transport_security(auth))
     prefix = auth.path_prefix
@@ -517,9 +530,8 @@ def build_hosted_app(
         Route(prefix + "/v1/admin/accounts/{account}/deactivate", endpoint=billing.deactivate, methods=["POST"]),
         Route(prefix + "/v1/admin/accounts/{account}/activate", endpoint=billing.activate, methods=["POST"]),
     ]
-    routes += login.routes(prefix)
-    if isinstance(vaults, SubjectVaults):
-        routes.append(Mount(prefix + "/dav", app=WebDav(vaults, credentials, mount=prefix + "/dav")))
+    routes += login.routes(prefix) + transfer.routes(prefix) + support.routes(prefix, limited)
+    routes.append(Mount(prefix + "/dav", app=WebDav(vaults, credentials, mount=prefix + "/dav")))
     routes.append(Mount(prefix or "/", app=mcp_app))
     guard = Middleware(
         HostedGuard,

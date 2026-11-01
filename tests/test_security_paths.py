@@ -12,6 +12,7 @@ from test_notes import VALID
 
 from notes_vault_mcp import notes
 from notes_vault_mcp.auth.hosted import build_hosted_app
+from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey
 from notes_vault_mcp.auth.hosted_store import ApiKeyCredentials, HostedStore
 from notes_vault_mcp.backends import NotFound, VaultError, make_subject_backend
 from notes_vault_mcp.backends.local import LocalBackend
@@ -260,9 +261,10 @@ def _basic(secret: str) -> dict[str, str]:
 
 @pytest.fixture
 def dav(vaults: SubjectVaults, tmp_path: Path) -> tuple[Any, str]:
-    vaults.for_subject("1042")
+    app = build_hosted_app(vaults, hosted_config(tmp_path), keyring=Keyring(MasterKey.generate()))
     secret = key_for_subject(tmp_path / "auth", "user1042@example.com", "1042")
-    return build_hosted_app(vaults, hosted_config(tmp_path)), secret
+    vaults.for_subject("1042")
+    return app, secret
 
 
 async def _call(app: Any, method: str, path: str, headers: dict[str, str], body: bytes = b"") -> tuple[int, bytes]:
@@ -293,7 +295,9 @@ async def _call(app: Any, method: str, path: str, headers: dict[str, str], body:
 
 
 @pytest.mark.anyio
-async def test_dav_move_refuses_a_destination_that_climbs_out(dav: tuple[Any, str], storage: Path):
+async def test_dav_move_refuses_a_destination_that_climbs_out(
+    dav: tuple[Any, str], vaults: SubjectVaults, storage: Path
+):
     app, secret = dav
     async with app.router.lifespan_context(app):
         await _call(app, "PUT", "/dav/Areas/mine.md", _basic(secret), b"mine")
@@ -301,12 +305,13 @@ async def test_dav_move_refuses_a_destination_that_climbs_out(dav: tuple[Any, st
             app, "MOVE", "/dav/Areas/mine.md", {**_basic(secret), "Destination": "/dav/../Areas/escaped.md"}
         )
     assert status == 400
-    assert not (storage / "users" / "Areas" / "escaped.md").exists()
-    assert (storage / "users" / "1042" / "Areas" / "mine.md").is_file()
+    assert len(list((storage / "users").iterdir())) == 1
+    assert not list(storage.glob("**/escaped.md"))
+    assert vaults.for_subject("1042").backend.get_bytes("Areas/mine.md")[0] == b"mine"
 
 
 @pytest.mark.anyio
-async def test_dav_move_destination_stays_inside_the_subjects_vault(dav: tuple[Any, str], storage: Path):
+async def test_dav_move_destination_stays_inside_the_subjects_vault(dav: tuple[Any, str], vaults: SubjectVaults):
     app, secret = dav
     async with app.router.lifespan_context(app):
         await _call(app, "PUT", "/dav/Areas/mine.md", _basic(secret), b"mine")
@@ -317,7 +322,7 @@ async def test_dav_move_destination_stays_inside_the_subjects_vault(dav: tuple[A
             {**_basic(secret), "Destination": "http://evil.example/dav/Areas/moved.md"},
         )
     assert status in (201, 204)
-    assert (storage / "users" / "1042" / "Areas" / "moved.md").read_bytes() == b"mine"
+    assert vaults.for_subject("1042").backend.get_bytes("Areas/moved.md")[0] == b"mine"
 
 
 @pytest.mark.anyio
@@ -351,14 +356,14 @@ async def test_dav_ignores_the_username_and_trusts_only_the_token(dav: tuple[Any
 
 
 @pytest.mark.anyio
-async def test_dav_put_refuses_a_declared_body_over_the_cap(dav: tuple[Any, str], storage: Path):
+async def test_dav_put_refuses_a_declared_body_over_the_cap(dav: tuple[Any, str], vaults: SubjectVaults):
     app, secret = dav
     async with app.router.lifespan_context(app):
         status, _ = await _call(
             app, "PUT", "/dav/Areas/huge.md", {**_basic(secret), "Content-Length": str(1 << 40)}, b"small"
         )
     assert status == 413
-    assert not (storage / "users" / "1042" / "Areas" / "huge.md").exists()
+    assert "Areas/huge.md" not in {entry.key for entry in vaults.for_subject("1042").backend.list_all()}
 
 
 @pytest.mark.anyio

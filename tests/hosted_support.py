@@ -20,6 +20,7 @@ from login_support import GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, FakeGithub, Fa
 
 from notes_vault_mcp.auth import AuthConfig, GithubConfig, OidcConfig, SmtpConfig
 from notes_vault_mcp.auth.hosted import build_hosted_app
+from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey
 from notes_vault_mcp.auth.hosted_store import HostedStore
 from notes_vault_mcp.auth.identities import Identities
 
@@ -164,6 +165,7 @@ class Hosted:
     clock: Clock
     github: FakeGithub
     smtp: FakeSmtp
+    keyring: Keyring
 
     @property
     def store(self) -> HostedStore:
@@ -210,12 +212,15 @@ class Hosted:
 
 
 @asynccontextmanager
-async def hosted(vaults: Any, tmp_path: Path, **overrides: Any) -> AsyncIterator[Hosted]:
+async def hosted(
+    vaults: Any, tmp_path: Path, keyring: Keyring | None = None, **overrides: Any
+) -> AsyncIterator[Hosted]:
     idp = FakeIdentityProvider()
     metadata = MetadataHost()
     clock = Clock()
     github = FakeGithub()
     smtp = FakeSmtp()
+    keyring = keyring or Keyring(MasterKey.generate())
     config = hosted_config(tmp_path, **overrides)
     app = build_hosted_app(
         vaults,
@@ -226,9 +231,12 @@ async def hosted(vaults: Any, tmp_path: Path, **overrides: Any) -> AsyncIterator
         metadata_transport=metadata.transport(),
         resolver=metadata.resolve,
         clock=clock,
+        keyring=keyring,
     )
     async with app.router.lifespan_context(app):
-        yield Hosted(app=app, config=config, idp=idp, metadata=metadata, clock=clock, github=github, smtp=smtp)
+        yield Hosted(
+            app=app, config=config, idp=idp, metadata=metadata, clock=clock, github=github, smtp=smtp, keyring=keyring
+        )
 
 
 def key_for_subject(auth_dir: Path, email: str, sub: str, write: bool = True) -> str:

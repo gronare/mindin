@@ -215,7 +215,7 @@ async def test_sign_in_is_rate_limited_per_address(site: Hosted):
 
 
 @pytest.mark.anyio
-async def test_a_dcr_client_connects_and_reaches_its_own_vault(site: Hosted, storage: Path):
+async def test_a_dcr_client_connects_and_reaches_its_own_vault(site: Hosted, vaults: SubjectVaults):
     http = await site.member("ann@example.com", sub="sub-ann")
     async with http:
         client = await register(http)
@@ -226,7 +226,7 @@ async def test_a_dcr_client_connects_and_reaches_its_own_vault(site: Hosted, sto
             http, tokens["access_token"], "write_file", {"path": "Areas/a.md", "content": NOTE_BODY}
         )
     assert not written.get("isError"), text_of(written)
-    assert (storage / "users" / site.sub_of("ann@example.com") / "Areas" / "a.md").exists()
+    assert "Hemligt" in vaults.for_subject(site.sub_of("ann@example.com")).backend.get("Areas/a.md")[0]
 
 
 @pytest.mark.anyio
@@ -534,7 +534,7 @@ async def test_obsidian_access_mints_a_key_that_replaces_the_last(site: Hosted):
 
 
 @pytest.mark.anyio
-async def test_two_accounts_never_see_each_others_notes_or_index(site: Hosted, storage: Path, tmp_path: Path):
+async def test_two_accounts_never_see_each_others_notes_or_index(site: Hosted, vaults: SubjectVaults, tmp_path: Path):
     ann = await site.member("ann@example.com", sub="sub-ann")
     bo = await site.member("bo@example.com", sub="sub-bo")
     ann_key = site.key_for("ann@example.com")
@@ -552,7 +552,8 @@ async def test_two_accounts_never_see_each_others_notes_or_index(site: Hosted, s
     assert "Areas/secret.md" not in text_of(listing)
     assert missing.get("isError")
     assert dav.status_code == 404
-    assert not (storage / "users" / site.sub_of("bo@example.com") / "Areas" / "secret.md").exists()
+    bo_files = {entry.key for entry in vaults.for_subject(site.sub_of("bo@example.com")).backend.list_all()}
+    assert "Areas/secret.md" not in bo_files
     indexes = sorted(path.name for path in (tmp_path / "cache").glob("*.sqlite"))
     assert len(indexes) == 2, indexes
 

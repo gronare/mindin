@@ -121,6 +121,35 @@ def command_accounts(args: argparse.Namespace) -> int:
     return hosted_store.command_accounts(args)
 
 
+def command_delete_account(args: argparse.Namespace) -> int:
+    from notes_vault_mcp.auth import hosted_keys
+
+    return hosted_keys.command_delete_account(args)
+
+
+def command_import(args: argparse.Namespace) -> int:
+    from notes_vault_mcp.auth import hosted_transfer
+
+    return hosted_transfer.command_import(args)
+
+
+def command_master_key(args: argparse.Namespace) -> int:
+    from notes_vault_mcp.auth import hosted_keys
+
+    return hosted_keys.command_master_key(args)
+
+
+def command_support(args: argparse.Namespace) -> int:
+    from notes_vault_mcp.auth import hosted_access
+
+    return hosted_access.command_support(args)
+
+
+def add_operator(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--operator", required=True, help="who on the service's staff does this")
+    parser.add_argument("--reason", required=True, help="why; the account sees it in its access log")
+
+
 def command_admin(args: argparse.Namespace) -> int:
     from notes_vault_mcp.auth import hosted_store
 
@@ -302,6 +331,44 @@ def build_parser() -> argparse.ArgumentParser:
         changing = accounts_sub.add_parser(name, help=summary)
         changing.add_argument("account", help="the account's email or id")
         changing.set_defaults(func=command_accounts)
+    deleting = accounts_sub.add_parser(
+        "delete", help="destroy the account's data key, objects and index, then the account itself"
+    )
+    deleting.add_argument("account", help="the account's email or id")
+    deleting.add_argument("--yes", action="store_true", help="confirm; the vault cannot be recovered")
+    deleting.set_defaults(func=command_delete_account)
+    importing = accounts_sub.add_parser(
+        "import", help="seal every file of a plaintext vault into the account (needs its support grant)"
+    )
+    importing.add_argument("account", help="the account's email or id")
+    origin = importing.add_mutually_exclusive_group(required=True)
+    origin.add_argument("--from-path", help="a local vault folder")
+    origin.add_argument("--from-s3-bucket", help="a bucket; credentials from IMPORT_S3_ACCESS_KEY/SECRET_KEY")
+    importing.add_argument("--from-s3-prefix", default="", help="the vault's prefix in that bucket")
+    importing.add_argument("--from-s3-endpoint", help="defaults to S3_ENDPOINT")
+    importing.add_argument("--from-s3-region", help="defaults to S3_REGION, then us-east-1")
+    add_operator(importing)
+    importing.set_defaults(func=command_import)
+
+    master = sub.add_parser("master-key", help="the master key that wraps each hosted account's data key")
+    master_sub = master.add_subparsers(dest="master_key_command", required=True)
+    master_sub.add_parser("generate", help="print a fresh base64 master key").set_defaults(func=command_master_key)
+    master_sub.add_parser("status", help="count account keys per master key").set_defaults(func=command_master_key)
+    master_sub.add_parser(
+        "rewrap", help="wrap every account key under VAULT_HOSTED_MASTER_KEY, unwrapping with the previous keys"
+    ).set_defaults(func=command_master_key)
+
+    support = sub.add_parser("support", help="open an account's vault under the support grant it gave on /account")
+    support_sub = support.add_subparsers(dest="support_command", required=True)
+    listing = support_sub.add_parser("files", help="list the vault's paths")
+    listing.add_argument("account", help="the account's email or id")
+    add_operator(listing)
+    listing.set_defaults(func=command_support)
+    reading = support_sub.add_parser("read", help="print one file")
+    reading.add_argument("account", help="the account's email or id")
+    reading.add_argument("path")
+    add_operator(reading)
+    reading.set_defaults(func=command_support)
 
     admin = sub.add_parser("admin", help="tokens for the admin API of the HTTP server")
     admin_sub = admin.add_subparsers(dest="admin_command", required=True)

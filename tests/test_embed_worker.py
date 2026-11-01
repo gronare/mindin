@@ -181,6 +181,17 @@ def test_a_query_jumps_ahead_of_queued_embeds(make, monkeypatch: pytest.MonkeyPa
         bulk.join()
 
 
+def test_a_query_is_answered_while_a_slow_embed_runs(make, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("FAKE_EMBED_DELAY", "3")
+    embedder = make(query_wait=1.0)
+    embedder.query("quick")
+    bulk = threading.Thread(target=embedder.passages, args=(["slow", "texts"],))
+    bulk.start()
+    time.sleep(0.3)
+    assert numpy.allclose(embedder.query("quick"), concept_vector("quick"))
+    bulk.join()
+
+
 class FakeTokenizer:
     def __init__(self) -> None:
         self.truncation = {"max_length": 512, "direction": "right"}

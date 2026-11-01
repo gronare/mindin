@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
+import signal
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import httpx2 as httpx
@@ -17,6 +20,9 @@ from notes_vault_mcp.auth import AuthConfig
 from notes_vault_mcp.auth import oidc as oidc_module
 from notes_vault_mcp.auth.http import build_http_app
 from notes_vault_mcp.auth.oidc import OidcVerifier
+from notes_vault_mcp.backends.local import LocalBackend
+from notes_vault_mcp.embedding import SharedEmbedder
+from notes_vault_mcp.schema import load_schema
 from notes_vault_mcp.vault import Vault
 
 ISSUER = "https://idp.example.com"
@@ -464,3 +470,39 @@ async def test_an_opaque_token_reaches_the_tools(vault: Vault, idp: Idp, monkeyp
         await opened.initialize()
         listing = await opened.call(2, "tools/list", {})
     assert "search" in {tool["name"] for tool in listing["result"]["tools"]}
+
+
+SEMANTIC_NOTE = "---\ntitle: {title}\ndate: 2026-10-01\nupdated: 2026-10-01\ntags: []\nstatus: active\n---\n{body}\n"
+
+
+@pytest.mark.anyio
+async def test_search_finds_by_meaning_while_the_server_embeds_a_changed_note(tmp_path, idp: Idp, monkeypatch):
+    tests = str(Path(__file__).parent)
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join([tests, os.environ.get("PYTHONPATH", "")]))
+    monkeypatch.setenv("FAKE_EMBED_DELAY", "3")
+    monkeypatch.setenv("FAKE_EMBED_QUICK", "inloggning")
+    root = tmp_path / "vault"
+    (root / "Areas").mkdir(parents=True)
+    (root / "Areas/auth.md").write_text(SEMANTIC_NOTE.format(title="Anslutning", body="oauth token"), encoding="utf-8")
+    log = root / "Areas/log.md"
+    log.write_text(SEMANTIC_NOTE.format(title="Logg", body="deploy"), encoding="utf-8")
+    cache = tmp_path / "cache"
+    embedder = SharedEmbedder(cache, "fake-1", loader="fake_models:concept_model", query_wait=1.0)
+    backend = LocalBackend(root)
+    vault = Vault(backend, load_schema(backend), cache / "index.sqlite", embedder=embedder, background=True)
+    try:
+        vault.index.sync(force=True)
+        vault.index.vectors.wait(30)
+        log.write_text(SEMANTIC_NOTE.format(title="Logg", body="deploy release"), encoding="utf-8")
+        vault.index.set_meta("last_sync", "0")
+        app = oidc_app(vault, idp, monkeypatch)
+        async with session(app, idp.token(groups=["vault"])) as opened:
+            await opened.initialize()
+            await opened.tool("search", {"query": "inloggning"})
+            time.sleep(0.3)
+            during = text_of(await opened.tool("search", {"query": "inloggning"}))
+        assert vault.index.vectors._worker.is_alive()
+        assert during.startswith("1 of 1, 1 by meaning only") and "Areas/auth.md" in during
+    finally:
+        vault.close()
+        os.kill(int((cache / "embed.pid").read_text()), signal.SIGTERM)

@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import importlib
-import itertools
 import json
 import math
 import os
@@ -178,8 +177,8 @@ class Worker:
         self.idle_seconds = idle_seconds
         self.loader = loader
         self.model: Any = None
-        self.jobs: queue.PriorityQueue[tuple[int, int, Job]] = queue.PriorityQueue()
-        self.order = itertools.count()
+        self.model_lock = threading.Lock()
+        self.lanes: dict[int, queue.Queue[Job]] = {QUERY: queue.Queue(), PASSAGES: queue.Queue()}
         self.open_connections = 0
         self.state_lock = threading.Lock()
         self.last_used = time.monotonic()
@@ -204,7 +203,8 @@ class Worker:
         self.listener = listener
 
     def serve(self) -> None:
-        threading.Thread(target=self._embed_loop, name="embed", daemon=True).start()
+        for lane in self.lanes.values():
+            threading.Thread(target=self._embed_loop, args=(lane,), name="embed", daemon=True).start()
         while True:
             try:
                 connection, _ = self.listener.accept()
@@ -247,18 +247,21 @@ class Worker:
 
     def submit(self, message: dict) -> bytes:
         job = Job([str(text) for text in message.get("texts") or []])
-        priority = QUERY if message.get("op") == "query" else PASSAGES
-        self.jobs.put((priority, next(self.order), job))
+        self.lanes[QUERY if message.get("op") == "query" else PASSAGES].put(job)
         job.done.wait()
         return job.reply
 
-    def _embed_loop(self) -> None:
+    def _loaded(self) -> Any:
+        with self.model_lock:
+            if self.model is None:
+                self.model = load_function(self.loader)(self.model_name, self.folder)
+            return self.model
+
+    def _embed_loop(self, lane: queue.Queue[Job]) -> None:
         while True:
-            _, _, job = self.jobs.get()
+            job = lane.get()
             try:
-                if self.model is None:
-                    self.model = load_function(self.loader)(self.model_name, self.folder)
-                job.reply = vectors_reply(self.model.embed(job.texts))
+                job.reply = vectors_reply(self._loaded().embed(job.texts))
             except Exception as exc:
                 job.reply = error_reply(f"{type(exc).__name__}: {exc}")
             job.done.set()

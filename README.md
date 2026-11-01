@@ -467,9 +467,9 @@ defaults (`VAULT_EMBED_BATCH`, `VAULT_EMBED_MAX_TOKENS`). Give the container a m
 restarted server goes on from the notes that already carry vectors.
 
 A server starts embedding the notes still without vectors as soon as it starts, in the background, and
-searches by words meanwhile; a query that would wait more than three seconds for the shared process,
-because it is still starting or busy with a long embed, is answered by words. The first query after the
-process exited waits under a second for it to start again.
+searches by words meanwhile. A query is embedded beside a long embed, not behind it; one that would wait
+more than three seconds for the shared process, because it is still loading the model, is answered by
+words. The first query after the process exited waits under a second for it to start again.
 
 With `VAULT_SEMANTIC=on` and the extra missing, the server logs one line saying so and searches by
 words. `notes-vault-mcp sync` embeds whatever is pending and says how many notes carry vectors;

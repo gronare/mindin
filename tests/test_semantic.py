@@ -284,6 +284,31 @@ def test_a_failing_embedder_leaves_search_by_words(vault: Vault):
     assert keys(result) == ["Areas/board.md"] and result.by_meaning == 0
 
 
+class FlakyEmbedder(FakeEmbedder):
+    def __init__(self, failure) -> None:
+        super().__init__()
+        self.failure = failure
+
+    def query(self, text):
+        failure, self.failure = self.failure, None
+        return super().query(text) if failure is None else failure()
+
+
+def killed():
+    raise RuntimeError("the embedding process was killed")
+
+
+def timed_out():
+    return None
+
+
+@pytest.mark.parametrize("failure", [killed, timed_out])
+def test_a_failed_query_vector_does_not_keep_the_next_search_from_meaning(vault: Vault, failure):
+    vault.index.vectors.embedder = FlakyEmbedder(failure)
+    assert search(vault.index, vault.schema, "inloggning").by_meaning == 0
+    assert keys(search(vault.index, vault.schema, "inloggning")) == ["Areas/auth.md"]
+
+
 class DyingEmbedder(FakeEmbedder):
     def __init__(self, calls: int) -> None:
         super().__init__()

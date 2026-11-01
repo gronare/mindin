@@ -24,9 +24,10 @@ class ConceptModel:
     def __init__(self, model: str) -> None:
         self.model = model
         self.delay = float(os.environ.get("FAKE_EMBED_DELAY") or 0)
+        self.quick = set((os.environ.get("FAKE_EMBED_QUICK") or "quick").split(","))
 
     def embed(self, texts: list[str]) -> list[numpy.ndarray]:
-        if self.delay and texts != ["quick"]:
+        if self.delay and not (len(texts) == 1 and texts[0] in self.quick):
             time.sleep(self.delay)
         return [concept_vector(text) for text in texts]
 

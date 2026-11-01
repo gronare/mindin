@@ -55,6 +55,7 @@ from notes_vault_mcp.auth.device import DEVICE_GRANT, DeviceFlow
 from notes_vault_mcp.auth.hosted_access import SupportAccess, SupportDesk
 from notes_vault_mcp.auth.hosted_deletion import SelfDeletion
 from notes_vault_mcp.auth.hosted_keys import AccountKeys, Keyring, SealedVaults
+from notes_vault_mcp.auth.hosted_layout import Layouts
 from notes_vault_mcp.auth.hosted_store import Account, ApiKeyCredentials, HostedStore
 from notes_vault_mcp.auth.hosted_transfer import VaultTransfer
 from notes_vault_mcp.auth.hosted_web import Browser, Limits, oauth_error
@@ -464,7 +465,8 @@ def build_hosted_app(
     transfer = VaultTransfer(browser, vaults)
     support = SupportDesk(browser, SupportAccess(store, clock))
     deletion = SelfDeletion(browser, vaults, sealed)
-    browser.sections += [transfer.section, support.section, deletion.section]
+    layouts = Layouts(browser, vaults)
+    browser.sections += [layouts.section, transfer.section, support.section, deletion.section]
     server = build_server(vaults, personal_tokens=credentials, dav_url=auth.dav_url)
     mcp_app = server.streamable_http_app(host=host, transport_security=transport_security(auth))
     prefix = auth.path_prefix
@@ -534,7 +536,7 @@ def build_hosted_app(
         Route(prefix + "/v1/admin/accounts/{account}/activate", endpoint=billing.activate, methods=["POST"]),
     ]
     routes += login.routes(prefix) + transfer.routes(prefix) + support.routes(prefix, limited)
-    routes += deletion.routes(prefix, limited)
+    routes += deletion.routes(prefix, limited) + layouts.routes(prefix, limited)
     routes.append(Mount(prefix + "/dav", app=WebDav(vaults, credentials, mount=prefix + "/dav")))
     routes.append(Mount(prefix or "/", app=mcp_app))
     guard = Middleware(

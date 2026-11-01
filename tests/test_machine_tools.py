@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import secrets
 from pathlib import Path
 
@@ -60,6 +61,9 @@ async def test_a_connector_token_neither_lists_nor_calls_the_machine_tools(site:
     async with site.browser() as http:
         linted = await call_tool(http, token, "lint_and_park", {"write": "Log/lint.md", "park": True})
     assert linted.get("isError") and "Unknown tool: lint_and_park" in text_of(linted)
+    async with site.browser() as http:
+        pictured = await call_tool(http, token, "snapshot", {})
+    assert pictured.get("isError") and "Unknown tool: snapshot" in text_of(pictured)
 
 
 @pytest.mark.anyio
@@ -76,6 +80,9 @@ async def test_a_device_flow_key_lists_and_calls_them(site: Hosted):
     assert await listed(site, key) >= MACHINE_TOOLS
     answered = await claimed(site, key)
     assert "Unknown tool" not in text_of(answered)
+    async with site.browser() as http:
+        pictured = json.loads(text_of(await call_tool(http, key, "snapshot", {})))
+    assert {"etag", "notes", "openings", "logs", "log_key_template", "layout"} <= set(pictured)
 
 
 @pytest.mark.anyio

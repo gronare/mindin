@@ -293,7 +293,11 @@ async def log_append(remote: Remote, args: Any) -> dict:
 
 
 async def log_path(remote: Remote, args: Any) -> dict:
-    return {"path": (await remote.schema()).log_key(args.repo)}
+    return tasks.log_paths(await remote.schema(), args.repo)
+
+
+async def snapshot(remote: Remote, args: Any) -> dict:
+    return json.loads(await remote.call("snapshot", since=args.since))
 
 
 JSON_ACTIONS: dict[str, Callable[[Remote, Any], Awaitable[dict]]] = {
@@ -305,6 +309,7 @@ JSON_ACTIONS: dict[str, Callable[[Remote, Any], Awaitable[dict]]] = {
     "task_release": task_release,
     "log_append": log_append,
     "log_path": log_path,
+    "snapshot": snapshot,
 }
 
 

@@ -300,6 +300,10 @@ def test_log_append_round_trips_through_the_server(remote: Served, tmp_path: Pat
     last = body.rstrip().splitlines()[-1]
     assert "Byggde lunden" in last and sha in last and current(repo) in last
     assert run_json(capsys, "log", "path", "--repo", "orchard") == {"path": "Log/orchard-log.md"}
+    assert run_json(capsys, "log", "path", "--repo", "orchard", "--repo", "frame") == {
+        "orchard": "Log/orchard-log.md",
+        "frame": "Log/frame-log.md",
+    }
 
 
 def current(repo: Path) -> str:
@@ -398,10 +402,13 @@ async def test_the_proxy_serves_the_servers_tools(remote: Served):
             found = await client.call_tool("read_file", {"path": "Areas/orchard.md"})
             hidden = await client.call_tool("claim", {"path": "Projects/orchard-fresh.md", "machine": "m", "task": "t"})
             linted = await client.call_tool("lint_and_park", {"write": "Log/lint.md", "park": True})
+            pictured = await client.call_tool("snapshot", {})
             instructions = client.instructions
         group.cancel_scope.cancel()
     assert {"search", "read_file", "context"} <= tools
-    assert not {"claim", "release", "changelog", "lint_and_park"} & tools, "the proxied model never sees them"
+    hidden_tools = {"claim", "release", "changelog", "lint_and_park", "snapshot"}
+    assert not hidden_tools & tools, "the proxied model never sees them"
+    assert pictured.is_error and "Unknown tool" in pictured.content[0].text
     assert hidden.is_error and "Unknown tool" in hidden.content[0].text
     assert linted.is_error and "Unknown tool" in linted.content[0].text
     with pytest.raises(NotFound):
@@ -508,3 +515,30 @@ def test_a_read_only_key_cannot_run_the_weekly_lint(served: Served, monkeypatch,
     monkeypatch.setenv("VAULT_SERVER_URL", served.url)
     assert main(["lint", "--park-stale"]) == 1
     assert "may only read the vault" in capsys.readouterr().err
+
+
+def without_stamps(snapshot: dict) -> dict:
+    kept = {key: value for key, value in snapshot.items() if key not in ("etag", "synced_at")}
+    kept["notes"] = [{key: value for key, value in row.items() if key != "mtime"} for row in snapshot["notes"]]
+    return kept
+
+
+def test_the_snapshot_through_the_server_equals_the_local_vault(
+    remote: Served, vault_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    run_json(capsys, "task", "claim", "Projects/orchard-fresh.md", "--machine", "devbox", "--task", "t1")
+    claimed = remote.read("Projects/orchard-fresh.md")
+    (vault_dir / "Projects/orchard-fresh.md").write_text(claimed, encoding="utf-8")
+    through_server = run_json(capsys, "snapshot", "--json")
+    assert run_json(capsys, "snapshot", "--json", "--since", through_server["etag"]) == {
+        "unchanged": True,
+        "etag": through_server["etag"],
+    }
+    monkeypatch.delenv("VAULT_SERVER_URL")
+    monkeypatch.setenv("VAULT_PATH", str(vault_dir))
+    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "local-cache"))
+    local = run_json(capsys, "snapshot", "--json")
+    assert without_stamps(through_server) == without_stamps(local)
+    by_key = {row["key"]: row for row in through_server["notes"]}
+    assert by_key["Projects/orchard-fresh.md"]["claim"]["machine"] == "devbox"
+    assert through_server["logs"]["Log/orchard-log.md"][0]["links"] == ["orchard"]

@@ -692,6 +692,8 @@ notes-vault-mcp task release --machine mac --task fix-login
 notes-vault-mcp log append --cwd ~/wt/wt1.myapp --line "Login fixed" --commit abc1234 --commit def5678
 # {"path": "Log/myapp-log.md"}
 notes-vault-mcp log path --repo myapp                         # {"path": "Log/myapp-log.md"}
+notes-vault-mcp log path --repo myapp --repo docs            # {"myapp": "Log/myapp-log.md", "docs": "Log/docs-log.md"}
+notes-vault-mcp snapshot --json [--since ETAG]               # the board's notes and logs in one answer, see below
 notes-vault-mcp status
 # {"configured": true, "version": "0.9.2", "backend": "s3", "writable": null}
 notes-vault-mcp status --probe
@@ -705,6 +707,16 @@ note matched). `task open` writes a task note with the task name as a placeholde
 bodies; the stem is the repo plus the task name, made unique across the whole vault. `--note` claims
 an existing task note instead: status `active`, nothing else changed. `--branch` defaults to the branch
 checked out in `--cwd`.
+
+`snapshot --json` answers, in one call, what a board needs from the vault: every system and task note
+outside the archive and log folders, each with `key`, `stem`, `role` (`system` or `task`, taken from the
+folder, so a client needs no folder names), `kind`, `status`, `title`, `summary`, `priority`, `area`,
+`paths`, `date`, `updated`, `mtime` and its `claim` (or `null`); `openings`, the first paragraph of each
+active or draft task; `logs`, the last 50 lines of each repo log as `{date, text, links}`;
+`log_key_template` (such as `Log/{repo}-log.md`, or `null` when the layout keeps no log) and `layout`.
+Every answer carries an `etag`; with `--since <etag>` the answer is only `{"unchanged": true, "etag": …}`
+until something it covers changes, so a client can ask every few seconds. Through a server it is one
+request.
 
 `task claim` says which machine and task work on a task note, in its `kebbie` frontmatter key
 (`machine`, `task`, `repo`, `since` in UTC), so a second machine on the same vault sees the note is

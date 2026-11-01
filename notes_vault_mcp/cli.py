@@ -17,6 +17,7 @@ from notes_vault_mcp.presets import PRESETS
 from notes_vault_mcp.schema import CLAIM_KEY
 from notes_vault_mcp.search import render, search
 from notes_vault_mcp.server import run_http, run_stdio
+from notes_vault_mcp.snapshot import build_snapshot
 from notes_vault_mcp.vault import SubjectVaults, Vault, open_vault
 
 template = provision.template
@@ -333,7 +334,11 @@ def log_append(args: argparse.Namespace, vault: Vault) -> dict:
 
 
 def log_path(args: argparse.Namespace, vault: Vault) -> dict:
-    return {"path": vault.schema.log_key(args.repo)}
+    return tasks.log_paths(vault.schema, args.repo)
+
+
+def snapshot(args: argparse.Namespace, vault: Vault) -> dict:
+    return build_snapshot(vault, since=args.since)
 
 
 def is_writable(vault: Vault) -> bool:
@@ -613,8 +618,20 @@ def build_parser() -> argparse.ArgumentParser:
     appending.add_argument("--commit", action="append", help="a commit sha; repeat for several")
     appending.set_defaults(func=json_command(log_append))
     locating = log_sub.add_parser("path", help="the vault path of a repo's log, from the schema")
-    locating.add_argument("--repo", required=True)
+    locating.add_argument(
+        "--repo", required=True, action="append", help='repeat for several; then the answer is {"<repo>": "<path>"}'
+    )
     locating.set_defaults(func=json_command(log_path))
+
+    board = sub.add_parser(
+        "snapshot",
+        help="the system and task notes, open-task openings and repo log tails in one answer, for boards (JSON out)",
+    )
+    board.add_argument("--json", action="store_true", help="answer JSON, the only output there is")
+    board.add_argument(
+        "--since", metavar="ETAG", help='answer only {"unchanged": true, "etag": ...} while the etag still holds'
+    )
+    board.set_defaults(func=json_command(snapshot))
 
     signing_in = sub.add_parser("login", help="sign this machine in to a vault server and store its key")
     signing_in.add_argument("url", nargs="?", help="the server, e.g. https://vault.example.com; VAULT_SERVER_URL")

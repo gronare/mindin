@@ -252,3 +252,9 @@ def append_log(vault: Vault, cwd: str, line: str, commits: tuple[str, ...] = (),
         branch=branch or current_branch(cwd),
     )
     return {"path": vault.schema.log_key(where.repo)}
+
+
+def log_paths(schema: Schema, repos: list[str]) -> dict:
+    if len(repos) == 1:
+        return {"path": schema.log_key(repos[0])}
+    return {repo: schema.log_key(repo) for repo in repos}

@@ -389,6 +389,13 @@ class Index:
         )
         return [_row_to_note(row) for row in rows.fetchall()]
 
+    def bodies(self, keys: list[str]) -> dict[str, str]:
+        if not keys:
+            return {}
+        marks = ", ".join("?" * len(keys))
+        rows = self.db.execute(f"SELECT key, body FROM notes_fts WHERE key IN ({marks})", keys).fetchall()
+        return {row["key"]: row["body"] or "" for row in rows}
+
     def stems(self) -> set[str]:
         return {row["stem"].lower() for row in self.db.execute("SELECT stem FROM notes")}
 

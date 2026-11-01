@@ -18,6 +18,7 @@ from notes_vault_mcp.frontmatter import FrontmatterError
 from notes_vault_mcp.presets import PRESETS
 from notes_vault_mcp.schema import CLAIM_KEY, NoHome, instructions
 from notes_vault_mcp.search import QueryError, render, search
+from notes_vault_mcp.snapshot import build_snapshot
 from notes_vault_mcp.vault import SingleVault, SubjectVaults, Vault, VaultResolver, open_vault
 
 VERSION = "0.9.2"
@@ -42,7 +43,7 @@ MEANING_DESCRIPTION = (
 )
 
 
-MACHINE_TOOLS = frozenset({"claim", "release", "changelog", "lint_and_park"})
+MACHINE_TOOLS = frozenset({"claim", "release", "changelog", "lint_and_park", "snapshot"})
 
 
 def machine_request() -> bool:
@@ -308,6 +309,18 @@ def build_server(
                 return json.dumps(tasks.release_note(vault, path, machine=machine))
 
             return run(answer, write=True, expected=(*EXPECTED_FAILURES, ValueError))
+
+        @server.tool(
+            name="snapshot",
+            description=(
+                "CHEAP — for tools that draw a board from the vault, such as kebbie: every system and task note "
+                "outside the archive and log folders with its metadata and claim, the opening paragraph of open "
+                "tasks and the last lines of each repo log, under an etag. Pass since=<etag> to get only "
+                '{"unchanged": true} when nothing changed. Answers JSON.'
+            ),
+        )
+        def snapshot_tool(since: str | None = None) -> str:
+            return run(lambda vault: json.dumps(build_snapshot(vault, since=since), ensure_ascii=False))
 
         @server.tool(
             name="changelog",

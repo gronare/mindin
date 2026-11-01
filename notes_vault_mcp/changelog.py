@@ -43,7 +43,8 @@ def periods_due(on: date) -> list[str]:
 
 def git_commits(repo_path: Path, period: str) -> dict[str, list[str]]:
     since, until = period_bounds(period)
-    output = git(["log", f"--since={since}", f"--until={until}", "--format=%h|%ad|%s", "--date=short"], repo_path)
+    window = [f"--since={since}T00:00:00", f"--until={until}T00:00:00"]
+    output = git(["log", *window, "--format=%h|%ad|%s", "--date=short"], repo_path)
     by_day: dict[str, list[str]] = defaultdict(list)
     for line in output.splitlines():
         parts = line.split("|", 2)

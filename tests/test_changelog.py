@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from datetime import date, timedelta
 from pathlib import Path
@@ -147,3 +148,20 @@ def test_changelog_write_writes_one_page(vault: Vault, vault_dir: Path, tmp_path
 
 def test_changelog_without_a_repo_or_all_fails_loudly(vault: Vault, capsys):
     assert main(["changelog"]) == 2
+
+
+def commit_at(repo: Path, subject: str, moment: str) -> str:
+    identity = ["-c", "user.email=t@example.com", "-c", "user.name=T"]
+    dated = {**os.environ, "GIT_AUTHOR_DATE": moment, "GIT_COMMITTER_DATE": moment}
+    subprocess.run(["git", *identity, "commit", "-q", "--allow-empty", "-m", subject], cwd=repo, check=True, env=dated)
+    return head_sha(repo)
+
+
+def test_a_period_takes_whole_days_at_both_ends(tmp_path):
+    repo = make_repo(tmp_path / "repos", "orchard")
+    first = commit_at(repo, "Just after midnight on the first", "2026-08-01T00:00:01")
+    last = commit_at(repo, "Last minute of the month", "2026-08-31T23:59:59")
+    after = commit_at(repo, "Just after midnight on the next first", "2026-09-01T00:00:01")
+    august = [entry.split()[0] for entries in changelog.git_commits(repo, "2026-08").values() for entry in entries]
+    assert first in august and last in august, "--since without a time takes the current time of day"
+    assert after not in august, "--until without a time takes the current time of day"

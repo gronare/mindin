@@ -13,6 +13,7 @@ from notes_vault_mcp.auth import auth_config
 from notes_vault_mcp.backends import NotFound
 from notes_vault_mcp.config import ConfigError, adopt_plugin_config, local_root, s3_settings
 from notes_vault_mcp.embedding import keep_warm
+from notes_vault_mcp.frontmatter import parse
 from notes_vault_mcp.presets import PRESETS
 from notes_vault_mcp.schema import CLAIM_KEY
 from notes_vault_mcp.search import render, search
@@ -341,6 +342,32 @@ def snapshot(args: argparse.Namespace, vault: Vault) -> dict:
     return build_snapshot(vault, since=args.since)
 
 
+def read_note(path: str) -> str:
+    url = server_url()
+    if url is not None:
+        from notes_vault_mcp import remote
+
+        return remote.run(url, lambda server: server.read(path))
+    vault = open_vault()
+    try:
+        return notes.read(vault, path).partition("\n")[2]
+    finally:
+        vault.close()
+
+
+def command_read(args: argparse.Namespace) -> int:
+    try:
+        adopt_plugin_config()
+        text = read_note(args.path)
+    except Exception as exc:
+        print(one_line(exc), file=sys.stderr)
+        return 1
+    if args.body:
+        text = parse(text)[1]
+    print(text, end="" if text.endswith("\n") else "\n")
+    return 0
+
+
 def is_writable(vault: Vault) -> bool:
     try:
         vault.backend.put(WRITE_PROBE_KEY, "")
@@ -561,6 +588,11 @@ def build_parser() -> argparse.ArgumentParser:
     queue.add_argument("--area", help="a system note stem, or the prefix a family of stems shares")
     queue.add_argument("--priority", help="urgent, high, medium or low")
     queue.set_defaults(func=command_backlog)
+
+    printing = sub.add_parser("read", help="print one note, as read_file reads it, without the etag line")
+    printing.add_argument("path", help="the note's vault path, e.g. Projects/billing.md")
+    printing.add_argument("--body", action="store_true", help="only the text after the frontmatter")
+    printing.set_defaults(func=command_read)
 
     find = sub.add_parser("search", help="search the index from the shell")
     find.add_argument("query")

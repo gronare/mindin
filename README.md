@@ -694,6 +694,7 @@ notes-vault-mcp log append --cwd ~/wt/wt1.myapp --line "Login fixed" --commit ab
 notes-vault-mcp log path --repo myapp                         # {"path": "Log/myapp-log.md"}
 notes-vault-mcp log path --repo myapp --repo docs            # {"myapp": "Log/myapp-log.md", "docs": "Log/docs-log.md"}
 notes-vault-mcp snapshot --json [--since ETAG]               # the board's notes and logs in one answer, see below
+notes-vault-mcp read Projects/myapp-idea.md [--body]          # the note as stored, or only its text after the frontmatter
 notes-vault-mcp status
 # {"configured": true, "version": "0.9.2", "backend": "s3", "writable": null}
 notes-vault-mcp status --probe

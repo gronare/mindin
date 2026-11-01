@@ -542,3 +542,29 @@ def test_the_snapshot_through_the_server_equals_the_local_vault(
     by_key = {row["key"]: row for row in through_server["notes"]}
     assert by_key["Projects/orchard-fresh.md"]["claim"]["machine"] == "devbox"
     assert through_server["logs"]["Log/orchard-log.md"][0]["links"] == ["orchard"]
+
+
+def test_read_prints_a_note_through_the_server_as_the_local_vault_does(
+    remote: Served, vault_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    key = "Projects/orchard-fresh.md"
+    assert main(["read", key]) == 0
+    through_server = capsys.readouterr().out
+    assert main(["read", key, "--body"]) == 0
+    body = capsys.readouterr().out
+    assert main(["read", "Projects/nowhere.md"]) == 1
+    missing = capsys.readouterr()
+    assert missing.out == ""
+    assert missing.err.strip() == "notes-vault-mcp: Error executing tool read_file: Projects/nowhere.md"
+    monkeypatch.delenv("VAULT_SERVER_URL")
+    monkeypatch.setenv("VAULT_PATH", str(vault_dir))
+    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "local-cache"))
+    assert main(["read", key]) == 0
+    local = capsys.readouterr().out
+    assert through_server == local == (vault_dir / key).read_text(encoding="utf-8")
+    assert not local.startswith("etag:")
+    assert body == parse(local)[1] and body.lstrip().startswith("Bokningswidget ska renderas")
+    assert main(["read", "Projects/nowhere.md"]) == 1
+    assert capsys.readouterr().err.strip() == "notes-vault-mcp: no such note: Projects/nowhere.md"
+    assert main(["read", "../outside.md"]) == 1
+    assert len(capsys.readouterr().err.strip().splitlines()) == 1

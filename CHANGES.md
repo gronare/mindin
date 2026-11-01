@@ -21,6 +21,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 - New tools on a server: whoami for every connection, and claim, release and changelog for a signed-in machine. context answers JSON with format json.
 - lint --write and --park-stale run through a vault server when VAULT_SERVER_URL is set, so a scheduled lint can keep a hosted vault tidy.
 - snapshot --json answers a board's system and task notes, the openings of open tasks and the repo log tails in one call under an etag, and --since answers unchanged while nothing moved. log path takes --repo more than once.
+- read prints one note, from the local vault or through the vault server, and --body leaves out its frontmatter.
 
 ### Fixed
 - A repo log that log_append creates is titled Log — <repo>.

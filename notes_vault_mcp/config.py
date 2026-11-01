@@ -63,7 +63,8 @@ def s3_settings() -> dict[str, str] | None:
 
 NO_BACKEND = (
     "notes-vault-mcp: no vault configured. Set VAULT_PATH to a directory, "
-    "or S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET for an S3 bucket."
+    "S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET for an S3 bucket, "
+    "or VAULT_SERVER_URL for a vault server."
 )
 
 
@@ -76,6 +77,7 @@ PLUGIN_OPTIONS = {
     "s3_secret_key": "S3_SECRET_KEY",
     "s3_prefix": "S3_PREFIX",
     "s3_region": "S3_REGION",
+    "vault_server_url": "VAULT_SERVER_URL",
 }
 
 
@@ -135,7 +137,11 @@ def plugin_options(settings_path: Path | None = None) -> dict[str, str]:
         if plugin.split("@", 1)[0] != PLUGIN_NAME or not isinstance(config, dict):
             continue
         found = storage_values(config.get("options"))
-        if "VAULT_PATH" not in found and not {"S3_ACCESS_KEY", "S3_SECRET_KEY"} <= found.keys():
+        complete = {"VAULT_PATH", "VAULT_SERVER_URL"} & found.keys() or {
+            "S3_ACCESS_KEY",
+            "S3_SECRET_KEY",
+        } <= found.keys()
+        if not complete:
             found = storage_values((claude_credentials().get("pluginSecrets") or {}).get(plugin)) | found
         if found:
             return found
@@ -144,7 +150,7 @@ def plugin_options(settings_path: Path | None = None) -> dict[str, str]:
 
 def adopt_plugin_config() -> str:
     """Fill the storage variables from the vault plugin's saved config when the environment names no vault."""
-    if local_root() is not None or s3_settings() is not None:
+    if local_root() is not None or s3_settings() is not None or env("VAULT_SERVER_URL"):
         return "env"
     found = plugin_options()
     for name, value in found.items():

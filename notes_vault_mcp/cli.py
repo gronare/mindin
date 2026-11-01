@@ -8,7 +8,7 @@ from collections.abc import Callable
 from importlib import metadata
 from pathlib import Path
 
-from notes_vault_mcp import __version__, changelog, hooks, notes, provision, tasks
+from notes_vault_mcp import __version__, changelog, credentials, hooks, notes, provision, tasks
 from notes_vault_mcp.auth import auth_config
 from notes_vault_mcp.backends import NotFound
 from notes_vault_mcp.config import ConfigError, adopt_plugin_config, local_root, s3_settings
@@ -22,7 +22,16 @@ from notes_vault_mcp.vault import SubjectVaults, Vault, open_vault
 template = provision.template
 
 
+def server_url() -> str | None:
+    return credentials.configured_server()
+
+
 def command_serve(args: argparse.Namespace) -> int:
+    url = server_url() if args.transport != "http" else None
+    if url is not None:
+        from notes_vault_mcp.proxy import proxy_stdio
+
+        return proxy_stdio(url)
     if args.transport != "http":
         vault = open_vault(vectors="background")
         vault.start_embedding()
@@ -36,6 +45,17 @@ def command_serve(args: argparse.Namespace) -> int:
 
 
 def command_init(args: argparse.Namespace) -> int:
+    url = server_url()
+    if url is not None:
+        from notes_vault_mcp import remote
+
+        if args.preset or args.force:
+            print(f"notes-vault-mcp: a server vault picks and switches its layout on {url}/account", file=sys.stderr)
+            return 2
+        for line in remote.tool_text(url, "init").splitlines():
+            print(f"notes-vault-mcp: {line}" if line.startswith("kept ") else line, file=sys.stderr)
+        print(template("claude-md-snippet.md"))
+        return 0
     vault = open_vault()
     result = provision.initialize(vault.backend, force=args.force, preset=args.preset)
     print(f"layout: {result.preset}", file=sys.stderr)
@@ -61,12 +81,24 @@ def command_hook(args: argparse.Namespace) -> int:
     raw = sys.stdin.read() if not sys.stdin.isatty() else ""
     if args.event == "session-start":
         try:
-            print(hooks.session_start(raw))
+            url = server_url()
+            if url is None:
+                print(hooks.session_start(raw))
+            else:
+                from notes_vault_mcp import remote
+
+                print(remote.session_start(url, raw))
         except Exception as exc:
             print(f"vault: {exc}")
         return 0
     try:
-        blocked = hooks.stop(raw)
+        url = server_url()
+        if url is None:
+            blocked = hooks.stop(raw)
+        else:
+            from notes_vault_mcp import remote
+
+            blocked = remote.stop(url, raw)
     except Exception:
         return 0
     if blocked:
@@ -74,7 +106,25 @@ def command_hook(args: argparse.Namespace) -> int:
     return 0
 
 
+def changelog_remote(url: str, args: argparse.Namespace) -> int:
+    from notes_vault_mcp import remote
+
+    if not args.all:
+        if not args.repo or not args.period:
+            print("changelog needs <repo> <period>, or --all", file=sys.stderr)
+            return 2
+        if not changelog.PERIOD_RE.match(args.period):
+            print(f"notes-vault-mcp: period {args.period!r} is not YYYY or YYYY-MM", file=sys.stderr)
+            return 2
+    for line in remote.changelog_command(url, args):
+        print(line)
+    return 0
+
+
 def command_changelog(args: argparse.Namespace) -> int:
+    url = server_url()
+    if url is not None:
+        return changelog_remote(url, args)
     vault = open_vault()
     vault.index.sync()
     if args.all:
@@ -104,6 +154,18 @@ def command_lint(args: argparse.Namespace) -> int:
         except notes.InvalidKey as exc:
             print(one_line(exc), file=sys.stderr)
             return 2
+    url = server_url()
+    if url is not None:
+        if args.write or args.park_stale:
+            print(
+                f"notes-vault-mcp: --write and --park-stale run where the vault is stored, not on {url}",
+                file=sys.stderr,
+            )
+            return 2
+        from notes_vault_mcp import remote
+
+        print(remote.tool_text(url, "lint"))
+        return 0
     vault = open_vault()
     vault.index.sync(force=True)
     parked = notes.park_stale(vault) if args.park_stale else []
@@ -119,6 +181,10 @@ def command_lint(args: argparse.Namespace) -> int:
 
 
 def command_sync(args: argparse.Namespace) -> int:
+    url = server_url()
+    if url is not None:
+        print(f"{url} keeps the index; nothing to refresh on this machine")
+        return 0
     vault = open_vault(vectors="wait")
     count = vault.index.rebuild() if args.rebuild else vault.index.sync(force=True)
     print(f"indexed {count} notes of {len(vault.index.all_notes())}")
@@ -168,7 +234,16 @@ def command_admin(args: argparse.Namespace) -> int:
     return hosted_store.command_admin(args)
 
 
+REMOTE_BACKLOG_LIMIT = 10000
+
+
 def command_backlog(args: argparse.Namespace) -> int:
+    url = server_url()
+    if url is not None:
+        from notes_vault_mcp import remote
+
+        print(remote.tool_text(url, "backlog", area=args.area, priority=args.priority, limit=REMOTE_BACKLOG_LIMIT))
+        return 0
     vault = open_vault()
     vault.index.sync()
     print(notes.render_backlog(notes.backlog(vault, area=args.area, priority=args.priority), vault))
@@ -176,6 +251,12 @@ def command_backlog(args: argparse.Namespace) -> int:
 
 
 def command_search(args: argparse.Namespace) -> int:
+    url = server_url()
+    if url is not None:
+        from notes_vault_mcp import remote
+
+        print(remote.tool_text(url, "search", query=args.query, limit=args.limit))
+        return 0
     vault = open_vault(vectors="wait")
     vault.index.sync()
     print(render(search(vault.index, vault.schema, args.query, limit=args.limit)))
@@ -199,15 +280,24 @@ def one_line(exc: Exception) -> str:
 
 
 def json_command(action: Callable[[argparse.Namespace, Vault], dict]) -> Callable[[argparse.Namespace], int]:
+    def local(args: argparse.Namespace) -> dict:
+        vault = open_vault()
+        try:
+            vault.index.sync()
+            return action(args, vault)
+        finally:
+            vault.close()
+
     def run(args: argparse.Namespace) -> int:
         try:
             adopt_plugin_config()
-            vault = open_vault()
-            try:
-                vault.index.sync()
-                result = action(args, vault)
-            finally:
-                vault.close()
+            url = server_url()
+            if url is not None:
+                from notes_vault_mcp import remote
+
+                result = remote.json_action(url, action.__name__, args)
+            else:
+                result = local(args)
         except Exception as exc:
             print(one_line(exc), file=sys.stderr)
             return 1
@@ -264,8 +354,35 @@ def is_writable(vault: Vault) -> bool:
     return True
 
 
+def remote_status(url: str, probe: bool) -> dict:
+    from notes_vault_mcp import remote
+
+    signed_in = credentials.stored(url) is not None
+    writable: bool | None = None
+    if probe:
+        try:
+            writable = bool(remote.whoami(url)["write"]) if signed_in else False
+        except Exception:
+            writable = False
+    return {
+        "configured": signed_in,
+        "version": package_version(),
+        "backend": "server",
+        "writable": writable,
+        "server": url,
+        "signed_in": signed_in,
+    }
+
+
 def command_status(args: argparse.Namespace) -> int:
     adopt_plugin_config()
+    try:
+        url = server_url()
+    except ConfigError:
+        url = None
+    if url is not None:
+        print(json.dumps(remote_status(url, args.probe)))
+        return 0
     backend = "local" if local_root() is not None else "s3" if s3_settings() is not None else None
     writable: bool | None = None if not args.probe else False
     if backend is not None and args.probe:
@@ -282,10 +399,54 @@ def command_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_login(args: argparse.Namespace) -> int:
+    from notes_vault_mcp import login
+
+    url = login.server_argument(args.url)
+    try:
+        entry = login.login(url, name=args.name, open_browser=not args.no_browser)
+    except (login.LoginError, OSError) as exc:
+        print(one_line(exc), file=sys.stderr)
+        return 1
+    print(f"Signed in to {url}: key {entry['name']!r}, {login.access_words(entry['scope'])}.")
+    print(f"The key is stored in {credentials.credentials_path()}.")
+    return 0
+
+
+def command_logout(args: argparse.Namespace) -> int:
+    from notes_vault_mcp import login
+
+    url = login.server_argument(args.url)
+    if not credentials.forget(url):
+        print(f"Not signed in to {url}.")
+        return 0
+    print(f"Forgot the key for {url}. It stays valid until you revoke it at {url}/account.")
+    return 0
+
+
+def command_whoami(args: argparse.Namespace) -> int:
+    from notes_vault_mcp import login, remote
+
+    url = login.server_argument(args.url)
+    entry = credentials.stored(url)
+    if entry is None:
+        print(one_line(remote.NotSignedIn(url)), file=sys.stderr)
+        return 1
+    try:
+        found = remote.whoami(url)
+    except Exception as exc:
+        print(one_line(exc), file=sys.stderr)
+        return 1
+    print(
+        json.dumps({"server": url, "email": found.get("email"), "key": entry.get("name"), "write": found.get("write")})
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="notes-vault-mcp",
-        description="MCP server and CLI for a markdown notes vault on S3 or a local directory.",
+        description="MCP server and CLI for a markdown notes vault on S3, a local directory or a vault server.",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -464,6 +625,18 @@ def build_parser() -> argparse.ArgumentParser:
     locating.add_argument("--repo", required=True)
     locating.set_defaults(func=json_command(log_path))
 
+    signing_in = sub.add_parser("login", help="sign this machine in to a vault server and store its key")
+    signing_in.add_argument("url", nargs="?", help="the server, e.g. https://vault.example.com; VAULT_SERVER_URL")
+    signing_in.add_argument("--name", help="the key's name on the server; the host name when omitted")
+    signing_in.add_argument("--no-browser", action="store_true", help="only print the link, never open a browser")
+    signing_in.set_defaults(func=command_login)
+    signing_out = sub.add_parser("logout", help="forget the key this machine holds for a vault server")
+    signing_out.add_argument("url", nargs="?", help="the server; VAULT_SERVER_URL when omitted")
+    signing_out.set_defaults(func=command_logout)
+    asking = sub.add_parser("whoami", help="the account and access of the stored key (JSON out)")
+    asking.add_argument("url", nargs="?", help="the server; VAULT_SERVER_URL when omitted")
+    asking.set_defaults(func=command_whoami)
+
     status = sub.add_parser("status", help="whether a vault is configured (JSON out, never fails, never writes)")
     status.add_argument(
         "--probe", action="store_true", help="also write and delete .vault/write-probe to measure writable"
@@ -483,6 +656,13 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    except Exception as exc:
+        from notes_vault_mcp.remote import RemoteError
+
+        if not isinstance(exc, RemoteError):
+            raise
+        print(one_line(exc), file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

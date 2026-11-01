@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from typing import Any
 
+from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp_types import Tool as MCPTool
 
-from notes_vault_mcp import notes, provision
-from notes_vault_mcp.auth import AuthConfig
+from notes_vault_mcp import changelog, notes, provision, tasks
+from notes_vault_mcp.auth import MACHINE_KEY_PURPOSE, WRITE_SCOPE, AuthConfig
 from notes_vault_mcp.auth.scopes import ScopeError, require_write
 from notes_vault_mcp.backends import VaultError
 from notes_vault_mcp.dav import DavCredentials
 from notes_vault_mcp.frontmatter import FrontmatterError
 from notes_vault_mcp.presets import PRESETS
-from notes_vault_mcp.schema import NoHome, instructions
+from notes_vault_mcp.schema import CLAIM_KEY, NoHome, instructions
 from notes_vault_mcp.search import QueryError, render, search
 from notes_vault_mcp.vault import SingleVault, SubjectVaults, Vault, VaultResolver, open_vault
 
@@ -38,22 +42,48 @@ MEANING_DESCRIPTION = (
 )
 
 
+MACHINE_TOOLS = frozenset({"claim", "release", "changelog"})
+
+
+def machine_request() -> bool:
+    token = get_access_token()
+    return token is not None and (token.claims or {}).get("key_purpose") == MACHINE_KEY_PURPOSE
+
+
+class VaultServer(MCPServer):
+    # Claim, release and changelog answer only a device-flow key, so no model can list or call them.
+    async def list_tools(self) -> list[MCPTool]:
+        tools = await super().list_tools()
+        return tools if machine_request() else [tool for tool in tools if tool.name not in MACHINE_TOOLS]
+
+    async def call_tool(self, name: str, arguments: dict[str, Any], context: Any = None) -> Any:
+        if name in MACHINE_TOOLS and not machine_request():
+            raise ToolError(f"Unknown tool: {name}")
+        return await super().call_tool(name, arguments, context)
+
+
 def build_server(
     vaults: Vault | VaultResolver,
     personal_tokens: DavCredentials | None = None,
     dav_url: str = "",
+    machine_tools: bool = False,
 ) -> MCPServer:
     resolver: VaultResolver = SingleVault(vaults) if isinstance(vaults, Vault) else vaults
-    server = MCPServer("vault", instructions=instructions(resolver.instruction_schema), version=VERSION)
+    server = VaultServer("vault", instructions=instructions(resolver.instruction_schema), version=VERSION)
 
-    def run(action: Callable[[Vault], str], force: bool = False, write: bool = False) -> str:
+    def run(
+        action: Callable[[Vault], str],
+        force: bool = False,
+        write: bool = False,
+        expected: tuple[type[Exception], ...] = EXPECTED_FAILURES,
+    ) -> str:
         try:
             if write:
                 require_write()
             with resolver.using() as vault:
                 vault.sync(force=force)
                 return action(vault)
-        except EXPECTED_FAILURES as exc:
+        except expected as exc:
             raise ToolError(str(exc)) from exc
 
     description = SEARCH_DESCRIPTION + (MEANING_DESCRIPTION if resolver.searches_by_meaning else "")
@@ -219,7 +249,8 @@ def build_server(
         description=(
             "CHEAP — the session-start call. Returns the system notes covering the code at `path`, the "
             "open tasks for it, the reference notes and the tail of the repo log, in one answer. Use it "
-            "before searching blind."
+            'before searching blind. format "json" adds the system notes\' paths and dates and the triage '
+            "keys, for hooks that read it."
         ),
     )
     def context_tool(
@@ -227,8 +258,76 @@ def build_server(
         repo: str | None = None,
         query: str | None = None,
         limit: int = 10,
+        format: str = "text",
     ) -> str:
-        return run(lambda vault: notes.context(vault, path=path, repo=repo, query=query, limit=limit).render())
+        def answer(vault: Vault) -> str:
+            bundle = notes.context(vault, path=path, repo=repo, query=query, limit=limit)
+            return json.dumps(bundle.as_dict(), ensure_ascii=False) if format == "json" else bundle.render()
+
+        return run(answer)
+
+    if machine_tools:
+
+        @server.tool(
+            name="claim",
+            description=(
+                f"WRITE — for tools that run agents on task notes, such as kebbie: writes which machine and task work "
+                f"on the note (frontmatter key {CLAIM_KEY}), unless another machine holds it; force takes it over. "
+                "An agent never calls it on its own. Answers JSON."
+            ),
+        )
+        def claim_tool(path: str, machine: str, task: str, repo: str = "", force: bool = False) -> str:
+            return run(
+                lambda vault: json.dumps(tasks.claim_note(vault, path, machine, task, repo=repo, force=force)),
+                write=True,
+                expected=(*EXPECTED_FAILURES, ValueError),
+            )
+
+        @server.tool(
+            name="release",
+            description=(
+                f"WRITE — for tools that run agents on task notes, such as kebbie: clears the note's claim "
+                f"(frontmatter key {CLAIM_KEY}), only when machine holds it if machine is given; without a path, "
+                "clears every claim of machine and task. Answers JSON."
+            ),
+        )
+        def release_tool(path: str | None = None, machine: str | None = None, task: str | None = None) -> str:
+            def answer(vault: Vault) -> str:
+                if path is None:
+                    return json.dumps(tasks.release_claims_of(vault, machine or "", task or ""))
+                return json.dumps(tasks.release_note(vault, path, machine=machine))
+
+            return run(answer, write=True, expected=(*EXPECTED_FAILURES, ValueError))
+
+        @server.tool(
+            name="changelog",
+            description=(
+                "CHEAP — a repo's period page: its log lines, its commits and the notes dated in the period "
+                '(YYYY-MM or YYYY). commits maps a day (YYYY-MM-DD) to its "sha subject" lines, read from the '
+                "repo's git log by the caller; leave it out to show no commits. write stores the page as the period "
+                "note instead of returning it."
+            ),
+        )
+        def changelog_tool(
+            repo: str, period: str, commits: dict[str, list[str]] | None = None, write: bool = False
+        ) -> str:
+            def answer(vault: Vault) -> str:
+                if not write:
+                    return changelog.render(vault, repo, period, commits=commits)
+                changed = changelog.write_page(vault, repo, period, commits=commits)
+                return ("wrote " if changed else "unchanged ") + vault.schema.period_key(repo, period)
+
+            return run(answer, write=write, expected=(*EXPECTED_FAILURES, ValueError))
+
+    @server.tool(
+        name="whoami",
+        description="CHEAP — who this connection signs in as and whether it may write. Answers JSON.",
+    )
+    def whoami_tool() -> str:
+        token = get_access_token()
+        if token is None:
+            return json.dumps({"email": None, "write": True})
+        return json.dumps({"email": (token.claims or {}).get("email"), "write": WRITE_SCOPE in token.scopes})
 
     @server.tool(
         name="lint",

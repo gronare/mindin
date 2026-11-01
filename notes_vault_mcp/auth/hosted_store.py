@@ -155,6 +155,7 @@ class KeyGrant:
     key_id: str
     name: str
     scopes: list[str]
+    purpose: str = "api"
 
 
 def account_of(row: sqlite3.Row | None) -> Account | None:
@@ -318,7 +319,9 @@ class HostedStore:
             )
         if account is None:
             return None
-        return KeyGrant(account=account, key_id=key_id, name=row["name"], scopes=row["scopes"].split())
+        return KeyGrant(
+            account=account, key_id=key_id, name=row["name"], scopes=row["scopes"].split(), purpose=row["purpose"]
+        )
 
     def keys(self, account_id: str) -> list[sqlite3.Row]:
         with self.connect() as connection:

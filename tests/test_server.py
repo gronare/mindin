@@ -22,6 +22,7 @@ TOOL_NAMES = {
     "context",
     "lint",
     "init",
+    "whoami",
 }
 
 

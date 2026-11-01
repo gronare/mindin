@@ -240,7 +240,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
     def authenticate(self, token: str) -> Verdict:
         grant = self.store.key_grant(token)
         if grant is not None:
-            return self.verdict(grant.account, token, f"key:{grant.key_id}", grant.scopes, None)
+            return self.verdict(grant.account, token, f"key:{grant.key_id}", grant.scopes, None, grant.purpose)
         row = self.store.load_token(token, "access")
         if row is None or row["expires_at"] <= time.time():
             return Verdict(None, 401, "invalid_token", "the token is unknown, revoked or expired")
@@ -252,7 +252,13 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
         return self.verdict(account, token, row["client_id"], row["scopes"].split(), int(row["expires_at"]))
 
     def verdict(
-        self, account: Account, token: str, client_id: str, scopes: list[str], expires_at: int | None
+        self,
+        account: Account,
+        token: str,
+        client_id: str,
+        scopes: list[str],
+        expires_at: int | None,
+        key_purpose: str | None = None,
     ) -> Verdict:
         if not account.active or not account.sub:
             return Verdict(None, 403, "account_suspended", "the account is not active")
@@ -266,7 +272,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
             expires_at=expires_at,
             resource=self.config.resource_url,
             subject=account.sub,
-            claims={"email": account.email, "account": account.id},
+            claims={"email": account.email, "account": account.id, "key_purpose": key_purpose},
         )
         return Verdict(access)
 
@@ -467,7 +473,7 @@ def build_hosted_app(
     deletion = SelfDeletion(browser, vaults, sealed)
     layouts = Layouts(browser, vaults)
     browser.sections += [layouts.section, transfer.section, support.section, deletion.section]
-    server = build_server(vaults, personal_tokens=credentials, dav_url=auth.dav_url)
+    server = build_server(vaults, personal_tokens=credentials, dav_url=auth.dav_url, machine_tools=True)
     mcp_app = server.streamable_http_app(host=host, transport_security=transport_security(auth))
     prefix = auth.path_prefix
     metadata_document = metadata(auth)

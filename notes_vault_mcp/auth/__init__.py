@@ -14,6 +14,7 @@ SmtpSecurity = Literal["starttls", "ssl", "none"]
 READ_SCOPE = "vault:read"
 WRITE_SCOPE = "vault:write"
 SCOPES = (READ_SCOPE, WRITE_SCOPE)
+MACHINE_KEY_PURPOSE = "device"
 DEFAULT_IDENTITY_HEADER = "X-Forwarded-Identity"
 DEFAULT_SUBJECT_PREFIX = "users"
 DEFAULT_OIDC_SCOPES = ("openid", "email", "profile")

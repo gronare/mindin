@@ -12,7 +12,7 @@ from starlette.datastructures import FormData
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from notes_vault_mcp.auth import READ_SCOPE, SCOPES, WRITE_SCOPE, AuthConfig
+from notes_vault_mcp.auth import MACHINE_KEY_PURPOSE, READ_SCOPE, SCOPES, WRITE_SCOPE, AuthConfig
 from notes_vault_mcp.auth.hosted_store import HostedStore
 from notes_vault_mcp.auth.hosted_web import NO_STORE, Browser, Limits, client_address, error_box, esc, oauth_error, page
 
@@ -140,7 +140,7 @@ class DeviceFlow:
         if account is None or not account.active:
             return oauth_error("access_denied", "the account is not active")
         scopes = row["granted"].split()
-        key = self.store.create_key(account.id, row["name"], scopes)
+        key = self.store.create_key(account.id, row["name"], scopes, purpose=MACHINE_KEY_PURPOSE)
         return JSONResponse(
             {
                 "access_token": key,

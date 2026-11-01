@@ -78,7 +78,7 @@ async def test_pending_then_approved_hands_out_a_key_once(site: Hosted):
     assert again.json()["error"] == "invalid_grant", "a device code is spent by the poll that took the key"
     assert "Welcome.md" in text_of(written)
     account = site.store.account("ann@example.com")
-    assert [row["name"] for row in site.store.keys(account.id)] == ["devbox"]
+    assert [(row["name"], row["purpose"]) for row in site.store.keys(account.id)] == [("devbox", "device")]
 
 
 @pytest.mark.anyio

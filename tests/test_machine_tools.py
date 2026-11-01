@@ -57,6 +57,9 @@ async def test_a_connector_token_neither_lists_nor_calls_the_machine_tools(site:
     assert not MACHINE_TOOLS & await listed(site, token)
     refused = await claimed(site, token)
     assert refused.get("isError") and "Unknown tool: claim" in text_of(refused)
+    async with site.browser() as http:
+        linted = await call_tool(http, token, "lint_and_park", {"write": "Log/lint.md", "park": True})
+    assert linted.get("isError") and "Unknown tool: lint_and_park" in text_of(linted)
 
 
 @pytest.mark.anyio

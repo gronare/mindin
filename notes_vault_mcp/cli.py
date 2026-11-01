@@ -156,26 +156,17 @@ def command_lint(args: argparse.Namespace) -> int:
             return 2
     url = server_url()
     if url is not None:
-        if args.write or args.park_stale:
-            print(
-                f"notes-vault-mcp: --write and --park-stale run where the vault is stored, not on {url}",
-                file=sys.stderr,
-            )
-            return 2
         from notes_vault_mcp import remote
 
-        print(remote.tool_text(url, "lint"))
-        return 0
-    vault = open_vault()
-    vault.index.sync(force=True)
-    parked = notes.park_stale(vault) if args.park_stale else []
-    findings = notes.lint(vault)
-    for key in parked:
-        findings.add("parked", f"{key}: status backlog, untouched for more than {vault.schema.stale_after_days} days")
-    print(findings.render())
+        if args.write or args.park_stale:
+            print(remote.tool_text(url, "lint_and_park", write=args.write, park=bool(args.park_stale)))
+        else:
+            print(remote.tool_text(url, "lint"))
+    else:
+        vault = open_vault()
+        vault.index.sync(force=True)
+        print(notes.lint_and_park(vault, write=args.write, park=args.park_stale))
     if args.write:
-        text = notes.lint_note_text(findings)
-        notes._reindex(vault, args.write, text, vault.backend.put(args.write, text))
         print(f"wrote {args.write}", file=sys.stderr)
     return 0
 

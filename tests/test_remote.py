@@ -17,6 +17,7 @@ from remote_support import EMAIL, Served, serve
 from test_cli_hooks import feed, head_sha, make_repo
 
 from notes_vault_mcp import credentials, login, provision
+from notes_vault_mcp.backends import NotFound
 from notes_vault_mcp.backends.local import LocalBackend
 from notes_vault_mcp.cli import main
 from notes_vault_mcp.frontmatter import parse
@@ -396,11 +397,15 @@ async def test_the_proxy_serves_the_servers_tools(remote: Served):
             tools = {tool.name for tool in (await client.list_tools()).tools}
             found = await client.call_tool("read_file", {"path": "Areas/orchard.md"})
             hidden = await client.call_tool("claim", {"path": "Projects/orchard-fresh.md", "machine": "m", "task": "t"})
+            linted = await client.call_tool("lint_and_park", {"write": "Log/lint.md", "park": True})
             instructions = client.instructions
         group.cancel_scope.cancel()
     assert {"search", "read_file", "context"} <= tools
-    assert not {"claim", "release", "changelog"} & tools, "the proxied model never sees the machine tools"
+    assert not {"claim", "release", "changelog", "lint_and_park"} & tools, "the proxied model never sees them"
     assert hidden.is_error and "Unknown tool" in hidden.content[0].text
+    assert linted.is_error and "Unknown tool" in linted.content[0].text
+    with pytest.raises(NotFound):
+        remote.read("Log/lint.md")
     assert "kebbie" not in note_on_server(remote, "Projects/orchard-fresh.md")[0]
     assert instructions and "Areas/" in instructions
     assert "Kontrollplanet" in "".join(block.text for block in found.content)
@@ -470,3 +475,36 @@ def test_init_through_the_server_sends_a_layout_choice_to_the_account_page(
     assert main(["init", "--preset", "para"]) == 2
     assert f"{server.url}/account" in capsys.readouterr().err
     assert server.read(".vault/schema.yml") == before
+
+
+def lint_run(capsys: pytest.CaptureFixture, *options: str) -> tuple[str, str]:
+    assert main(["lint", *options]) == 0
+    captured = capsys.readouterr()
+    return captured.out, captured.err
+
+
+def test_the_weekly_lint_through_the_server_equals_the_local_run(
+    remote: Served, vault_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    options = ("--write", "Log/lint.md", "--park-stale")
+    storage = os.environ["VAULT_PATH"]
+    through_server = lint_run(capsys, *options)
+    monkeypatch.delenv("VAULT_SERVER_URL")
+    monkeypatch.setenv("VAULT_PATH", str(vault_dir))
+    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "local-cache"))
+    local = lint_run(capsys, *options)
+    assert through_server == local
+    assert "parked" in through_server[0] and "Projects/workshop-stale.md" in through_server[0]
+    assert through_server[1] == "wrote Log/lint.md\n"
+    monkeypatch.setenv("VAULT_PATH", storage)
+    assert remote.read("Log/lint.md") == (vault_dir / "Log" / "lint.md").read_text(encoding="utf-8")
+    stale = "Projects/workshop-stale.md"
+    assert remote.read(stale) == (vault_dir / stale).read_text(encoding="utf-8")
+    assert note_on_server(remote, stale)[0]["status"] == "backlog"
+
+
+def test_a_read_only_key_cannot_run_the_weekly_lint(served: Served, monkeypatch, tmp_path: Path, capsys):
+    credentials.save(served.url, {"key": served.key(write=False), "scope": "vault:read", "name": "laptop"})
+    monkeypatch.setenv("VAULT_SERVER_URL", served.url)
+    assert main(["lint", "--park-stale"]) == 1
+    assert "may only read the vault" in capsys.readouterr().err

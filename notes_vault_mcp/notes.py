@@ -712,6 +712,19 @@ def lint(vault: Vault) -> Findings:
     return findings
 
 
+def lint_and_park(vault: Vault, write: str | None = None, park: bool = False) -> str:
+    if write:
+        note_key(write)
+    parked = park_stale(vault) if park else []
+    findings = lint(vault)
+    for key in parked:
+        findings.add("parked", f"{key}: status backlog, untouched for more than {vault.schema.stale_after_days} days")
+    if write:
+        text = lint_note_text(findings)
+        _reindex(vault, write, text, vault.backend.put(write, text))
+    return findings.render()
+
+
 def lint_note_text(findings: Findings) -> str:
     frontmatter = {
         "title": f"Lint {today()}",

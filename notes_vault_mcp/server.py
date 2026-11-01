@@ -42,7 +42,7 @@ MEANING_DESCRIPTION = (
 )
 
 
-MACHINE_TOOLS = frozenset({"claim", "release", "changelog"})
+MACHINE_TOOLS = frozenset({"claim", "release", "changelog", "lint_and_park"})
 
 
 def machine_request() -> bool:
@@ -51,7 +51,7 @@ def machine_request() -> bool:
 
 
 class VaultServer(MCPServer):
-    # Claim, release and changelog answer only a device-flow key, so no model can list or call them.
+    # The machine tools answer only a device-flow key, so no model can list or call them.
     async def list_tools(self) -> list[MCPTool]:
         tools = await super().list_tools()
         return tools if machine_request() else [tool for tool in tools if tool.name not in MACHINE_TOOLS]
@@ -267,6 +267,16 @@ def build_server(
         return run(answer)
 
     if machine_tools:
+
+        @server.tool(
+            name="lint_and_park",
+            description=(
+                "WRITE — the weekly lint for a scheduled job: parks stale open task notes in the backlog when park "
+                "is set, and writes the findings as the note at write when given; answers the findings."
+            ),
+        )
+        def lint_and_park_tool(write: str | None = None, park: bool = False) -> str:
+            return run(lambda vault: notes.lint_and_park(vault, write=write, park=park), force=True, write=True)
 
         @server.tool(
             name="claim",

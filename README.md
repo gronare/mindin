@@ -441,7 +441,8 @@ again for every note when the model changes.
 The model runs in one background process per machine, shared by every server and command that uses the
 same `VAULT_CACHE_DIR`, however many sessions are open. The first one that needs it starts it; it keeps
 running when that session ends, and exits by itself once nobody has asked it anything for five minutes.
-The next search starts it again. If it crashes, the next search starts a new one. A session that never
+The next search starts it again. An HTTP server keeps it loaded for as long as the server runs, so its
+first search after a quiet spell finds by meaning too. If it crashes, the next search starts a new one. A session that never
 searches, with no new note to embed, never starts it. Its log is `VAULT_CACHE_DIR/embed.log`. It needs
 Unix sockets; without them the server says so once and searches by words.
 

@@ -361,6 +361,27 @@ def test_serving_embeds_pending_notes_before_any_request(root: Path, tmp_path: P
         vault.close()
 
 
+@pytest.mark.parametrize(("transport", "warmed"), [("http", 1), ("stdio", 0)])
+def test_an_http_server_keeps_the_embedder_warm(
+    root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, transport: str, warmed: int
+):
+    embedder = SharedEmbedder(tmp_path / "cache")
+    warms: list[SharedEmbedder] = []
+    monkeypatch.setattr(SharedEmbedder, "keep_warm", lambda self: warms.append(self))
+    backend = LocalBackend(root)
+    vault = Vault(backend, load_schema(backend), tmp_path / "warm.sqlite", embedder=embedder, background=True)
+    vault.start_embedding = lambda: None
+    monkeypatch.setenv("VAULT_TOKEN", "t0ken")
+    monkeypatch.setattr(cli, "open_vault", lambda vectors: vault)
+    monkeypatch.setattr(cli, "run_stdio", lambda served: None)
+    monkeypatch.setattr(cli, "run_http", lambda served, host, port, auth: None)
+    try:
+        cli.command_serve(argparse.Namespace(transport=transport, auth="bearer", plans="off", host="", port=0))
+        assert warms == [embedder] * warmed
+    finally:
+        vault.close()
+
+
 def test_a_failing_embedder_leaves_sync_working_by_words(root: Path, tmp_path: Path):
     opened = open_with(root, tmp_path / "failing.sqlite", FailingEmbedder())
     try:

@@ -12,6 +12,7 @@ from notes_vault_mcp import __version__, changelog, hooks, notes, provision, tas
 from notes_vault_mcp.auth import auth_config
 from notes_vault_mcp.backends import NotFound
 from notes_vault_mcp.config import ConfigError, adopt_plugin_config, local_root, s3_settings
+from notes_vault_mcp.embedding import keep_warm
 from notes_vault_mcp.search import render, search
 from notes_vault_mcp.server import run_http, run_stdio
 from notes_vault_mcp.vault import Vault, open_vault
@@ -32,9 +33,11 @@ def command_serve(args: argparse.Namespace) -> int:
         from notes_vault_mcp.vault import SubjectVaults
 
         vaults = SubjectVaults(prefix=auth.subject_prefix, dav_url=auth.dav_url, vectors="background")
+        keep_warm(vaults.embedder)
         run_http(vaults, args.host, args.port, auth)
         return 0
     vault = open_vault(vectors="background")
+    keep_warm(vault.embedder)
     vault.start_embedding()
     run_http(vault, args.host, args.port, auth)
     return 0

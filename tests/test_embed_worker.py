@@ -192,6 +192,17 @@ def test_a_query_is_answered_while_a_slow_embed_runs(make, monkeypatch: pytest.M
     bulk.join()
 
 
+def test_a_worker_kept_warm_outlives_its_idle_time_until_warming_stops(make):
+    embedder = make(idle_seconds=0.5)
+    embedder.keep_warm(every=0.1)
+    assert wait_until(lambda: embedder.worker_pid is not None)
+    warm = embedder.worker_pid
+    time.sleep(1.5)
+    assert alive(warm)
+    embedder.warm_stop.set()
+    assert wait_until(lambda: not alive(warm))
+
+
 class FakeTokenizer:
     def __init__(self) -> None:
         self.truncation = {"max_length": 512, "direction": "right"}

@@ -26,6 +26,8 @@ MPNET = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 MIN_SIMILARITY = {MINILM: 0.25, MPNET: 0.35}
 UNKNOWN_MODEL_SIMILARITY = 0.3
 IDLE_SECONDS = 300.0
+WARM_SECONDS = IDLE_SECONDS / 2
+WARM_TEXT = "warm"
 QUERY_WAIT_SECONDS = 3.0
 PASSAGES_WAIT_SECONDS = 900.0
 HELLO_WAIT_SECONDS = 5.0
@@ -95,6 +97,11 @@ def configured_embedder(cache: Path) -> Embedder | None:
         return _shared[(cache, model)]
 
 
+def keep_warm(embedder: Embedder | None) -> None:
+    if isinstance(embedder, SharedEmbedder):
+        embedder.keep_warm()
+
+
 def socket_path(cache: Path) -> Path:
     path = cache / "embed.sock"
     if len(str(path).encode("utf-8")) <= SOCKET_PATH_MAX:
@@ -150,6 +157,16 @@ class SharedEmbedder:
         self.loader = loader or DEFAULT_LOADER
         self.query_wait = query_wait
         self.worker_pid: int | None = None
+        self.warm_stop = threading.Event()
+
+    def keep_warm(self, every: float = WARM_SECONDS) -> None:
+        def warm() -> None:
+            while not self.warm_stop.is_set():
+                with contextlib.suppress(Exception):
+                    self.query(WARM_TEXT)
+                self.warm_stop.wait(every)
+
+        threading.Thread(target=warm, name="vault-embed-warm", daemon=True).start()
 
     def passages(self, texts: Sequence[str]) -> Any:
         return _normalized(self._request("passages", list(texts), PASSAGES_WAIT_SECONDS))

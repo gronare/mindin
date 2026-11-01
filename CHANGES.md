@@ -5,6 +5,12 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 ## Unreleased
 
 ### What's new
+
+### Fixed
+
+## 0.9.2
+
+### What's new
 - The claim field on a task note is called kebbie. This breaks older claims: a note that carries the previous key is not read as claimed.
 
 ### Fixed

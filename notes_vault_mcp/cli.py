@@ -692,6 +692,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         args = parser.parse_args(["serve", *(argv or [])])
     try:
+        adopt_plugin_config()
         return int(args.func(args))
     except ConfigError as exc:
         print(str(exc), file=sys.stderr)

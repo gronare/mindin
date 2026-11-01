@@ -240,6 +240,18 @@ def test_commands_fall_back_to_the_plugin_config(isolated: Path, vault_dir: Path
     assert (vault_dir / "Projects" / "orchard-prune.md").is_file()
 
 
+def test_every_command_finds_the_server_in_the_plugin_config(isolated: Path, monkeypatch: pytest.MonkeyPatch, capsys):
+    write_settings(isolated, {"vault_server_url": "https://vault.example.test", "s3_bucket": "old"})
+    asked = []
+    monkeypatch.setattr(
+        "notes_vault_mcp.remote.tool_text", lambda url, tool, **arguments: asked.append((url, tool)) or ""
+    )
+    for command in (["search", "orchard"], ["backlog"], ["lint"]):
+        assert main(command) == 0, command
+    assert [tool for _, tool in asked] == ["search", "backlog", "lint"]
+    assert {url for url, _ in asked} == {"https://vault.example.test"}
+
+
 def test_the_environment_wins_over_the_plugin_config(isolated: Path, configured: Path, tmp_path: Path):
     write_settings(isolated, {"vault_path": str(tmp_path / "elsewhere")})
     assert adopt_plugin_config() == "env"

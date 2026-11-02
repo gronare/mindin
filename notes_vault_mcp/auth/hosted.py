@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
+import anyio
 import httpx2
 from mcp.server.auth.handlers.authorize import AuthorizationHandler
 from mcp.server.auth.handlers.register import RegistrationHandler
@@ -55,6 +56,7 @@ from notes_vault_mcp.auth.device import DEVICE_GRANT, DeviceFlow
 from notes_vault_mcp.auth.hosted_access import SupportAccess, SupportDesk
 from notes_vault_mcp.auth.hosted_deletion import SelfDeletion
 from notes_vault_mcp.auth.hosted_keys import Keyring, SealedVaults, VaultKeys
+from notes_vault_mcp.auth.hosted_ready import built_in_checks
 from notes_vault_mcp.auth.hosted_snapshots import IndexSnapshots
 from notes_vault_mcp.auth.hosted_store import Account, ApiKeyCredentials, HostedStore
 from notes_vault_mcp.auth.hosted_vault_pages import VaultPages
@@ -69,7 +71,7 @@ from notes_vault_mcp.auth.login_passkey import PasskeySignIn
 from notes_vault_mcp.auth.prefix import URL, inner_lifespan
 from notes_vault_mcp.changes import NULL_BUS
 from notes_vault_mcp.config import ConfigError
-from notes_vault_mcp.extensions import Extension, Server, installed, narrowed, supplied_bus
+from notes_vault_mcp.extensions import Extension, HealthCheck, Server, installed, narrowed, supplied_bus
 from notes_vault_mcp.extensions import access as extended_access
 
 logger = logging.getLogger(__name__)
@@ -554,6 +556,18 @@ def sign_in_methods(
     return forwarded
 
 
+def passes(check: HealthCheck) -> bool:
+    try:
+        return bool(check())
+    except Exception:
+        logger.exception("notes-vault-mcp: a readiness check failed")
+        return False
+
+
+def failing_checks(checks: Sequence[HealthCheck]) -> list[str]:
+    return [getattr(check, "__name__", repr(check)) for check in checks if not passes(check)]
+
+
 def build_hosted_app(
     vaults: Any,
     auth: AuthConfig,
@@ -598,6 +612,7 @@ def build_hosted_app(
         extension.attach(extended)
     vaults.use_bus(supplied_bus(extensions, extended) or NULL_BUS)
     pages.sections += extended.vault_sections
+    built_in = built_in_checks(store)
 
     def extended_and_support(account: Account, csrf: str) -> str:
         added = "".join(section(account, csrf) for section in extended.account_sections)
@@ -616,6 +631,11 @@ def build_hosted_app(
 
     async def health(_: Request) -> Response:
         return PlainTextResponse("ok")
+
+    async def ready(_: Request) -> Response:
+        failing = await anyio.to_thread.run_sync(failing_checks, [*built_in, *extended.health_checks])
+        status = 503 if failing else 200
+        return JSONResponse({"ready": not failing, "failing": failing}, status, {"Cache-Control": "no-store"})
 
     async def consent_submit(request: Request) -> Response:
         return await browser.consent_submit(request, provider.mint_code)
@@ -658,6 +678,7 @@ def build_hosted_app(
     )
     routes += [
         Route(prefix + "/up", endpoint=health, methods=["GET"]),
+        Route(prefix + "/ready", endpoint=ready, methods=["GET"]),
         Route(prefix + "/authorize", endpoint=limited(AuthorizationHandler(provider).handle), methods=["GET", "POST"]),
         Route(
             prefix + "/token",

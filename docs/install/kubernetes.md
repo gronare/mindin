@@ -22,7 +22,7 @@
 
 4. Open `VAULT_PUBLIC_URL/account` and sign in.
 
-The Deployment runs one replica with the `Recreate` strategy, as a sealed vault needs; see [One server per bucket](storage.md#one-server-per-bucket). The probes hit `/.well-known/oauth-protected-resource/mcp`, which answers without a token; when `VAULT_PUBLIC_URL` carries a path, that path goes in the probe URL too. The container's memory limit is 512 MiB, which is enough without search by meaning; [Search by meaning](semantic-search.md#kubernetes) needs more.
+The Deployment runs one replica with the `Recreate` strategy, as a sealed vault needs; see [One server per bucket](storage.md#one-server-per-bucket). The probes hit `/.well-known/oauth-protected-resource/mcp`, which answers without a token; when `VAULT_PUBLIC_URL` carries a path, that path goes in the probe URL too. The server also answers `GET /up` with `ok` while the process serves, and `GET /ready` with `200` when the account store answers, the storage is reachable (`account_store` and `storage`, each looked at once every 5 seconds) and every readiness check an installed extension adds passes, or `503` and a JSON body naming the checks that failed, under the same path. The container's memory limit is 512 MiB, which is enough without search by meaning; [Search by meaning](semantic-search.md#kubernetes) needs more.
 
 The image sets `VAULT_AUTH_DIR=/data/auth` and `VAULT_CACHE_DIR=/data/cache`. Back up `/data/auth` together with the master key; see [Back up and rotate keys](../how-to/back-up-and-rotate.md).
 

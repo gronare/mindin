@@ -25,6 +25,7 @@ Access = Literal["full", "read", "none"]
 ACCESS_RANK: dict[str, int] = {"none": 0, "read": 1, "full": 2}
 Section = Callable[["Account", str], str]
 VaultSection = Callable[["Account", "Vault", str], str]
+HealthCheck = Callable[[], bool]
 
 
 @dataclass
@@ -42,6 +43,7 @@ class Server:
     routes: list[BaseRoute] = field(default_factory=list)
     account_sections: list[Section] = field(default_factory=list)
     vault_sections: list[VaultSection] = field(default_factory=list)
+    health_checks: list[HealthCheck] = field(default_factory=list)
 
 
 class Extension:

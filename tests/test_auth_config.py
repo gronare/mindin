@@ -10,7 +10,14 @@ from notes_vault_mcp.auth import READ_SCOPE, WRITE_SCOPE, AuthConfig, auth_confi
 from notes_vault_mcp.config import PLUGIN_ENV_PREFIX, ConfigError
 
 PREFIXES = ("VAULT_SMTP_", "VAULT_GITHUB_", "VAULT_OIDC_", "VAULT_IDENTITY_", "VAULT_HOSTED_")
-NAMES = ("VAULT_PUBLIC_URL", "VAULT_ALLOWED_HOSTS", "VAULT_REGISTRATION", "VAULT_PASSKEYS", "VAULT_AUTH_DIR")
+NAMES = (
+    "VAULT_PUBLIC_URL",
+    "VAULT_ALLOWED_HOSTS",
+    "VAULT_REGISTRATION",
+    "VAULT_PASSKEYS",
+    "VAULT_AUTH_DIR",
+    "VAULT_HTTP_STATELESS",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -146,6 +153,15 @@ def test_registration_and_passkeys_are_settings(mailing: pytest.MonkeyPatch):
     assert config.registration == "open" and config.passkeys is False
     mailing.setenv("VAULT_REGISTRATION", "anyone")
     with pytest.raises(ConfigError, match="VAULT_REGISTRATION"):
+        auth_config()
+
+
+def test_stateless_http_is_off_unless_turned_on(mailing: pytest.MonkeyPatch):
+    assert auth_config().stateless_http is False
+    mailing.setenv("VAULT_HTTP_STATELESS", "on")
+    assert auth_config().stateless_http is True
+    mailing.setenv("VAULT_HTTP_STATELESS", "yes")
+    with pytest.raises(ConfigError, match="VAULT_HTTP_STATELESS"):
         auth_config()
 
 

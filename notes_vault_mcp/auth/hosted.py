@@ -599,7 +599,9 @@ def build_hosted_app(
 
     browser.sections += [extended_and_support, deletion.section]
     server = build_server(vaults, personal_tokens=credentials, dav_url=auth.dav_url, machine_tools=True)
-    mcp_app = server.streamable_http_app(host=host, transport_security=transport_security(auth))
+    mcp_app = server.streamable_http_app(
+        host=host, transport_security=transport_security(auth), stateless_http=auth.stateless_http
+    )
     prefix = auth.path_prefix
     metadata_document = metadata(auth)
 

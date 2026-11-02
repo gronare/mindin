@@ -42,6 +42,7 @@ These apply to `serve --transport http`. `--host` defaults to `127.0.0.1` and `-
 | `VAULT_HOSTED_MASTER_KEY_PREVIOUS` | no | | Older master keys, space or comma separated, still accepted while `master-key rewrap` moves the vault keys off them. |
 | `VAULT_REGISTRATION` | no | `invite` | `invite`: only invited addresses get an account. `open`: any verified email does. |
 | `VAULT_PASSKEYS` | no | `on` | `on` or `off`. |
+| `VAULT_HTTP_STATELESS` | no | `off` | `on` keeps no MCP session on the server between requests, so a restart drops no session a client holds. Each request then stands alone: the server sends nothing to a client outside the answer to a request. |
 | `VAULT_ALLOWED_HOSTS` | no | | Extra `Host` header values the MCP endpoint answers, space or comma separated. See [Behind a reverse proxy](../how-to/reverse-proxy.md). |
 | `VAULT_AUTH_DIR` | no | `VAULT_CACHE_DIR/auth`; `/data/auth` in the image | Where `hosted.sqlite` lives. |
 | `VAULT_SUBJECT_PREFIX` | no | `users` | Where the vaults live in the folder or bucket: `<prefix>/<vault id>/`, or `<prefix>/<account id>/` for an account's original vault. |

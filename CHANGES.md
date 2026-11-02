@@ -7,6 +7,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 ### What's new
 - The documentation lives in `docs/`, sorted into install guides, how-tos, reference and explanation, with a page listing every environment variable.
 - `deploy/docker/` holds the Docker Compose setup, and each GitHub release carries its `compose.yml`, `Caddyfile` and `example.env`, so a server installs with two `curl` lines. Its `.env` keeps the vaults in the container's volume unless you set a bucket.
+- `VAULT_HTTP_STATELESS=on` serves MCP without sessions, so a server restart drops no session a client holds.
 
 ### Fixed
 - A note's age counts calendar days in local time, so a note from five days back reads "5 days" also just after midnight.

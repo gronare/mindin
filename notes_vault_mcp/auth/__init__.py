@@ -77,6 +77,7 @@ class AuthConfig:
     allowed_hosts: tuple[str, ...] = ()
     registration: Registration = "invite"
     passkeys: bool = True
+    stateless_http: bool = False
     smtp: SmtpConfig | None = None
     github: GithubConfig | None = None
     oidc: OidcConfig | None = None
@@ -168,6 +169,7 @@ def auth_config() -> AuthConfig:
         allowed_hosts=_words("VAULT_ALLOWED_HOSTS", ()),
         registration="open" if _choice("VAULT_REGISTRATION", ("invite", "open"), "invite") == "open" else "invite",
         passkeys=_choice("VAULT_PASSKEYS", ("on", "off"), "on") == "on",
+        stateless_http=_choice("VAULT_HTTP_STATELESS", ("on", "off"), "off") == "on",
         smtp=smtp_config(),
         github=github_config(),
         oidc=oidc_config(),

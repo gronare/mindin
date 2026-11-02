@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from notes_vault_mcp.auth import Registration
-from notes_vault_mcp.auth.database import has_table
 from notes_vault_mcp.auth.hosted_store import Account, HostedStore, account_of, digest, now
 from notes_vault_mcp.auth.hosted_vaults import accept_invitations, add_first_vault, invited
 
@@ -96,8 +95,8 @@ class Identities:
     def __init__(self, store: HostedStore) -> None:
         self.store = store
         with store.connect() as connection:
-            fresh = not has_table(connection, "identities")
-            connection.executescript(SCHEMA)
+            fresh = "identities" not in store.database.tables(connection)
+            store.database.create(connection, SCHEMA)
             if fresh:
                 connection.execute(BACKFILL)
                 connection.execute("DROP TABLE IF EXISTS logins")
@@ -202,7 +201,7 @@ class Identities:
                     " VALUES('passkey', ?, ?, ?, ?, ?, ?)",
                     (credential_id, account_id, label, public_key, sign_count, now()),
                 )
-        except sqlite3.IntegrityError:
+        except self.store.database.IntegrityError:
             return False
         return True
 

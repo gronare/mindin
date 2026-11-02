@@ -27,7 +27,7 @@ from test_auth_hosted import authorize, consent, register
 from notes_vault_mcp.auth.hosted_access import SupportAccess
 from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
 from notes_vault_mcp.auth.hosted_store import SCHEMA, HostedStore, digest
-from notes_vault_mcp.auth.hosted_vaults import SCHEMA_VERSION, migrate
+from notes_vault_mcp.auth.hosted_vaults import MIGRATIONS
 from notes_vault_mcp.auth.hosted_web import RECENT_SIGN_IN
 from notes_vault_mcp.backends import make_subject_backend
 from notes_vault_mcp.backends.local import LocalBackend
@@ -401,7 +401,7 @@ async def test_deleting_the_account_deletes_every_vault(site: Hosted, storage: P
     assert deleted.status_code == 200
     assert "Orchard: " in form.text and "Workshop: " in form.text
     assert all(not (storage / "users" / vault_id).exists() for vault_id in ids)
-    with sqlite3.connect(site.store.path) as connection:
+    with sqlite3.connect(site.store.database.path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM vaults").fetchone()[0] == 0
         assert connection.execute("SELECT COUNT(*) FROM vault_data_keys").fetchone()[0] == 0
 
@@ -501,10 +501,10 @@ async def test_the_migration_keeps_an_existing_vault_where_it_is_and_readable(
     account_id, secret = legacy_store(tmp_path / "auth", keyring, notes)
     raw_before = {path: path.read_bytes() for path in storage.rglob("*") if path.is_file()}
     store = HostedStore(tmp_path / "auth")
-    migrate(store.path)
+    store.database.migrate(MIGRATIONS)
     HostedStore(tmp_path / "auth")
-    with sqlite3.connect(store.path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    with sqlite3.connect(store.database.path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == len(MIGRATIONS)
         assert connection.execute("SELECT name FROM sqlite_master WHERE name = 'vault_keys'").fetchone() is None
         assert connection.execute("SELECT COUNT(*) FROM vault_data_keys").fetchone()[0] == 1
     vault = store.first_vault(account_id)

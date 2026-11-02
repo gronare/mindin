@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import sqlite3
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from functools import cache
 from importlib.metadata import entry_points
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from notes_vault_mcp.auth import READ_SCOPE
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from starlette.routing import BaseRoute
 
     from notes_vault_mcp.auth import AuthConfig
+    from notes_vault_mcp.auth.database import Connection, Database
     from notes_vault_mcp.auth.hosted_store import Account, HostedStore
     from notes_vault_mcp.auth.hosted_vaults import Vault
 
@@ -45,8 +46,12 @@ class Server:
 class Extension:
     """A package installed beside the server, named in the notes_vault_mcp.extensions entry point group."""
 
-    def migrate(self, connection: sqlite3.Connection) -> None:
-        """Create or migrate this extension's own tables in hosted.sqlite, every time the store opens."""
+    def migrate(self, connection: Connection) -> None:
+        """Create or migrate this extension's own tables in the account store, every time the store opens."""
+
+    def database(self, directory: Path) -> Database | None:
+        """The database the account store keeps its tables in, instead of hosted.sqlite in this directory."""
+        return None
 
     def commands(self, subparsers: argparse._SubParsersAction) -> None:
         """Add subcommands to the notes-vault-mcp CLI."""
@@ -66,6 +71,10 @@ def installed() -> tuple[Extension, ...]:
 
 def access(extensions: Iterable[Extension], account: Account) -> Access:
     return min((extension.access(account) for extension in extensions), key=ACCESS_RANK.__getitem__, default="full")
+
+
+def supplied_database(extensions: Iterable[Extension], directory: Path) -> Database | None:
+    return next((found for extension in extensions if (found := extension.database(directory)) is not None), None)
 
 
 def narrowed(granted: Access, scopes: list[str]) -> list[str]:

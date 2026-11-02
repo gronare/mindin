@@ -60,7 +60,7 @@ def schemas(folder: Path) -> dict[str, object]:
     with sqlite3.connect(legacy / "hosted.sqlite") as connection:
         connection.executescript(SCHEMA + LEGACY_TABLES)
     migrated = opened(legacy)
-    return {"fresh": dump(fresh.path), "migrated": dump(migrated.path)}
+    return {"fresh": dump(fresh.database.path), "migrated": dump(migrated.database.path)}
 
 
 def test_the_store_lays_out_the_same_tables_as_the_released_schema(tmp_path: Path):

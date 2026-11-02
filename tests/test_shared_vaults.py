@@ -10,10 +10,11 @@ import pytest
 from hosted_support import BASE, INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_session, post_mcp, query, text_of
 
 from notes_vault_mcp.auth import MACHINE_KEY_PURPOSE
+from notes_vault_mcp.auth.database import SqliteDatabase
 from notes_vault_mcp.auth.hosted_access import SupportAccess
 from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
 from notes_vault_mcp.auth.hosted_store import HostedStore
-from notes_vault_mcp.auth.hosted_vaults import SCHEMA_VERSION, migrate
+from notes_vault_mcp.auth.hosted_vaults import MIGRATIONS
 from notes_vault_mcp.backends import SCHEMA_KEY
 from notes_vault_mcp.cli import main
 from notes_vault_mcp.vault import SubjectVaults
@@ -122,7 +123,7 @@ async def test_a_removed_members_key_and_token_are_refused_at_once_even_on_an_op
     assert removed.status_code == 200 and "no longer work" in removed.text
     assert after.status_code == 401 and token_after.status_code == 401 and dav_after.status_code == 401
     assert page_after.status_code == 404
-    with sqlite3.connect(site.store.path) as connection:
+    with sqlite3.connect(site.store.database.path) as connection:
         live = connection.execute(
             "SELECT COUNT(*) FROM api_keys WHERE account_id = ? AND vault_id = ? AND revoked_at IS NULL",
             (member.id, vault.id),
@@ -467,7 +468,7 @@ async def test_previous_versions_are_sealed_and_go_with_the_vault(site: Hosted, 
         await write(bo, key, "Areas/pruning.md", PRUNING_LATER)
         history_root = storage / "users" / "history" / vault.id
         stored = [path.read_bytes() for path in history_root.rglob("*") if path.is_file()]
-        with sqlite3.connect(site.store.path) as connection:
+        with sqlite3.connect(site.store.database.path) as connection:
             paths = [row[0] for row in connection.execute("SELECT path FROM vault_changes")]
         page = await ann.get("/account/vaults/orchard-club")
         deleted = await ann.post(
@@ -477,7 +478,7 @@ async def test_previous_versions_are_sealed_and_go_with_the_vault(site: Hosted, 
     assert paths and not any("pruning" in path for path in paths)
     assert deleted.status_code == 200 and "deleted for every member" in deleted.text
     assert not history_root.exists()
-    with sqlite3.connect(site.store.path) as connection:
+    with sqlite3.connect(site.store.database.path) as connection:
         for table in ("vault_changes", "vault_members", "vault_invitations"):
             assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0, table
 
@@ -536,10 +537,10 @@ def test_the_migration_adds_shared_vaults_and_leaves_a_personal_vault_as_it_was(
         vaults_before = connection.execute("SELECT * FROM vaults").fetchall()
         keys_before = connection.execute("SELECT * FROM vault_data_keys").fetchall()
     raw_before = {file: file.read_bytes() for file in storage.rglob("*") if file.is_file()}
-    migrate(path)
-    migrate(path)
+    SqliteDatabase(path).migrate(MIGRATIONS)
+    SqliteDatabase(path).migrate(MIGRATIONS)
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == len(MIGRATIONS)
         assert (
             connection.execute("SELECT id, account_id, name, slug, created_at FROM vaults").fetchall() == vaults_before
         )

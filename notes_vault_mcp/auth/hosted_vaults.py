@@ -6,7 +6,6 @@ import sqlite3
 import time
 import unicodedata
 from dataclasses import dataclass
-from pathlib import Path
 
 from notes_vault_mcp.auth.database import add_column, has_table
 
@@ -16,7 +15,6 @@ SLUG_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?")
 RESERVED_SLUGS = frozenset({"new"})
 FIRST_VAULT_NAME = "Personal"
 NAME_MAX = 64
-SCHEMA_VERSION = 2
 PERSONAL = "personal"
 SHARED = "shared"
 KINDS = (PERSONAL, SHARED)
@@ -187,27 +185,6 @@ def count(connection: sqlite3.Connection, sql: str) -> int:
     return int(connection.execute(sql).fetchone()[0])
 
 
-def migrate(path: Path) -> None:
-    connection = sqlite3.connect(path, isolation_level=None)
-    connection.row_factory = sqlite3.Row
-    try:
-        connection.execute("BEGIN IMMEDIATE")
-        try:
-            version = count(connection, "PRAGMA user_version")
-            if version < 1:
-                to_vaults(connection)
-            if version < 2:
-                to_shared(connection)
-            if version < SCHEMA_VERSION:
-                connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-            connection.execute("COMMIT")
-        except BaseException:
-            connection.execute("ROLLBACK")
-            raise
-    finally:
-        connection.close()
-
-
 # An existing account's vault takes the account's id, so its storage prefix, index and key wrapping stay as they are.
 def to_vaults(connection: sqlite3.Connection) -> None:
     for statement in VAULT_TABLES:
@@ -267,6 +244,9 @@ def to_shared(connection: sqlite3.Connection) -> None:
     add_column(connection, "vaults", "kind", "TEXT NOT NULL DEFAULT 'personal' CHECK (kind IN ('personal', 'shared'))")
     for statement in SHARED_TABLES:
         connection.execute(statement)
+
+
+MIGRATIONS = (to_vaults, to_shared)
 
 
 def reaches(connection: sqlite3.Connection, vault: Vault, account_id: str) -> bool:

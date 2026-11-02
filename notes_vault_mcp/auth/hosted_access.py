@@ -30,8 +30,7 @@ class SupportAccess:
         self.store = store
         self.clock = clock
         with store.connect() as connection:
-            for statement in SUPPORT_TABLES:
-                connection.execute(statement)
+            store.database.create(connection, ";\n".join(SUPPORT_TABLES))
 
     def grant(self, vault: Vault, seconds: int) -> int:
         moment = int(self.clock())

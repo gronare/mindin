@@ -8,17 +8,18 @@ import secrets
 import sqlite3
 import sys
 import time
-from collections.abc import Callable, Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from notes_vault_mcp.auth import READ_SCOPE, WRITE_SCOPE, auth_dir
-from notes_vault_mcp.auth.database import has_table
+from notes_vault_mcp.auth.database import Database, SqliteDatabase
 from notes_vault_mcp.auth.hosted_vaults import (
     MEMBER,
+    MIGRATIONS,
     OWNER,
     PERSONAL,
     RESERVED_SLUGS,
@@ -28,7 +29,6 @@ from notes_vault_mcp.auth.hosted_vaults import (
     add_first_vault,
     clean_name,
     insert_vault,
-    migrate,
     new_vault_id,
     reaches,
     slug_taken,
@@ -38,7 +38,7 @@ from notes_vault_mcp.auth.hosted_vaults import (
 )
 from notes_vault_mcp.auth.pages import stamp
 from notes_vault_mcp.config import private_dir
-from notes_vault_mcp.extensions import Extension, installed
+from notes_vault_mcp.extensions import Extension, installed, supplied_database
 from notes_vault_mcp.shared import Actor
 
 AccountStatus = Literal["invited", "active", "suspended"]
@@ -223,25 +223,22 @@ def account_of(row: sqlite3.Row | None) -> Account | None:
 
 
 class HostedStore:
-    def __init__(self, directory: Path, extensions: Sequence[Extension] | None = None) -> None:
-        self.path = private_dir(directory) / "hosted.sqlite"
+    def __init__(
+        self, directory: Path, extensions: Sequence[Extension] | None = None, database: Database | None = None
+    ) -> None:
+        chosen = installed() if extensions is None else extensions
+        self.database = (
+            database or supplied_database(chosen, directory) or SqliteDatabase(private_dir(directory) / "hosted.sqlite")
+        )
         with self.connect() as connection:
-            connection.executescript(SCHEMA)
-        migrate(self.path)
+            self.database.create(connection, SCHEMA)
+        self.database.migrate(MIGRATIONS)
         with self.connect() as connection:
-            for extension in installed() if extensions is None else extensions:
+            for extension in chosen:
                 extension.migrate(connection)
 
-    @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        try:
-            yield connection
-            connection.commit()
-        finally:
-            connection.close()
+    def connect(self) -> AbstractContextManager[Any]:
+        return self.database.connect()
 
     def account(self, ref: str) -> Account | None:
         with self.connect() as connection:
@@ -403,7 +400,7 @@ class HostedStore:
                 "DELETE FROM vault_invitations WHERE vault_id = ? AND email = ? RETURNING link_hash",
                 (vault.id, email.strip().lower()),
             ).fetchone()
-            if row is not None and row["link_hash"] and has_table(connection, "ceremonies"):
+            if row is not None and row["link_hash"] and "ceremonies" in self.database.tables(connection):
                 connection.execute("DELETE FROM ceremonies WHERE key_hash = ?", (row["link_hash"],))
         return row is not None
 

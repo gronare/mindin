@@ -101,7 +101,7 @@ class DeviceFlow:
             try:
                 self.store.save_device(device_code, user_code, record)
                 break
-            except sqlite3.IntegrityError:
+            except self.store.database.IntegrityError:
                 continue
         else:
             return oauth_error("temporarily_unavailable", "could not allocate a user code", 503)

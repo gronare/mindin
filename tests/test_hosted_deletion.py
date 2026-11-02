@@ -66,7 +66,7 @@ async def test_typing_the_address_deletes_the_vault_the_key_the_sessions_and_the
     assert not (storage / "users" / vault_id).exists()
     assert not list((tmp_path / "cache").glob("*.sqlite*"))
     assert vaults.open_subjects == []
-    with sqlite3.connect(site.store.path) as connection:
+    with sqlite3.connect(site.store.database.path) as connection:
         for table in ("sessions", "tokens", "api_keys", "identities", "vaults"):
             count = connection.execute(f"SELECT COUNT(*) FROM {table} WHERE account_id = ?", (account.id,))
             assert count.fetchone()[0] == 0, table

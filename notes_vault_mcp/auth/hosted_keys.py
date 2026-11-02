@@ -17,7 +17,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from notes_vault_mcp.auth import DEFAULT_SUBJECT_PREFIX, auth_dir
-from notes_vault_mcp.auth.database import account_tables, has_table
+from notes_vault_mcp.auth.database import account_tables
 from notes_vault_mcp.auth.hosted_history import HISTORY_PREFIX, History, history_key
 from notes_vault_mcp.auth.hosted_store import Account, HostedStore
 from notes_vault_mcp.auth.hosted_vaults import DATA_KEY_TABLES, Vault
@@ -115,8 +115,7 @@ class VaultKeys:
         self.store = store
         self.keyring = keyring
         with store.connect() as connection:
-            for statement in DATA_KEY_TABLES:
-                connection.execute(statement)
+            store.database.create(connection, ";\n".join(DATA_KEY_TABLES))
 
     def data_key(self, vault_id: str) -> bytes:
         with self.store.connect() as connection:
@@ -263,8 +262,9 @@ def delete_vault(sealed: SealedVaults, vault: Vault, cache: Path) -> int:
     for path in cache.glob(f"{identifier}.sqlite*"):
         path.unlink(missing_ok=True)
     with sealed.store.connect() as connection:
+        present = sealed.store.database.tables(connection)
         for table in VAULT_ROWS:
-            if has_table(connection, table):
+            if table in present:
                 connection.execute(f'DELETE FROM "{table}" WHERE vault_id = ?', (vault.id,))
         connection.execute("DELETE FROM vaults WHERE id = ?", (vault.id,))
     return sum(1 for entry in entries if not entry.is_dir)
@@ -287,7 +287,7 @@ def delete_account(sealed: SealedVaults, account: Account, cache: Path) -> int:
     handed_over_first(sealed.store, account)
     deleted = sum(delete_vault(sealed, vault, cache) for vault in sealed.store.vaults(account.id))
     with sealed.store.connect() as connection:
-        for table in account_tables(connection):
+        for table in account_tables(sealed.store.database, connection):
             connection.execute(f'DELETE FROM "{table}" WHERE account_id = ?', (account.id,))
         connection.execute("DELETE FROM accounts WHERE id = ?", (account.id,))
     return deleted

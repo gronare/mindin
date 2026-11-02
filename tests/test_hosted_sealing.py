@@ -301,7 +301,7 @@ async def test_a_deleted_accounts_notes_are_unreadable_even_with_the_master_key(
     assert not (storage / "users" / vault_id).exists()
     assert not list((tmp_path / "cache").glob("*.sqlite*"))
     assert site.store.account(account.id) is None
-    with sqlite3.connect(site.store.path) as connection:
+    with sqlite3.connect(site.store.database.path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM vault_data_keys").fetchone()[0] == 0
     shutil.copytree(snapshot, storage, dirs_exist_ok=True)
     keys = VaultKeys(site.store, site.keyring)

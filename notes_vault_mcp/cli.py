@@ -13,6 +13,7 @@ from notes_vault_mcp.auth import auth_config
 from notes_vault_mcp.backends import NotFound
 from notes_vault_mcp.config import ConfigError, adopt_plugin_config, local_root, s3_settings
 from notes_vault_mcp.embedding import keep_warm
+from notes_vault_mcp.extensions import installed
 from notes_vault_mcp.frontmatter import parse
 from notes_vault_mcp.presets import PRESETS
 from notes_vault_mcp.schema import CLAIM_KEY
@@ -683,6 +684,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     status.set_defaults(func=command_status)
 
+    for extension in installed():
+        extension.commands(sub)
     return parser
 
 

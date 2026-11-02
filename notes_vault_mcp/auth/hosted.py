@@ -4,7 +4,7 @@ import json
 import logging
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
@@ -67,6 +67,8 @@ from notes_vault_mcp.auth.login_oidc import OidcSignIn
 from notes_vault_mcp.auth.login_passkey import PasskeySignIn
 from notes_vault_mcp.auth.prefix import URL, inner_lifespan
 from notes_vault_mcp.config import ConfigError
+from notes_vault_mcp.extensions import Extension, Server, installed, narrowed
+from notes_vault_mcp.extensions import access as extended_access
 
 logger = logging.getLogger(__name__)
 
@@ -98,14 +100,17 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
         store: HostedStore,
         fetcher: ClientMetadataFetcher,
         clock: Callable[[], float] = time.time,
+        extensions: Sequence[Extension] = (),
     ) -> None:
         self.config = config
         self.store = store
         self.fetcher = fetcher
         self.clock = clock
+        self.extensions = extensions
 
     def allowed(self, account: Account, scopes: list[str]) -> list[str]:
-        return effective_scopes(self.config, account, scopes, self.clock())
+        planned = effective_scopes(self.config, account, scopes, self.clock())
+        return narrowed(extended_access(self.extensions, account), planned)
 
     def for_this_resource(self, resource: str | None) -> bool:
         return resource is None or canonical(resource) == canonical(self.config.resource_url)
@@ -264,7 +269,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
             return Verdict(None, 403, "account_suspended", "the account is not active")
         allowed = self.allowed(account, scopes)
         if not allowed:
-            return Verdict(None, 403, "plan-inactive", "the account's plan has ended")
+            return Verdict(None, 403, "account_restricted", "the account has no access right now")
         access = AccessToken(
             token=token,
             client_id=client_id,
@@ -448,19 +453,21 @@ def build_hosted_app(
     resolver: Resolver | None = None,
     clock: Callable[[], float] = time.time,
     keyring: Keyring | None = None,
+    extensions: Sequence[Extension] | None = None,
 ) -> Starlette:
     from notes_vault_mcp.dav import WebDav
     from notes_vault_mcp.server import build_server
     from notes_vault_mcp.vault import SubjectVaults
 
-    store = HostedStore(auth.auth_dir or auth_dir())
+    extensions = installed() if extensions is None else tuple(extensions)
+    store = HostedStore(auth.auth_dir or auth_dir(), extensions)
     if not isinstance(vaults, SubjectVaults):
         raise ConfigError("notes-vault-mcp: the HTTP server serves one sealed vault per account")
     keys = AccountKeys(store, keyring or Keyring.from_env())
     keys.verify()
     sealed = SealedVaults(store, keys, vaults.prefix)
     vaults.use_backends(sealed)
-    provider = HostedProvider(auth, store, ClientMetadataFetcher(metadata_transport, resolver), clock)
+    provider = HostedProvider(auth, store, ClientMetadataFetcher(metadata_transport, resolver), clock, extensions)
     limits = Limits()
     browser = Browser(auth, store, limits, Handoff(auth, clock), clock)
     login = Login(auth, store, browser, limits)
@@ -472,7 +479,16 @@ def build_hosted_app(
     support = SupportDesk(browser, SupportAccess(store, clock))
     deletion = SelfDeletion(browser, vaults, sealed)
     layouts = Layouts(browser, vaults)
-    browser.sections += [layouts.section, transfer.section, support.section, deletion.section]
+    extended = Server(auth, store, clock, browser, vaults, sealed, deletion, smtp_factory)
+    for extension in extensions:
+        extension.attach(extended)
+    browser.sections += [
+        *extended.account_sections,
+        layouts.section,
+        transfer.section,
+        support.section,
+        deletion.section,
+    ]
     server = build_server(vaults, personal_tokens=credentials, dav_url=auth.dav_url, machine_tools=True)
     mcp_app = server.streamable_http_app(host=host, transport_security=transport_security(auth))
     prefix = auth.path_prefix
@@ -542,7 +558,7 @@ def build_hosted_app(
         Route(prefix + "/v1/admin/accounts/{account}/activate", endpoint=billing.activate, methods=["POST"]),
     ]
     routes += login.routes(prefix) + transfer.routes(prefix) + support.routes(prefix, limited)
-    routes += deletion.routes(prefix, limited) + layouts.routes(prefix, limited)
+    routes += deletion.routes(prefix, limited) + layouts.routes(prefix, limited) + extended.routes
     routes.append(Mount(prefix + "/dav", app=WebDav(vaults, credentials, mount=prefix + "/dav")))
     routes.append(Mount(prefix or "/", app=mcp_app))
     guard = Middleware(

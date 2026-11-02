@@ -213,7 +213,7 @@ class Hosted:
 
 @asynccontextmanager
 async def hosted(
-    vaults: Any, tmp_path: Path, keyring: Keyring | None = None, **overrides: Any
+    vaults: Any, tmp_path: Path, keyring: Keyring | None = None, extensions: Any = (), **overrides: Any
 ) -> AsyncIterator[Hosted]:
     idp = FakeIdentityProvider()
     metadata = MetadataHost()
@@ -232,6 +232,7 @@ async def hosted(
         resolver=metadata.resolve,
         clock=clock,
         keyring=keyring,
+        extensions=extensions,
     )
     async with app.router.lifespan_context(app):
         yield Hosted(

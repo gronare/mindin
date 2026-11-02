@@ -8,7 +8,7 @@ import secrets
 import sqlite3
 import sys
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +17,7 @@ from typing import Any, Literal
 from notes_vault_mcp.auth import READ_SCOPE, WRITE_SCOPE, auth_dir
 from notes_vault_mcp.auth.pages import stamp
 from notes_vault_mcp.config import private_dir
+from notes_vault_mcp.extensions import Extension, installed
 
 AccountStatus = Literal["invited", "active", "suspended"]
 STATUSES: tuple[AccountStatus, ...] = ("invited", "active", "suspended")
@@ -178,10 +179,12 @@ def account_of(row: sqlite3.Row | None) -> Account | None:
 
 
 class HostedStore:
-    def __init__(self, directory: Path) -> None:
+    def __init__(self, directory: Path, extensions: Sequence[Extension] | None = None) -> None:
         self.path = private_dir(directory) / "hosted.sqlite"
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            for extension in installed() if extensions is None else extensions:
+                extension.migrate(connection)
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:

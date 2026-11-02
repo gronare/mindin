@@ -789,7 +789,8 @@ Every variable is also read from `CLAUDE_PLUGIN_OPTION_<NAME>`; the bare name wi
 ### Server
 
 `serve --transport http` takes `--host` (default `127.0.0.1`), `--port` (default `8765`) and `--plans`
-(`off`, the default, or `on`).
+(`off`, the default, or `on`). It loads the extensions installed beside it, from the Python entry point
+group `notes_vault_mcp.extensions`.
 
 | Variable | Meaning |
 | --- | --- |

@@ -252,7 +252,7 @@ async def test_past_until_the_vault_is_read_only_then_refused(site: Hosted):
     assert exported.status_code == 200
     assert put.status_code == 403
     assert "readable and exportable" in page.text and "/account/billing/checkout" in page.text
-    assert (refused.status_code, refused.json()["error"]) == (403, "plan-inactive")
+    assert (refused.status_code, refused.json()["error"]) == (403, "account_restricted")
     assert dav_refused.status_code == 401
     assert still_signs_in.status_code == 200 and "renewed" in still_signs_in.text
 

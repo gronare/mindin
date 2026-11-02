@@ -70,7 +70,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 ### What's new
 - Search by meaning on a server. A query is answered beside a running embed instead of waiting behind it, and the model stays warm while the HTTP server runs, so searches use vectors during a first sync. A server starts embedding notes without vectors as soon as it starts.
 - Lower memory while embedding. VAULT_EMBED_BATCH (default 16), VAULT_EMBED_THREADS (half the usable cores, at most 4, counting a container's CPU limit) and VAULT_EMBED_MAX_TOKENS (default 256) bound the embedding process. The S3 connection pool matches the fetch workers.
-- Hosted mode. --auth hosted serves one vault per account, with sign-in through an OIDC provider, invitations, an /account page and API keys. A machine can get its key through the OAuth device flow at /device. OAuth clients can identify themselves with a client ID metadata document. --plans on adds a plan per account; the default --plans off ignores plans.
+- Hosted mode. --auth hosted serves one vault per account, with sign-in through an OIDC provider, invitations, an /account page and API keys. A machine can get its key through the OAuth device flow at /device. OAuth clients can identify themselves with a client ID metadata document.
 
 ### Fixed
 - WebDAV refuses writes from credentials that may only read.

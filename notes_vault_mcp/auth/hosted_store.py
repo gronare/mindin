@@ -22,7 +22,6 @@ from notes_vault_mcp.extensions import Extension, installed
 AccountStatus = Literal["invited", "active", "suspended"]
 STATUSES: tuple[AccountStatus, ...] = ("invited", "active", "suspended")
 KEY_PREFIX = "nvm_"
-ADMIN_TOKEN_PREFIX = "nva_"
 KEY_ID_LENGTH = 12
 SESSION_TTL = 12 * 3600
 LOGIN_TTL = 600
@@ -37,20 +36,10 @@ CREATE TABLE IF NOT EXISTS accounts (
     sub TEXT UNIQUE,
     name TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'suspended')),
-    status_source TEXT NOT NULL DEFAULT 'admin',
+    status_source TEXT NOT NULL DEFAULT 'operator',
     status_changed_at INTEGER NOT NULL,
     created_at INTEGER NOT NULL,
-    last_login_at INTEGER,
-    plan_status TEXT NOT NULL DEFAULT 'active' CHECK (plan_status IN ('active', 'inactive')),
-    plan_until INTEGER,
-    plan_set_at INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS admin_tokens (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    scope TEXT NOT NULL,
-    token_hash TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    last_login_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS api_keys (
     id TEXT PRIMARY KEY,
@@ -141,9 +130,6 @@ class Account:
     created_at: int
     last_login_at: int | None
     status_changed_at: int = 0
-    plan_status: str = "active"
-    plan_until: int | None = None
-    plan_set_at: int = 0
 
     @property
     def active(self) -> bool:
@@ -172,9 +158,6 @@ def account_of(row: sqlite3.Row | None) -> Account | None:
         created_at=row["created_at"],
         last_login_at=row["last_login_at"],
         status_changed_at=row["status_changed_at"],
-        plan_status=row["plan_status"],
-        plan_until=row["plan_until"],
-        plan_set_at=row["plan_set_at"],
     )
 
 
@@ -206,60 +189,6 @@ class HostedStore:
         with self.connect() as connection:
             return account_of(connection.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone())
 
-    def accounts_page(self, after: str | None, limit: int) -> list[Account]:
-        with self.connect() as connection:
-            if after:
-                rows = connection.execute(
-                    "SELECT * FROM accounts WHERE rowid > (SELECT rowid FROM accounts WHERE id = ?)"
-                    " ORDER BY rowid LIMIT ?",
-                    (after, limit + 1),
-                ).fetchall()
-            else:
-                rows = connection.execute("SELECT * FROM accounts ORDER BY rowid LIMIT ?", (limit + 1,)).fetchall()
-        return [account for account in map(account_of, rows) if account is not None]
-
-    def set_plan(self, account_id: str, status: str, until: int | None, at: int) -> Account | None:
-        with self.connect() as connection:
-            changed = connection.execute(
-                "UPDATE accounts SET plan_status = ?, plan_until = ?, plan_set_at = ? WHERE id = ?",
-                (status, until, at, account_id),
-            ).rowcount
-        return self.account_by_id(account_id) if changed else None
-
-    def last_seen(self, account_id: str) -> int | None:
-        with self.connect() as connection:
-            row = connection.execute(
-                "SELECT MAX(moment) AS seen FROM ("
-                " SELECT last_login_at AS moment FROM accounts WHERE id = ?"
-                " UNION ALL SELECT MAX(last_used_at) FROM api_keys WHERE account_id = ?"
-                " UNION ALL SELECT MAX(issued_at) FROM tokens WHERE account_id = ?)",
-                (account_id, account_id, account_id),
-            ).fetchone()
-        return row["seen"]
-
-    def create_admin_token(self, name: str, scope: str) -> str:
-        token_id = secrets.token_hex(KEY_ID_LENGTH // 2)
-        token = f"{ADMIN_TOKEN_PREFIX}{token_id}{secrets.token_urlsafe(32)}"
-        with self.connect() as connection:
-            connection.execute("DELETE FROM admin_tokens WHERE name = ?", (name,))
-            connection.execute(
-                "INSERT INTO admin_tokens(id, name, scope, token_hash, created_at) VALUES(?, ?, ?, ?, ?)",
-                (token_id, name, scope, digest(token), now()),
-            )
-        return token
-
-    def admin_token_scope(self, token: str) -> str | None:
-        if not token.startswith(ADMIN_TOKEN_PREFIX) or len(token) < len(ADMIN_TOKEN_PREFIX) + KEY_ID_LENGTH + 16:
-            return None
-        token_id = token[len(ADMIN_TOKEN_PREFIX) : len(ADMIN_TOKEN_PREFIX) + KEY_ID_LENGTH]
-        with self.connect() as connection:
-            row = connection.execute("SELECT scope, token_hash FROM admin_tokens WHERE id = ?", (token_id,)).fetchone()
-        return row["scope"] if row and hmac.compare_digest(row["token_hash"], digest(token)) else None
-
-    def revoke_admin_token(self, name: str) -> bool:
-        with self.connect() as connection:
-            return connection.execute("DELETE FROM admin_tokens WHERE name = ?", (name,)).rowcount > 0
-
     def accounts(self) -> list[Account]:
         with self.connect() as connection:
             rows = connection.execute("SELECT * FROM accounts ORDER BY created_at, email").fetchall()
@@ -282,7 +211,7 @@ class HostedStore:
         assert created is not None
         return created, True
 
-    def set_status(self, ref: str, status: AccountStatus, source: str = "admin") -> Account | None:
+    def set_status(self, ref: str, status: AccountStatus, source: str = "operator") -> Account | None:
         if status not in STATUSES:
             raise ValueError(f"status must be one of {', '.join(STATUSES)}")
         account = self.account(ref)
@@ -571,16 +500,4 @@ def command_accounts(args: argparse.Namespace) -> int:
         print(f"notes-vault-mcp: no account {args.account!r}", file=sys.stderr)
         return 1
     print(f"notes-vault-mcp: {account.email} is {account.status}")
-    return 0
-
-
-def command_admin(args: argparse.Namespace) -> int:
-    store = HostedStore(auth_dir())
-    if args.admin_command == "revoke":
-        if not store.revoke_admin_token(args.name):
-            print(f"notes-vault-mcp: no admin token named {args.name!r}", file=sys.stderr)
-            return 1
-        print(f"notes-vault-mcp: revoked the admin token {args.name}")
-        return 0
-    print(store.create_admin_token(args.name, args.scope))
     return 0

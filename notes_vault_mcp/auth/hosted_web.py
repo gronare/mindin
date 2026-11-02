@@ -12,7 +12,6 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from notes_vault_mcp.auth import READ_SCOPE, WRITE_SCOPE, AuthConfig
-from notes_vault_mcp.auth.billing import HANDOFF_PATHS, Handoff, entitled, lapse_moment, plan_access
 from notes_vault_mcp.auth.cimd import is_loopback, is_metadata_url
 from notes_vault_mcp.auth.hosted_store import SESSION_TTL, Account, HostedStore, scope_label
 from notes_vault_mcp.auth.pages import PAGE, PAGE_HEADERS, stamp
@@ -100,11 +99,9 @@ class Browser:
         config: AuthConfig,
         store: HostedStore,
         limits: Limits,
-        handoff: Handoff,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.config = config
-        self.handoff = handoff
         self.clock = clock
         self.store = store
         self.limits = limits
@@ -273,7 +270,6 @@ class Browser:
         device = esc(f"{self.config.public_url.rstrip('/')}/device")
         body = f"""{notice}
 <dl><dt>Signed in as</dt><dd>{esc(account.email)}</dd></dl>
-{self.plan_section(account)}
 {"".join(section(account, csrf) for section in self.sections)}
 <h2>Connect</h2>
 <ul>
@@ -304,33 +300,6 @@ and a key as the password.</li>
         return page(
             "Your vault", "Who you are, your keys, and how to connect.", body, status_code=status_code, wide=True
         )
-
-    def plan_section(self, account: Account) -> str:
-        if not self.config.plans:
-            return ""
-        at = self.clock()
-        access = plan_access(self.config, account, at)
-        if access == "full":
-            state = f"Active until {esc(stamp(account.plan_until))}." if account.plan_until else "Active."
-        elif access == "read":
-            lapsed = (lapse_moment(account) or 0) + self.config.plan_read_only_days * 86400
-            state = f"Ended. Your notes stay readable and exportable until {esc(stamp(lapsed))}."
-        else:
-            state = "Ended. Clients and keys are refused until the plan is renewed."
-        links = ""
-        if self.handoff.configured:
-            purpose, label = ("portal", "Manage billing") if entitled(account, at) else ("checkout", "Subscribe")
-            links = f'<p><a href="{esc(self.local("/account/billing/" + purpose))}">{label}</a></p>'
-        return f"<h2>Plan</h2><p>{state}</p>{links}"
-
-    async def billing(self, request: Request) -> Response:
-        purpose = request.path_params["purpose"]
-        if purpose not in HANDOFF_PATHS or not self.handoff.configured:
-            return page("Not found", "There is no such billing page.", status_code=404)
-        session = await self.require_session(request, self.local(f"/account/billing/{purpose}"))
-        if isinstance(session, Response):
-            return session
-        return self.handoff.redirect(purpose, session[0])
 
     async def account_form(self, request: Request) -> tuple[Account, str, dict] | Response:
         form = await request.form()

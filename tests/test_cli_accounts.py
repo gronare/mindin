@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -50,7 +51,7 @@ def test_suspend_and_activate_by_email_or_id(store: HostedStore, capsys: pytest.
     assert store.account(account.id).status == "suspended"
     assert main(["accounts", "activate", account.id]) == 0
     assert store.account(account.id).status == "active"
-    assert store.account(account.id).status_source == "admin"
+    assert store.account(account.id).status_source == "operator"
 
 
 def test_an_unknown_account_is_an_error(store: HostedStore, capsys: pytest.CaptureFixture[str]):
@@ -65,9 +66,32 @@ def test_a_suspended_invite_is_not_activated_by_signing_in(store: HostedStore):
     assert account is not None and account.status == "suspended"
 
 
-def test_status_can_be_set_by_another_source_for_later_billing(store: HostedStore):
+def test_status_can_be_set_by_another_source(store: HostedStore):
     store.invite("ann@example.com")
-    account = store.set_status("ann@example.com", "suspended", source="billing")
-    assert account.status_source == "billing"
+    account = store.set_status("ann@example.com", "suspended", source="script")
+    assert account.status_source == "script"
     with pytest.raises(ValueError):
         store.set_status("ann@example.com", "deleted")  # type: ignore[arg-type]
+
+
+def test_columns_and_tables_the_store_does_not_know_are_left_as_they_are(tmp_path: Path):
+    path = tmp_path / "hosted.sqlite"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            "CREATE TABLE accounts (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE COLLATE NOCASE, sub TEXT UNIQUE,"
+            " name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, status_source TEXT NOT NULL DEFAULT 'operator',"
+            " status_changed_at INTEGER NOT NULL, created_at INTEGER NOT NULL, last_login_at INTEGER,"
+            " extra_flag TEXT NOT NULL DEFAULT 'kept', extra_moment INTEGER);"
+            "CREATE TABLE extra_things (id TEXT PRIMARY KEY);"
+            "INSERT INTO extra_things VALUES ('thing');"
+            "INSERT INTO accounts(id, email, status, status_changed_at, created_at, extra_flag, extra_moment)"
+            " VALUES ('acc_old', 'old@example.com', 'active', 1, 1, 'set', 42);"
+        )
+    store = HostedStore(tmp_path)
+    store.invite("new@example.com")
+    assert store.account("old@example.com").status == "active"
+    with store.connect() as connection:
+        rows = connection.execute("SELECT email, extra_flag, extra_moment FROM accounts ORDER BY email").fetchall()
+        things = connection.execute("SELECT id FROM extra_things").fetchall()
+    assert [tuple(row) for row in rows] == [("new@example.com", "kept", None), ("old@example.com", "set", 42)]
+    assert [tuple(row) for row in things] == [("thing",)]

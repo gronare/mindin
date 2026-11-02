@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import json
 import sys
 from collections.abc import Callable
@@ -40,7 +39,7 @@ def command_serve(args: argparse.Namespace) -> int:
         vault.start_embedding()
         run_stdio(vault)
         return 0
-    auth = dataclasses.replace(auth_config(), plans=args.plans == "on")
+    auth = auth_config()
     vaults = SubjectVaults(prefix=auth.subject_prefix, dav_url=auth.dav_url, vectors="background")
     keep_warm(vaults.embedder)
     run_http(vaults, args.host, args.port, auth)
@@ -220,12 +219,6 @@ def command_support(args: argparse.Namespace) -> int:
 def add_operator(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--operator", required=True, help="who on the service's staff does this")
     parser.add_argument("--reason", required=True, help="why; the account sees it in its access log")
-
-
-def command_admin(args: argparse.Namespace) -> int:
-    from notes_vault_mcp.auth import hosted_store
-
-    return hosted_store.command_admin(args)
 
 
 REMOTE_BACKLOG_LIMIT = 10000
@@ -478,12 +471,6 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--transport", choices=("stdio", "http"), default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
-    serve.add_argument(
-        "--plans",
-        choices=("off", "on"),
-        default="off",
-        help="http only: on checks each account's billing plan on every request; off ignores plans",
-    )
     serve.set_defaults(func=command_serve)
 
     init = sub.add_parser("init", help="write the schema and the Obsidian bases into the vault")
@@ -575,23 +562,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_operator(reading)
     reading.set_defaults(func=command_support)
 
-    admin = sub.add_parser("admin", help="tokens for the admin API of the HTTP server")
-    admin_sub = admin.add_subparsers(dest="admin_command", required=True)
-    minting = admin_sub.add_parser("token", help="make (or replace) a named admin token and print it once")
-    minting.add_argument("--name", required=True)
-    minting.add_argument("--scope", choices=("billing",), required=True)
-    minting.set_defaults(func=command_admin)
-    revoking = admin_sub.add_parser("revoke", help="revoke the admin token with this name")
-    revoking.add_argument("name")
-    revoking.set_defaults(func=command_admin)
-
     queue = sub.add_parser("backlog", help="list the backlog, sorted by priority then age")
     queue.add_argument("--area", help="a system note stem, or the prefix a family of stems shares")
     queue.add_argument("--priority", help="urgent, high, medium or low")
     queue.set_defaults(func=command_backlog)
 
     printing = sub.add_parser("read", help="print one note, as read_file reads it, without the etag line")
-    printing.add_argument("path", help="the note's vault path, e.g. Projects/billing.md")
+    printing.add_argument("path", help="the note's vault path, e.g. Projects/export.md")
     printing.add_argument("--body", action="store_true", help="only the text after the frontmatter")
     printing.set_defaults(func=command_read)
 

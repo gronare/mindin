@@ -9,7 +9,6 @@ import pytest
 from forwarded_support import HOST, ISSUER, TYP, Proxy
 
 from notes_vault_mcp.auth import AuthConfig, ForwardedConfig
-from notes_vault_mcp.auth.billing import Handoff
 from notes_vault_mcp.auth.hosted_store import HostedStore
 from notes_vault_mcp.auth.hosted_web import Browser, Limits
 from notes_vault_mcp.auth.login import Login
@@ -26,7 +25,7 @@ def verifier(proxy: Proxy, tmp_path: Path) -> ForwardedSignIn:
     store = HostedStore(tmp_path / "auth")
     limits = Limits()
     assert config.forwarded is not None
-    browser = Browser(config, store, limits, Handoff(config))
+    browser = Browser(config, store, limits)
     return ForwardedSignIn(Login(config, store, browser, limits), config.forwarded)
 
 

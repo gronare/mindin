@@ -46,11 +46,11 @@ def claim_of(vault_dir: Path, key: str = NOTE) -> dict | None:
 
 def test_claim_writes_the_claim_key_and_release_clears_only_that(cli_vault: Path, capsys):
     before, body = parse((cli_vault / NOTE).read_text(encoding="utf-8"))
-    answer = run(capsys, "task", "claim", NOTE, "--machine", "mac", "--task", "billing", "--repo", "orchard")
+    answer = run(capsys, "task", "claim", NOTE, "--machine", "mac", "--task", "export", "--repo", "orchard")
     assert answer["claimed"] is True and answer["replaced"] is None
     claim = claim_of(cli_vault)
     assert claim == answer["claim"]
-    assert (claim["machine"], claim["task"], claim["repo"]) == ("mac", "billing", "orchard")
+    assert (claim["machine"], claim["task"], claim["repo"]) == ("mac", "export", "orchard")
     assert len(claim["since"]) == 20 and claim["since"].endswith("Z") and "T" in claim["since"]
     after, after_body = parse((cli_vault / NOTE).read_text(encoding="utf-8"))
     assert {key: value for key, value in after.items() if key not in (CLAIM_KEY, "updated")} == {
@@ -63,17 +63,17 @@ def test_claim_writes_the_claim_key_and_release_clears_only_that(cli_vault: Path
 
 
 def test_the_same_machine_claims_again_and_keeps_its_since(cli_vault: Path, capsys):
-    first = run(capsys, "task", "claim", NOTE, "--machine", "mac", "--task", "billing")["claim"]
-    again = run(capsys, "task", "claim", NOTE, "--machine", "mac", "--task", "billing", "--repo", "api")
+    first = run(capsys, "task", "claim", NOTE, "--machine", "mac", "--task", "export")["claim"]
+    again = run(capsys, "task", "claim", NOTE, "--machine", "mac", "--task", "export", "--repo", "api")
     assert again["claimed"] is True and again["claim"]["since"] == first["since"] and again["claim"]["repo"] == "api"
 
 
 def test_another_machines_claim_refuses_unless_forced(cli_vault: Path, capsys):
     held = run(capsys, "task", "claim", NOTE, "--machine", "devbox", "--task", "search")["claim"]
-    refused = run(capsys, "task", "claim", NOTE, "--machine", "mac", "--task", "billing")
+    refused = run(capsys, "task", "claim", NOTE, "--machine", "mac", "--task", "export")
     assert refused == {"path": NOTE, "claimed": False, "claim": held}
     assert claim_of(cli_vault) == held
-    taken = run(capsys, "task", "claim", NOTE, "--machine", "mac", "--task", "billing", "--force")
+    taken = run(capsys, "task", "claim", NOTE, "--machine", "mac", "--task", "export", "--force")
     assert taken["claimed"] is True and taken["replaced"] == held and claim_of(cli_vault)["machine"] == "mac"
 
 
@@ -110,7 +110,7 @@ def test_a_claim_retries_on_a_note_that_changed_under_it_and_keeps_that_change(v
         return answer
 
     monkeypatch.setattr(vault.backend, "get", get_then_race)
-    answer = tasks.claim_note(vault, NOTE, "mac", "billing")
+    answer = tasks.claim_note(vault, NOTE, "mac", "export")
     assert answer["claimed"] is True and raced == [NOTE]
     frontmatter, body = parse(original(NOTE)[0])
     assert frontmatter[CLAIM_KEY]["machine"] == "mac" and "Written meanwhile." in body
@@ -120,10 +120,10 @@ def test_a_claim_that_keeps_conflicting_gives_up_with_the_conflict(vault: Vault,
     def always_conflicting(*_args, **_kwargs):
         raise VersionConflict("changed")
 
-    tasks.claim_note(vault, NOTE, "mac", "billing")
+    tasks.claim_note(vault, NOTE, "mac", "export")
     monkeypatch.setattr(vault.backend, "put", always_conflicting)
     with pytest.raises(VersionConflict, match="kept changing"):
-        tasks.claim_note(vault, NOTE, "mac", "billing")
+        tasks.claim_note(vault, NOTE, "mac", "export")
     with pytest.raises(VersionConflict, match="kept changing"):
         tasks.release_note(vault, NOTE)
 
@@ -145,12 +145,12 @@ def test_write_file_keeps_the_stored_claim_whatever_the_content_says(vault: Vaul
 
 
 def test_close_and_a_move_to_the_backlog_clear_the_claim(vault: Vault):
-    tasks.claim_note(vault, NOTE, "mac", "billing")
+    tasks.claim_note(vault, NOTE, "mac", "export")
     notes.set_status(vault, NOTE, "active")
     assert CLAIM_KEY in parse(vault.backend.get(NOTE)[0])[0], "staying active keeps it"
     notes.set_status(vault, NOTE, "backlog", priority="low")
     assert CLAIM_KEY not in parse(vault.backend.get(NOTE)[0])[0]
-    tasks.claim_note(vault, NOTE, "mac", "billing")
+    tasks.claim_note(vault, NOTE, "mac", "export")
     archived = notes.close(vault, NOTE)
     assert CLAIM_KEY not in parse(vault.backend.get(archived)[0])[0]
 
@@ -159,9 +159,9 @@ def test_the_schema_accepts_a_well_formed_claim_and_names_a_broken_one():
     schema = Schema(default_schema_data())
     assert CLAIM_KEY in schema.optional_fields
     base = {"title": "x", "date": "2026-10-01", "updated": "2026-10-01", "tags": ["x"], "status": "active"}
-    good = {"machine": "mac", "task": "billing", "repo": "", "since": "2026-10-23T10:00:00Z"}
+    good = {"machine": "mac", "task": "export", "repo": "", "since": "2026-10-23T10:00:00Z"}
     assert validate({**base, CLAIM_KEY: good}, "Areas/x.md", schema) == []
-    for broken in ("mac", {"machine": "mac"}, {"machine": "mac", "task": "billing"}, ["mac"]):
+    for broken in ("mac", {"machine": "mac"}, {"machine": "mac", "task": "export"}, ["mac"]):
         problems = validate({**base, CLAIM_KEY: broken}, "Areas/x.md", schema)
         assert problems == [f"{CLAIM_KEY} must be a mapping with machine, task and since (and optionally repo)"], broken
 
@@ -201,27 +201,27 @@ def test_an_index_from_before_the_claim_column_gains_it_and_reads_again(tmp_path
 
 
 def test_release_by_machine_and_task_follows_a_moved_note_and_a_deleted_one_counts_as_released(cli_vault: Path, capsys):
-    run(capsys, "task", "claim", NOTE, "--machine", "mac", "--task", "billing")
-    run(capsys, "task", "claim", "Projects/orchard-draft.md", "--machine", "devbox", "--task", "billing")
+    run(capsys, "task", "claim", NOTE, "--machine", "mac", "--task", "export")
+    run(capsys, "task", "claim", "Projects/orchard-draft.md", "--machine", "devbox", "--task", "export")
     moved = "Projects/orchard-renamed.md"
     (cli_vault / NOTE).rename(cli_vault / moved)
     assert main(["task", "release", NOTE, "--machine", "mac"]) == 1
     assert "no such note" in capsys.readouterr().err
-    assert run(capsys, "task", "release", "--machine", "mac", "--task", "billing") == {
+    assert run(capsys, "task", "release", "--machine", "mac", "--task", "export") == {
         "paths": [moved],
         "released": True,
     }
     assert claim_of(cli_vault, moved) is None
     assert claim_of(cli_vault, "Projects/orchard-draft.md")["machine"] == "devbox", "another machine's claim stays"
     (cli_vault / moved).unlink()
-    assert run(capsys, "task", "release", "--machine", "mac", "--task", "billing") == {"paths": [], "released": True}
+    assert run(capsys, "task", "release", "--machine", "mac", "--task", "export") == {"paths": [], "released": True}
     assert main(["task", "release", "--machine", "mac"]) == 1
     assert "needs --machine and --task" in capsys.readouterr().err
 
 
 def test_park_stale_leaves_a_freshly_claimed_note_and_parks_a_stale_claim(vault: Vault):
     stale = "Projects/workshop-stale.md"
-    tasks.claim_note(vault, stale, "mac", "billing")
+    tasks.claim_note(vault, stale, "mac", "export")
     note = vault.index.note(stale)
     assert notes.claim_is_fresh(note)
     old = date.today() - timedelta(days=40)

@@ -463,20 +463,6 @@ notes-vault-mcp accounts import ann@example.com --from-s3-bucket old-vault --fro
 `IMPORT_S3_ACCESS_KEY` and `IMPORT_S3_SECRET_KEY` (or the server's own `S3_*` keys), and
 `--from-s3-endpoint` and `--from-s3-region` when they differ from the server's.
 
-### Plans
-
-With `--plans on` each account also carries a plan, `active` or `inactive` with an `until` time, set
-through an admin API by a billing service. A plan past its end leaves the vault readable, export
-included, for `VAULT_PLAN_READ_ONLY_DAYS`, and then refuses it until the plan is renewed; the person can
-still sign in to `/account`. `--plans off`, the default, ignores plans. The admin API takes a token made
-with `notes-vault-mcp admin token --name billing --scope billing`: `GET /v1/admin/accounts` (paged with
-`after` and `limit`), `GET /v1/admin/accounts/{id}`, `PUT /v1/admin/accounts/{id}/plan` with
-`{"status": "active", "until": 1764547200}`, and `POST /v1/admin/accounts/{id}/deactivate` or
-`/activate`. With `VAULT_BILLING_URL` and `VAULT_BILLING_HANDOFF_SECRET` set, `/account` links to the
-billing service's checkout and portal through `/account/billing/checkout` and `/account/billing/portal`,
-which redirect with `account`, `expires` and `signature`: base64url of HMAC-SHA256 over
-`vault-billing-handoff-v1`, the purpose, a zero byte, the account id, a zero byte and the expiry.
-
 ### The `Host` header
 
 The MCP endpoint answers the hostname of `VAULT_PUBLIC_URL` and localhost, and gives any other `Host`
@@ -641,7 +627,7 @@ words. `notes-vault-mcp sync` embeds whatever is pending and says how many notes
 
 ```sh
 notes-vault-mcp serve --transport stdio          # the default, also with no subcommand
-notes-vault-mcp serve --transport http --host 0.0.0.0 --port 8765 [--plans on]
+notes-vault-mcp serve --transport http --host 0.0.0.0 --port 8765
 notes-vault-mcp init [--preset para] [--force]
 notes-vault-mcp sync [--rebuild]                 # refresh the index; --rebuild reads every note again
 notes-vault-mcp search "bokning" --limit 5       # the same ranking, from a shell
@@ -663,7 +649,6 @@ notes-vault-mcp accounts delete <account> --yes
 notes-vault-mcp accounts import <account> --from-path <dir> | --from-s3-bucket <bucket> --operator <name> --reason <text>
 notes-vault-mcp support files | read <account> [<path>] --operator <name> --reason <text>
 notes-vault-mcp master-key generate | status | rewrap
-notes-vault-mcp admin token --name billing --scope billing | revoke <name>
 ```
 
 `changelog` prints the log lines, the git commits grouped by day, and the repo's notes dated inside
@@ -788,9 +773,8 @@ Every variable is also read from `CLAUDE_PLUGIN_OPTION_<NAME>`; the bare name wi
 
 ### Server
 
-`serve --transport http` takes `--host` (default `127.0.0.1`), `--port` (default `8765`) and `--plans`
-(`off`, the default, or `on`). It loads the extensions installed beside it, from the Python entry point
-group `notes_vault_mcp.extensions`.
+`serve --transport http` takes `--host` (default `127.0.0.1`) and `--port` (default `8765`). It loads
+the extensions installed beside it, from the Python entry point group `notes_vault_mcp.extensions`.
 
 | Variable | Meaning |
 | --- | --- |
@@ -818,9 +802,6 @@ group `notes_vault_mcp.extensions`.
 | `VAULT_ALLOWED_HOSTS` | Extra `Host` header values the server answers on, space or comma separated. |
 | `VAULT_AUTH_DIR` | Where `hosted.sqlite` lives. Default `~/.cache/notes-vault-mcp/auth`. |
 | `VAULT_SUBJECT_PREFIX` | Where the vaults live under the bucket or folder: `<prefix>/<account>/`. Default `users`. |
-| `VAULT_PLAN_READ_ONLY_DAYS` | With `--plans on`, how many days a vault stays readable after its plan ends. Default `30`. |
-| `VAULT_BILLING_URL` | The billing service the `/account` checkout and portal links go to. |
-| `VAULT_BILLING_HANDOFF_SECRET` | 32 random bytes, base64url, shared with the billing service to sign those links. |
 | `IMPORT_S3_ACCESS_KEY`, `IMPORT_S3_SECRET_KEY` | The keys `accounts import --from-s3-bucket` reads the old bucket with. |
 
 ## Deploy

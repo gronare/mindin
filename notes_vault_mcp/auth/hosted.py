@@ -42,7 +42,6 @@ from starlette.routing import BaseRoute, Mount, Route, request_response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from notes_vault_mcp.auth import READ_SCOPE, SCOPES, AuthConfig, auth_dir
-from notes_vault_mcp.auth.billing import BillingApi, Handoff, effective_scopes
 from notes_vault_mcp.auth.cimd import (
     ClientMetadataError,
     ClientMetadataFetcher,
@@ -109,8 +108,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
         self.extensions = extensions
 
     def allowed(self, account: Account, scopes: list[str]) -> list[str]:
-        planned = effective_scopes(self.config, account, scopes, self.clock())
-        return narrowed(extended_access(self.extensions, account), planned)
+        return narrowed(extended_access(self.extensions, account), scopes)
 
     def for_this_resource(self, resource: str | None) -> bool:
         return resource is None or canonical(resource) == canonical(self.config.resource_url)
@@ -469,12 +467,11 @@ def build_hosted_app(
     vaults.use_backends(sealed)
     provider = HostedProvider(auth, store, ClientMetadataFetcher(metadata_transport, resolver), clock, extensions)
     limits = Limits()
-    browser = Browser(auth, store, limits, Handoff(auth, clock), clock)
+    browser = Browser(auth, store, limits, clock)
     login = Login(auth, store, browser, limits)
     forwarded = sign_in_methods(auth, login, oidc_transport, github_transport, smtp_factory)
     device = DeviceFlow(auth, store, provider.get_client, browser, limits, clock)
     credentials = ApiKeyCredentials(store, provider.allowed)
-    billing = BillingApi(auth, store, clock)
     transfer = VaultTransfer(browser, vaults)
     support = SupportDesk(browser, SupportAccess(store, clock))
     deletion = SelfDeletion(browser, vaults, sealed)
@@ -550,12 +547,6 @@ def build_hosted_app(
         Route(prefix + "/account/keys", endpoint=limited(browser.create_key), methods=["POST"]),
         Route(prefix + "/account/keys/revoke", endpoint=limited(browser.revoke_key), methods=["POST"]),
         Route(prefix + "/logout", endpoint=limited(browser.sign_out), methods=["POST"]),
-        Route(prefix + "/account/billing/{purpose}", endpoint=browser.billing, methods=["GET"]),
-        Route(prefix + "/v1/admin/accounts", endpoint=billing.list_accounts, methods=["GET"]),
-        Route(prefix + "/v1/admin/accounts/{account}", endpoint=billing.show, methods=["GET"]),
-        Route(prefix + "/v1/admin/accounts/{account}/plan", endpoint=limited(billing.set_plan), methods=["PUT"]),
-        Route(prefix + "/v1/admin/accounts/{account}/deactivate", endpoint=billing.deactivate, methods=["POST"]),
-        Route(prefix + "/v1/admin/accounts/{account}/activate", endpoint=billing.activate, methods=["POST"]),
     ]
     routes += login.routes(prefix) + transfer.routes(prefix) + support.routes(prefix, limited)
     routes += deletion.routes(prefix, limited) + layouts.routes(prefix, limited) + extended.routes

@@ -18,7 +18,6 @@ MACHINE_KEY_PURPOSE = "device"
 DEFAULT_IDENTITY_HEADER = "X-Forwarded-Identity"
 DEFAULT_SUBJECT_PREFIX = "users"
 DEFAULT_OIDC_SCOPES = ("openid", "email", "profile")
-DEFAULT_READ_ONLY_DAYS = 30
 SMTP_PORTS = {"starttls": 587, "ssl": 465, "none": 25}
 
 NO_PUBLIC_URL = (
@@ -82,10 +81,6 @@ class AuthConfig:
     github: GithubConfig | None = None
     oidc: OidcConfig | None = None
     forwarded: ForwardedConfig | None = None
-    plans: bool = False
-    plan_read_only_days: int = DEFAULT_READ_ONLY_DAYS
-    billing_url: str = ""
-    billing_handoff_secret: str = field(default="", repr=False)
 
     @property
     def path_prefix(self) -> str:
@@ -177,9 +172,6 @@ def auth_config() -> AuthConfig:
         github=github_config(),
         oidc=oidc_config(),
         forwarded=forwarded_config(),
-        plan_read_only_days=_read_only_days(),
-        billing_url=_text("VAULT_BILLING_URL").rstrip("/"),
-        billing_handoff_secret=_handoff_secret(),
     )
     if not (config.smtp or config.github or config.oidc or config.forwarded):
         raise ConfigError(NO_SIGN_IN)
@@ -242,19 +234,3 @@ def forwarded_config() -> ForwardedConfig | None:
         read_claims=_words("VAULT_IDENTITY_READ_CLAIMS", (READ_SCOPE,)),
         name=_text("VAULT_IDENTITY_NAME") or ForwardedConfig.name,
     )
-
-
-def _read_only_days() -> int:
-    raw = _text("VAULT_PLAN_READ_ONLY_DAYS") or str(DEFAULT_READ_ONLY_DAYS)
-    if not raw.isdigit():
-        raise ConfigError("notes-vault-mcp: VAULT_PLAN_READ_ONLY_DAYS must be a whole number of days")
-    return int(raw)
-
-
-def _handoff_secret() -> str:
-    raw = _text("VAULT_BILLING_HANDOFF_SECRET")
-    if raw:
-        from notes_vault_mcp.auth.billing import handoff_secret
-
-        handoff_secret(raw)
-    return raw

@@ -91,6 +91,13 @@
           "format": "string"
         },
         {
+          "name": "VAULT_STOP_HOOK_COMMITS",
+          "description": "Set to off to turn off the stop hook's unlogged-commit and stale-note checks alone",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
           "name": "VAULT_STOP_HOOK_PROMPTS",
           "description": "Messages the user writes after the agent's last vault write before the stop hook asks it to save them (default 3), or off",
           "isRequired": false,

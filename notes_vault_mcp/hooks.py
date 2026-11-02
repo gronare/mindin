@@ -333,7 +333,7 @@ def stop_target(raw: str) -> StopTarget | None:
     if data.get("stop_hook_active") or _switched_off("VAULT_STOP_HOOK"):
         return None
     cwd = str(data.get("cwd") or os.getcwd())
-    root = repo_root(cwd)
+    root = None if _switched_off("VAULT_STOP_HOOK_COMMITS") else repo_root(cwd)
     prompts = prompt_threshold()
     if root is None and not prompts:
         return None

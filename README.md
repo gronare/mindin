@@ -301,7 +301,8 @@ messages since the session's last write through the vault tools, asking the agen
 deferrals and ideas in them; it asks once per message, so an agent with nothing to save stops on its next
 try and is asked again after three more. `VAULT_STOP_HOOK=off` silences the hook, which a tool that drives
 agent sessions and writes the log itself sets in the sessions it starts. `VAULT_STOP_HOOK_PROMPTS` sets how
-many messages it waits for, or turns that check off with `off`.
+many messages it waits for, or turns that check off with `off`; `VAULT_STOP_HOOK_COMMITS=off` turns off the
+commit and stale-note checks alone, for sessions whose log another tool writes.
 
 ### Codex, Cursor and other MCP clients
 
@@ -782,6 +783,7 @@ Every variable is also read from `CLAUDE_PLUGIN_OPTION_<NAME>`; the bare name wi
 | `VAULT_EMBED_THREADS` | no | Threads the model runs on, default half the cores the process may use, at most `4`, counting a container's CPU limit (cgroup v2 `cpu.max`); ONNX Runtime on its own takes every physical core of the node. |
 | `VAULT_EMBED_MAX_TOKENS` | no | Tokens of a section the model reads, default `256`. Prose sections stay under it; a section of links or code is cut there instead of padding its batch to 512. |
 | `VAULT_STOP_HOOK` | no | `off` disables the stop hook. |
+| `VAULT_STOP_HOOK_COMMITS` | no | `off` turns off the stop hook's checks for unlogged commits and stale notes, and keeps the message check. |
 | `VAULT_STOP_HOOK_PROMPTS` | no | How many messages you write after the agent's last vault write before the stop hook asks it to save them, default `3`; `off` turns that check off. |
 
 ### Server

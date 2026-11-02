@@ -37,6 +37,7 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "CLAUDE_PLUGIN_OPTION_VAULT_SERVER_URL",
         "VAULT_STOP_HOOK",
         "VAULT_STOP_HOOK_PROMPTS",
+        "VAULT_STOP_HOOK_COMMITS",
     ):
         monkeypatch.delenv(name, raising=False)
 

@@ -598,3 +598,15 @@ def test_stop_names_prompts_and_unlogged_commits_in_one_block(
     assert "the user wrote 3 messages since" in blocked["reason"]
     monkeypatch.setenv("VAULT_STOP_HOOK_PROMPTS", "off")
     assert "message" not in stop_payload(monkeypatch, capsys, payload)["reason"]
+
+
+def test_the_commit_check_switches_off_alone(vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
+    repo = make_repo(tmp_path / "repos", "orchard")
+    transcript = transcript_of(tmp_path / "t.jsonl", prompts("p1", "p2"))
+    payload = {"cwd": str(repo), "session_id": "s-orchard", "transcript_path": str(transcript)}
+    monkeypatch.setenv("VAULT_STOP_HOOK_COMMITS", "off")
+    assert stop_payload(monkeypatch, capsys, payload) is None
+    transcript_of(transcript, prompts("p1", "p2", "p3"))
+    blocked = stop_payload(monkeypatch, capsys, payload)
+    assert "the user wrote 3 messages since" in blocked["reason"]
+    assert head_sha(repo) not in blocked["reason"]

@@ -548,7 +548,7 @@ once on the web and the same connector appears in Claude Desktop and in the mobi
 ### Sign a machine in
 
 ```sh
-uvx notes-vault-mcp login https://vault.example.com --vault homelab
+uvx notes-vault-mcp login https://vault.example.com --vault notes
 ```
 
 It prints a link and a code. Open the link on any device, sign in, check that the code matches and
@@ -571,7 +571,7 @@ and so can everything below it:
 ```sh
 notes-vault-mcp login https://vault.example.com --vault work
 notes-vault-mcp vault use work --dir ~/projects/client-repo   # this folder and below use work
-notes-vault-mcp vault use homelab                            # the default everywhere else
+notes-vault-mcp vault use notes                              # the default everywhere else
 notes-vault-mcp vault drop --dir ~/projects/client-repo      # back to the default
 notes-vault-mcp vault list                                   # JSON: the vault here, the default, the folders
 ```

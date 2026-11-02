@@ -266,7 +266,7 @@ class PasskeySignIn:
             account_id, credential_id, verified.credential_public_key, verified.sign_count, name
         ):
             return refusal("This passkey is already registered.", 409)
-        return JSONResponse({"redirect": self.login.local("/account")}, headers=NO_STORE)
+        return JSONResponse({"redirect": self.login.local("/account/settings")}, headers=NO_STORE)
 
     def routes(self, prefix: str) -> list[BaseRoute]:
         from notes_vault_mcp.auth.hosted import limited

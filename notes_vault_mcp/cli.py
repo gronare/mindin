@@ -81,7 +81,12 @@ def command_init(args: argparse.Namespace) -> int:
 
 def command_hook(args: argparse.Namespace) -> int:
     raw = sys.stdin.read() if not sys.stdin.isatty() else ""
-    if args.event == "session-start":
+    with credentials.working_in(str(hooks.read_hook_input(raw).get("cwd") or "")):
+        return run_hook(args.event, raw)
+
+
+def run_hook(event: str, raw: str) -> int:
+    if event == "session-start":
         try:
             url = server_url()
             if url is None:
@@ -374,7 +379,8 @@ def is_writable(vault: Vault) -> bool:
 def remote_status(url: str, probe: bool) -> dict:
     from notes_vault_mcp import remote
 
-    signed_in = credentials.stored(url) is not None
+    vault, entry = credentials.chosen(url)
+    signed_in = entry is not None
     writable: bool | None = None
     if probe:
         try:
@@ -387,6 +393,7 @@ def remote_status(url: str, probe: bool) -> dict:
         "backend": "server",
         "writable": writable,
         "server": url,
+        "vault": vault,
         "signed_in": signed_in,
     }
 
@@ -421,12 +428,16 @@ def command_login(args: argparse.Namespace) -> int:
 
     url = login.server_argument(args.url)
     try:
-        entry = login.login(url, name=args.name, open_browser=not args.no_browser)
+        entry = login.login(url, name=args.name, open_browser=not args.no_browser, vault=args.vault)
     except (login.LoginError, OSError) as exc:
         print(one_line(exc), file=sys.stderr)
         return 1
-    print(f"Signed in to {url}: key {entry['name']!r}, {login.access_words(entry['scope'])}.")
+    reaches = f" to the vault {entry['vault']}" if entry["vault"] else ""
+    print(f"Signed in to {url}{reaches}: key {entry['name']!r}, {login.access_words(entry['scope'])}.")
     print(f"The key is stored in {credentials.credentials_path()}.")
+    default = credentials.server_state(url)["default"]
+    if entry["vault"] and default != entry["vault"]:
+        print(f"This machine uses {default} by default; `notes-vault-mcp vault use {entry['vault']}` changes that.")
     return 0
 
 
@@ -434,10 +445,11 @@ def command_logout(args: argparse.Namespace) -> int:
     from notes_vault_mcp import login
 
     url = login.server_argument(args.url)
-    if not credentials.forget(url):
-        print(f"Not signed in to {url}.")
+    if not credentials.forget(url, args.vault):
+        print(f"Not signed in to {url}{f' for the vault {args.vault}' if args.vault else ''}.")
         return 0
-    print(f"Forgot the key for {url}. It stays valid until you revoke it at {url}/account.")
+    which = f"the key for the vault {args.vault}" if args.vault else "every key"
+    print(f"Forgot {which} on {url}. A key stays valid until you revoke it at {url}/account.")
     return 0
 
 
@@ -445,18 +457,50 @@ def command_whoami(args: argparse.Namespace) -> int:
     from notes_vault_mcp import login, remote
 
     url = login.server_argument(args.url)
-    entry = credentials.stored(url)
+    vault, entry = credentials.chosen(url)
     if entry is None:
-        print(one_line(remote.NotSignedIn(url)), file=sys.stderr)
+        print(one_line(remote.NotSignedIn(url, vault)), file=sys.stderr)
         return 1
     try:
         found = remote.whoami(url)
     except Exception as exc:
         print(one_line(exc), file=sys.stderr)
         return 1
-    print(
-        json.dumps({"server": url, "email": found.get("email"), "key": entry.get("name"), "write": found.get("write")})
-    )
+    answer = {"server": url, "email": found.get("email"), "vault": found.get("vault") or vault or None}
+    print(json.dumps(answer | {"key": entry.get("name"), "write": found.get("write")}))
+    return 0
+
+
+def command_vault(args: argparse.Namespace) -> int:
+    from notes_vault_mcp import login
+
+    url = login.server_argument(args.url)
+    if args.vault_command == "use":
+        folder = Path(args.dir) if args.dir else None
+        state = credentials.server_state(url)
+        credentials.use(url, args.slug, folder)
+        where = f"{folder.expanduser().resolve()} and below" if folder else "this machine, by default"
+        print(f"{where} uses the vault {args.slug} on {url}.")
+        if args.slug not in state["vaults"]:
+            print(f"Sign in to it with `notes-vault-mcp login {url} --vault {args.slug}`.")
+        return 0
+    if args.vault_command == "drop":
+        folder = Path(args.dir)
+        if not credentials.drop_dir(url, folder):
+            print(f"{folder.expanduser().resolve()} names no vault.")
+            return 0
+        print(f"{folder.expanduser().resolve()} uses the default vault again.")
+        return 0
+    state = credentials.server_state(url)
+    here, _ = credentials.chosen(url)
+    listed = {
+        "server": url,
+        "here": here,
+        "default": state["default"],
+        "vaults": sorted(slug for slug in state["vaults"] if slug),
+        "dirs": state["dirs"],
+    }
+    print(json.dumps(listed))
     return 0
 
 
@@ -523,8 +567,23 @@ def build_parser() -> argparse.ArgumentParser:
         changing = accounts_sub.add_parser(name, help=summary)
         changing.add_argument("account", help="the account's email or id")
         changing.set_defaults(func=command_accounts)
+    listing_vaults = accounts_sub.add_parser("vaults", help="list the account's vaults with notes, files and keys")
+    listing_vaults.add_argument("account", help="the account's email or id")
+    listing_vaults.set_defaults(func=command_accounts)
+    adding = accounts_sub.add_parser("add-vault", help="give the account another vault")
+    adding.add_argument("account", help="the account's email or id")
+    adding.add_argument("name", help="the vault's name; the address is made from it unless --slug names one")
+    adding.add_argument("--slug", help="the vault's address, as in /v/<slug>/mcp")
+    adding.add_argument("--preset", choices=tuple(PRESETS), help="write this layout now (needs the master key)")
+    adding.set_defaults(func=command_accounts)
+    renaming = accounts_sub.add_parser("rename-vault", help="change a vault's name or address")
+    renaming.add_argument("account", help="the account's email or id")
+    renaming.add_argument("vault", help="the vault's slug")
+    renaming.add_argument("--name")
+    renaming.add_argument("--slug", help="a new address; clients that use the old /v/<slug>/mcp must change too")
+    renaming.set_defaults(func=command_accounts)
     deleting = accounts_sub.add_parser(
-        "delete", help="destroy the account's data key, objects and index, then the account itself"
+        "delete", help="destroy the data keys, objects and indexes of every vault, then the account itself"
     )
     deleting.add_argument("account", help="the account's email or id")
     deleting.add_argument("--yes", action="store_true", help="confirm; the vault cannot be recovered")
@@ -533,6 +592,7 @@ def build_parser() -> argparse.ArgumentParser:
         "import", help="seal every file of a plaintext vault into the account (needs its support grant)"
     )
     importing.add_argument("account", help="the account's email or id")
+    importing.add_argument("--vault", help="the vault's slug; needed when the account has several")
     origin = importing.add_mutually_exclusive_group(required=True)
     origin.add_argument("--from-path", help="a local vault folder")
     origin.add_argument("--from-s3-bucket", help="a bucket; credentials from IMPORT_S3_ACCESS_KEY/SECRET_KEY")
@@ -542,23 +602,25 @@ def build_parser() -> argparse.ArgumentParser:
     add_operator(importing)
     importing.set_defaults(func=command_import)
 
-    master = sub.add_parser("master-key", help="the master key that wraps each hosted account's data key")
+    master = sub.add_parser("master-key", help="the master key that wraps each hosted vault's data key")
     master_sub = master.add_subparsers(dest="master_key_command", required=True)
     master_sub.add_parser("generate", help="print a fresh base64 master key").set_defaults(func=command_master_key)
-    master_sub.add_parser("status", help="count account keys per master key").set_defaults(func=command_master_key)
+    master_sub.add_parser("status", help="count vault keys per master key").set_defaults(func=command_master_key)
     master_sub.add_parser(
-        "rewrap", help="wrap every account key under VAULT_HOSTED_MASTER_KEY, unwrapping with the previous keys"
+        "rewrap", help="wrap every vault key under VAULT_HOSTED_MASTER_KEY, unwrapping with the previous keys"
     ).set_defaults(func=command_master_key)
 
     support = sub.add_parser("support", help="open an account's vault under the support grant it gave on /account")
     support_sub = support.add_subparsers(dest="support_command", required=True)
     listing = support_sub.add_parser("files", help="list the vault's paths")
     listing.add_argument("account", help="the account's email or id")
+    listing.add_argument("--vault", help="the vault's slug; needed when the account has several")
     add_operator(listing)
     listing.set_defaults(func=command_support)
     reading = support_sub.add_parser("read", help="print one file")
     reading.add_argument("account", help="the account's email or id")
     reading.add_argument("path")
+    reading.add_argument("--vault", help="the vault's slug; needed when the account has several")
     add_operator(reading)
     reading.set_defaults(func=command_support)
 
@@ -647,10 +709,26 @@ def build_parser() -> argparse.ArgumentParser:
     signing_in.add_argument("url", nargs="?", help="the server, e.g. https://vault.example.com; VAULT_SERVER_URL")
     signing_in.add_argument("--name", help="the key's name on the server; the host name when omitted")
     signing_in.add_argument("--no-browser", action="store_true", help="only print the link, never open a browser")
+    signing_in.add_argument("--vault", help="the vault's slug, as in /v/<slug>/mcp; the approval page asks without it")
     signing_in.set_defaults(func=command_login)
-    signing_out = sub.add_parser("logout", help="forget the key this machine holds for a vault server")
+    signing_out = sub.add_parser("logout", help="forget the keys this machine holds for a vault server")
     signing_out.add_argument("url", nargs="?", help="the server; VAULT_SERVER_URL when omitted")
+    signing_out.add_argument("--vault", help="forget only this vault's key")
     signing_out.set_defaults(func=command_logout)
+    vault = sub.add_parser("vault", help="which of your vaults on a server this machine and each folder use")
+    vault_sub = vault.add_subparsers(dest="vault_command", required=True)
+    showing = vault_sub.add_parser("list", help="the signed-in vaults, the default and the folders (JSON out)")
+    showing.add_argument("--url", help="the server; VAULT_SERVER_URL when omitted")
+    showing.set_defaults(func=command_vault)
+    using = vault_sub.add_parser("use", help="make a vault the default, or the one a folder and its subfolders use")
+    using.add_argument("slug")
+    using.add_argument("--dir", help="a folder, such as a repo; without it the vault becomes the default")
+    using.add_argument("--url", help="the server; VAULT_SERVER_URL when omitted")
+    using.set_defaults(func=command_vault)
+    dropping = vault_sub.add_parser("drop", help="let a folder use the default vault again")
+    dropping.add_argument("--dir", required=True)
+    dropping.add_argument("--url", help="the server; VAULT_SERVER_URL when omitted")
+    dropping.set_defaults(func=command_vault)
     asking = sub.add_parser("whoami", help="the account and access of the stored key (JSON out)")
     asking.add_argument("url", nargs="?", help="the server; VAULT_SERVER_URL when omitted")
     asking.set_defaults(func=command_whoami)

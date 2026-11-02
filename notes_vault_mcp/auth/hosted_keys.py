@@ -19,7 +19,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from notes_vault_mcp.auth import DEFAULT_SUBJECT_PREFIX, auth_dir
 from notes_vault_mcp.auth.hosted_store import Account, HostedStore
-from notes_vault_mcp.backends import VaultError, make_subject_backend
+from notes_vault_mcp.auth.hosted_vaults import DATA_KEY_TABLES, Vault, has_table
+from notes_vault_mcp.backends import Entry, VaultError, is_vault_key, make_subject_backend
 from notes_vault_mcp.backends.local import LocalBackend
 from notes_vault_mcp.backends.sealed import DATA_KEY_BYTES, NONCE_BYTES, SealedBackend, Storage, new_data_key
 from notes_vault_mcp.config import ConfigError, cache_dir, env
@@ -27,23 +28,14 @@ from notes_vault_mcp.config import ConfigError, cache_dir, env
 MASTER_KEY_ENV = "VAULT_HOSTED_MASTER_KEY"
 PREVIOUS_KEYS_ENV = "VAULT_HOSTED_MASTER_KEY_PREVIOUS"
 NO_MASTER_KEY = (
-    f"notes-vault-mcp: an HTTP server needs {MASTER_KEY_ENV}, the base64 master key that wraps every account's "
+    f"notes-vault-mcp: an HTTP server needs {MASTER_KEY_ENV}, the base64 master key that wraps every vault's "
     "data key (`notes-vault-mcp master-key generate` makes one). Keep it outside the bucket: losing it loses "
     "every vault."
 )
 UNKNOWN_KEY_ID = (
-    "notes-vault-mcp: {count} account keys are wrapped under master key {key_id}, which neither "
+    "notes-vault-mcp: {count} vault keys are wrapped under master key {key_id}, which neither "
     f"{MASTER_KEY_ENV} nor {PREVIOUS_KEYS_ENV} holds; refusing to start with the wrong master key."
 )
-KEY_TABLES = """
-CREATE TABLE IF NOT EXISTS vault_keys (
-    account_id TEXT PRIMARY KEY REFERENCES accounts(id),
-    key_id TEXT NOT NULL,
-    wrapped BLOB NOT NULL,
-    created_at INTEGER NOT NULL,
-    rewrapped_at INTEGER
-);
-"""
 
 
 @dataclass(frozen=True)
@@ -72,8 +64,8 @@ class MasterKey:
         return base64.b64encode(self.secret).decode("ascii")
 
 
-def _wrap_context(account_id: str, key_id: str) -> bytes:
-    return f"notes-vault-mcp wrap v1|{account_id}|{key_id}".encode()
+def _wrap_context(vault_id: str, key_id: str) -> bytes:
+    return f"notes-vault-mcp wrap v1|{vault_id}|{key_id}".encode()
 
 
 @dataclass(frozen=True)
@@ -99,54 +91,55 @@ class Keyring:
                 return key
         raise VaultError(f"master key {key_id} is not configured")
 
-    def wrap(self, account_id: str, data_key: bytes) -> tuple[str, bytes]:
+    def wrap(self, vault_id: str, data_key: bytes) -> tuple[str, bytes]:
         key_id = self.current.key_id
         nonce = os.urandom(NONCE_BYTES)
-        sealed = AESGCM(self.current.secret).encrypt(nonce, data_key, _wrap_context(account_id, key_id))
+        sealed = AESGCM(self.current.secret).encrypt(nonce, data_key, _wrap_context(vault_id, key_id))
         return key_id, nonce + sealed
 
-    def unwrap(self, account_id: str, key_id: str, wrapped: bytes) -> bytes:
+    def unwrap(self, vault_id: str, key_id: str, wrapped: bytes) -> bytes:
         nonce, sealed = wrapped[:NONCE_BYTES], wrapped[NONCE_BYTES:]
         try:
-            data_key = AESGCM(self.by_id(key_id).secret).decrypt(nonce, sealed, _wrap_context(account_id, key_id))
+            data_key = AESGCM(self.by_id(key_id).secret).decrypt(nonce, sealed, _wrap_context(vault_id, key_id))
         except InvalidTag as exc:
-            raise VaultError(f"the data key of {account_id} does not unwrap under master key {key_id}") from exc
+            raise VaultError(f"the data key of {vault_id} does not unwrap under master key {key_id}") from exc
         if len(data_key) != DATA_KEY_BYTES:
-            raise VaultError(f"the data key of {account_id} is malformed")
+            raise VaultError(f"the data key of {vault_id} is malformed")
         return data_key
 
 
-class AccountKeys:
+class VaultKeys:
     def __init__(self, store: HostedStore, keyring: Keyring) -> None:
         self.store = store
         self.keyring = keyring
         with store.connect() as connection:
-            connection.executescript(KEY_TABLES)
+            for statement in DATA_KEY_TABLES:
+                connection.execute(statement)
 
-    def data_key(self, account_id: str) -> bytes:
+    def data_key(self, vault_id: str) -> bytes:
         with self.store.connect() as connection:
             row = connection.execute(
-                "SELECT key_id, wrapped FROM vault_keys WHERE account_id = ?", (account_id,)
+                "SELECT key_id, wrapped FROM vault_data_keys WHERE vault_id = ?", (vault_id,)
             ).fetchone()
             if row is None:
-                key_id, wrapped = self.keyring.wrap(account_id, new_data_key())
+                key_id, wrapped = self.keyring.wrap(vault_id, new_data_key())
                 connection.execute(
-                    "INSERT OR IGNORE INTO vault_keys(account_id, key_id, wrapped, created_at) VALUES(?, ?, ?, ?)",
-                    (account_id, key_id, wrapped, int(time.time())),
+                    "INSERT OR IGNORE INTO vault_data_keys(vault_id, key_id, wrapped, created_at) VALUES(?, ?, ?, ?)",
+                    (vault_id, key_id, wrapped, int(time.time())),
                 )
                 row = connection.execute(
-                    "SELECT key_id, wrapped FROM vault_keys WHERE account_id = ?", (account_id,)
+                    "SELECT key_id, wrapped FROM vault_data_keys WHERE vault_id = ?", (vault_id,)
                 ).fetchone()
-        return self.keyring.unwrap(account_id, row["key_id"], bytes(row["wrapped"]))
+        return self.keyring.unwrap(vault_id, row["key_id"], bytes(row["wrapped"]))
 
-    def has_key(self, account_id: str) -> bool:
+    def has_key(self, vault_id: str) -> bool:
         with self.store.connect() as connection:
-            row = connection.execute("SELECT 1 FROM vault_keys WHERE account_id = ?", (account_id,)).fetchone()
+            row = connection.execute("SELECT 1 FROM vault_data_keys WHERE vault_id = ?", (vault_id,)).fetchone()
         return row is not None
 
     def counts(self) -> dict[str, int]:
         with self.store.connect() as connection:
-            rows = connection.execute("SELECT key_id, COUNT(*) AS n FROM vault_keys GROUP BY key_id").fetchall()
+            rows = connection.execute("SELECT key_id, COUNT(*) AS n FROM vault_data_keys GROUP BY key_id").fetchall()
         return {row["key_id"]: row["n"] for row in rows}
 
     def verify(self) -> None:
@@ -157,33 +150,48 @@ class AccountKeys:
     def rewrap(self) -> tuple[int, int]:
         current = self.keyring.current.key_id
         with self.store.connect() as connection:
-            rows = connection.execute("SELECT account_id, key_id, wrapped FROM vault_keys").fetchall()
+            rows = connection.execute("SELECT vault_id, key_id, wrapped FROM vault_data_keys").fetchall()
         rewrapped = 0
         for row in rows:
             if row["key_id"] == current:
                 continue
-            data_key = self.keyring.unwrap(row["account_id"], row["key_id"], bytes(row["wrapped"]))
-            key_id, wrapped = self.keyring.wrap(row["account_id"], data_key)
+            data_key = self.keyring.unwrap(row["vault_id"], row["key_id"], bytes(row["wrapped"]))
+            key_id, wrapped = self.keyring.wrap(row["vault_id"], data_key)
             with self.store.connect() as connection:
                 connection.execute(
-                    "UPDATE vault_keys SET key_id = ?, wrapped = ?, rewrapped_at = ?"
-                    " WHERE account_id = ? AND key_id = ?",
-                    (key_id, wrapped, int(time.time()), row["account_id"], row["key_id"]),
+                    "UPDATE vault_data_keys SET key_id = ?, wrapped = ?, rewrapped_at = ?"
+                    " WHERE vault_id = ? AND key_id = ?",
+                    (key_id, wrapped, int(time.time()), row["vault_id"], row["key_id"]),
                 )
             rewrapped += 1
         return rewrapped, len(rows) - rewrapped
 
-    def shred(self, account_id: str) -> bool:
+    def shred(self, vault_id: str) -> bool:
         with self.store.connect() as connection:
-            return connection.execute("DELETE FROM vault_keys WHERE account_id = ?", (account_id,)).rowcount > 0
+            return connection.execute("DELETE FROM vault_data_keys WHERE vault_id = ?", (vault_id,)).rowcount > 0
 
 
-def account_for_subject(store: HostedStore, subject: str) -> Account | None:
-    return store.account_for_sub(subject) or store.account_by_id(subject)
+@dataclass(frozen=True)
+class VaultFacts:
+    notes: int
+    files: int
+    size: int
+    written_at: float | None
+
+
+def facts_of(entries: list[Entry]) -> VaultFacts:
+    files = [entry for entry in entries if not entry.is_dir]
+    written = max((entry.mtime.timestamp() for entry in files), default=None)
+    return VaultFacts(
+        notes=sum(1 for entry in files if is_vault_key(entry.key) and entry.key.endswith(".md")),
+        files=len(files),
+        size=sum(entry.size for entry in files),
+        written_at=written,
+    )
 
 
 class SealedVaults:
-    def __init__(self, store: HostedStore, keys: AccountKeys, prefix: str = DEFAULT_SUBJECT_PREFIX) -> None:
+    def __init__(self, store: HostedStore, keys: VaultKeys, prefix: str = DEFAULT_SUBJECT_PREFIX) -> None:
         self.store = store
         self.keys = keys
         self.prefix = prefix.strip("/")
@@ -191,23 +199,31 @@ class SealedVaults:
     def __call__(self, subject: str) -> tuple[SealedBackend, str]:
         from notes_vault_mcp.vault import NoSubject
 
-        account = account_for_subject(self.store, subject)
-        if account is None:
-            raise NoSubject("no account for this subject")
-        return self.for_account(account.id)
+        vault = self.store.vault(subject)
+        if vault is None:
+            raise NoSubject("no vault for this subject")
+        return self.for_vault(vault.id)
 
-    def storage(self, account_id: str) -> tuple[Storage, str]:
-        inner, identifier = make_subject_backend(account_id, self.prefix)
+    def storage(self, vault_id: str) -> tuple[Storage, str]:
+        inner, identifier = make_subject_backend(vault_id, self.prefix)
         return cast(Storage, inner), identifier
 
-    def for_account(self, account_id: str) -> tuple[SealedBackend, str]:
-        inner, identifier = self.storage(account_id)
-        return SealedBackend(inner, self.keys.data_key(account_id)), identifier
+    def for_vault(self, vault_id: str) -> tuple[SealedBackend, str]:
+        inner, identifier = self.storage(vault_id)
+        return SealedBackend(inner, self.keys.data_key(vault_id)), identifier
+
+    def facts(self, vault_id: str) -> VaultFacts:
+        if not self.keys.has_key(vault_id):
+            return VaultFacts(0, 0, 0, None)
+        return facts_of(self.for_vault(vault_id)[0].list_all())
 
 
-def delete_account(sealed: SealedVaults, account: Account, cache: Path) -> int:
-    sealed.keys.shred(account.id)
-    inner, identifier = sealed.storage(account.id)
+VAULT_ROWS = ("api_keys", "tokens", "devices", "vault_support_grants")
+
+
+def delete_vault(sealed: SealedVaults, vault: Vault, cache: Path) -> int:
+    sealed.keys.shred(vault.id)
+    inner, identifier = sealed.storage(vault.id)
     entries = inner.list_all("")
     for entry in entries:
         if not entry.is_dir:
@@ -217,10 +233,20 @@ def delete_account(sealed: SealedVaults, account: Account, cache: Path) -> int:
     for path in cache.glob(f"{identifier}.sqlite*"):
         path.unlink(missing_ok=True)
     with sealed.store.connect() as connection:
+        for table in VAULT_ROWS:
+            if has_table(connection, table):
+                connection.execute(f'DELETE FROM "{table}" WHERE vault_id = ?', (vault.id,))
+        connection.execute("DELETE FROM vaults WHERE id = ?", (vault.id,))
+    return sum(1 for entry in entries if not entry.is_dir)
+
+
+def delete_account(sealed: SealedVaults, account: Account, cache: Path) -> int:
+    deleted = sum(delete_vault(sealed, vault, cache) for vault in sealed.store.vaults(account.id))
+    with sealed.store.connect() as connection:
         for table in account_tables(connection):
             connection.execute(f'DELETE FROM "{table}" WHERE account_id = ?', (account.id,))
         connection.execute("DELETE FROM accounts WHERE id = ?", (account.id,))
-    return sum(1 for entry in entries if not entry.is_dir)
+    return deleted
 
 
 def account_tables(connection: sqlite3.Connection) -> list[str]:
@@ -234,7 +260,7 @@ def account_tables(connection: sqlite3.Connection) -> list[str]:
 
 def sealed_vaults_from_env(store: HostedStore | None = None) -> SealedVaults:
     store = store or HostedStore(auth_dir())
-    keys = AccountKeys(store, Keyring.from_env())
+    keys = VaultKeys(store, Keyring.from_env())
     keys.verify()
     return SealedVaults(store, keys, env("VAULT_SUBJECT_PREFIX") or DEFAULT_SUBJECT_PREFIX)
 
@@ -244,13 +270,13 @@ def command_master_key(args: argparse.Namespace) -> int:
         print(MasterKey.generate().encoded())
         return 0
     store = HostedStore(auth_dir())
-    keys = AccountKeys(store, Keyring.from_env())
+    keys = VaultKeys(store, Keyring.from_env())
     if args.master_key_command == "status":
         current = keys.keyring.current.key_id
         print(f"notes-vault-mcp: current master key {current}")
         for key_id, count in sorted(keys.counts().items()):
             state = "current" if key_id == current else "previous" if key_id in keys.keyring.key_ids else "MISSING"
-            print(f"{key_id}  {count} account keys  {state}")
+            print(f"{key_id}  {count} vault keys  {state}")
         return 0
     try:
         rewrapped, kept = keys.rewrap()
@@ -258,7 +284,7 @@ def command_master_key(args: argparse.Namespace) -> int:
         print(f"notes-vault-mcp: {exc}", file=sys.stderr)
         return 1
     current = keys.keyring.current.key_id
-    print(f"notes-vault-mcp: rewrapped {rewrapped} account keys under {current}, {kept} already were")
+    print(f"notes-vault-mcp: rewrapped {rewrapped} vault keys under {current}, {kept} already were")
     return 0
 
 
@@ -270,10 +296,10 @@ def command_delete_account(args: argparse.Namespace) -> int:
         return 1
     if not args.yes:
         print(
-            f"notes-vault-mcp: deleting {account.email} destroys its vault for good; repeat with --yes",
+            f"notes-vault-mcp: deleting {account.email} destroys every vault it owns for good; repeat with --yes",
             file=sys.stderr,
         )
         return 2
     deleted = delete_account(sealed_vaults_from_env(store), account, cache_dir())
-    print(f"notes-vault-mcp: deleted {account.email}: its data key, {deleted} objects and its index")
+    print(f"notes-vault-mcp: deleted {account.email}: its vaults' data keys, {deleted} objects and their indexes")
     return 0

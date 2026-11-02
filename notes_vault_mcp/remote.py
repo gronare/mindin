@@ -31,14 +31,20 @@ class RemoteError(Exception):
 
 
 class NotSignedIn(ConfigError):
-    def __init__(self, url: str) -> None:
-        super().__init__(f"notes-vault-mcp: not signed in to {url}; run `notes-vault-mcp login {url}`")
+    def __init__(self, url: str, vault: str | None = None) -> None:
+        if vault:
+            super().__init__(
+                f"notes-vault-mcp: not signed in to the vault {vault} on {url}; "
+                f"run `notes-vault-mcp login {url} --vault {vault}`"
+            )
+        else:
+            super().__init__(f"notes-vault-mcp: not signed in to {url}; run `notes-vault-mcp login {url}`")
 
 
-def signed_in_key(url: str) -> str:
-    entry = credentials.stored(url)
+def signed_in_key(url: str, cwd: str | None = None) -> str:
+    vault, entry = credentials.chosen(url, cwd)
     if entry is None:
-        raise NotSignedIn(url)
+        raise NotSignedIn(url, vault)
     return entry["key"]
 
 
@@ -145,7 +151,8 @@ def run(url: str, action: Callable[[Remote], Awaitable[T]]) -> T:
 
 class LocalState:
     def __init__(self, url: str) -> None:
-        self.path = cache_dir() / f"remote-{vault_id(url)}.json"
+        slug = credentials.vault_for(url)
+        self.path = cache_dir() / f"remote-{vault_id(f'{url}#{slug}' if slug else url)}.json"
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -184,8 +191,9 @@ def session_start(url: str, raw: str) -> str:
     async def action(remote: Remote) -> str:
         return hooks.render_session_start(await remote.context(cwd), cwd)
 
-    text = run(url, action)
-    LocalState(url).remember_repo(cwd)
+    with credentials.working_in(cwd):
+        text = run(url, action)
+        LocalState(url).remember_repo(cwd)
     return text
 
 
@@ -319,9 +327,10 @@ JSON_ACTIONS: dict[str, Callable[[Remote, Any], Awaitable[dict]]] = {
 
 def json_action(url: str, name: str, args: Any) -> dict:
     action = JSON_ACTIONS[name]
-    if name in ("task_open", "log_append"):
-        LocalState(url).remember_repo(args.cwd)
-    return run(url, lambda remote: action(remote, args))
+    with credentials.working_in(getattr(args, "cwd", None)):
+        if name in ("task_open", "log_append"):
+            LocalState(url).remember_repo(args.cwd)
+        return run(url, lambda remote: action(remote, args))
 
 
 def changelog_command(url: str, args: Any) -> list[str]:

@@ -9,7 +9,7 @@ from urllib.parse import unquote
 
 import httpx2 as httpx
 import pytest
-from hosted_support import hosted_config, key_for_subject
+from hosted_support import first_vault_id, hosted_config, key_for_subject
 
 from notes_vault_mcp.auth.hosted import build_hosted_app
 from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey
@@ -43,8 +43,13 @@ def app(vaults: SubjectVaults, tmp_path: Path, keyring: Keyring) -> Any:
 @pytest.fixture
 def secret(app: Any, vaults: SubjectVaults, tmp_path: Path) -> str:
     key = key_for_subject(tmp_path / "auth", "user1042@example.com", "1042")
-    vaults.for_subject("1042")
+    vaults.for_subject(first_vault_id(tmp_path / "auth", "user1042@example.com"))
     return key
+
+
+@pytest.fixture
+def vault_id(secret: str, tmp_path: Path) -> str:
+    return first_vault_id(tmp_path / "auth", "user1042@example.com")
 
 
 def hrefs(response: httpx.Response) -> list[str]:
@@ -257,12 +262,12 @@ async def test_dav_under_a_public_url_path(tmp_path: Path, secret: str, keyring:
 
 @pytest.mark.anyio
 async def test_a_remotely_save_walk_lists_the_storage_once(
-    app: Any, secret: str, vaults: SubjectVaults, monkeypatch: pytest.MonkeyPatch
+    vault_id: str, app: Any, secret: str, vaults: SubjectVaults, monkeypatch: pytest.MonkeyPatch
 ):
     async with dav_client(app) as client:
         for path in ("Areas/a.md", "Projects/b.md", "Projects/Deep/c.md"):
             await client.put(f"/dav/vault/{path}", content=b"x", headers=basic(secret))
-        inner = vaults.for_subject("1042").backend.inner
+        inner = vaults.for_subject(vault_id).backend.inner
         listings: list[str] = []
         real = inner.list_all
         monkeypatch.setattr(inner, "list_all", lambda prefix="": listings.append(prefix) or real(prefix))
@@ -272,8 +277,8 @@ async def test_a_remotely_save_walk_lists_the_storage_once(
     assert len(listings) == 1
 
 
-def keys(vaults: SubjectVaults) -> set[str]:
-    return {entry.key for entry in vaults.for_subject("1042").backend.list_all()}
+def keys(vault_id: str, vaults: SubjectVaults) -> set[str]:
+    return {entry.key for entry in vaults.for_subject(vault_id).backend.list_all()}
 
 
 @pytest.mark.anyio
@@ -291,7 +296,9 @@ async def test_the_root_lists_one_vault_collection(app: Any, secret: str):
 
 
 @pytest.mark.anyio
-async def test_a_remotely_save_session_syncs_the_vault_itself(app: Any, secret: str, vaults: SubjectVaults):
+async def test_a_remotely_save_session_syncs_the_vault_itself(
+    vault_id: str, app: Any, secret: str, vaults: SubjectVaults
+):
     auth = basic(secret)
     async with dav_client(app) as client:
         exists = await client.request("PROPFIND", "/dav/obsidian/", headers={"Depth": "0", **auth})
@@ -325,16 +332,16 @@ async def test_a_remotely_save_session_syncs_the_vault_itself(app: Any, secret: 
             headers={"Destination": "http://localhost/dav/obsidian/Projects/done.md", **auth},
         )
         assert moved.status_code == 201
-        assert vaults.for_subject("1042").backend.get_bytes("Projects/done.md")[0] == b"plan"
+        assert vaults.for_subject(vault_id).backend.get_bytes("Projects/done.md")[0] == b"plan"
         assert (await client.delete("/dav/obsidian/Projects/done.md", headers=auth)).status_code == 204
         assert (await client.delete("/dav/obsidian/", headers=auth)).status_code == 403
-    stored = keys(vaults)
+    stored = keys(vault_id, vaults)
     assert "Welcome.md" in stored and "Projects/done.md" not in stored
     assert not any(key.startswith(("obsidian", "rs-test")) for key in stored)
 
 
 @pytest.mark.anyio
-async def test_any_vault_name_reaches_the_same_vault(app: Any, secret: str, vaults: SubjectVaults):
+async def test_any_vault_name_reaches_the_same_vault(app: Any, secret: str, vault_id: str, vaults: SubjectVaults):
     auth = basic(secret)
     async with dav_client(app) as client:
         put = await client.put("/dav/My%20Vault/Areas/n%C3%A5got.md", content=b"n", headers=auth)
@@ -348,6 +355,6 @@ async def test_any_vault_name_reaches_the_same_vault(app: Any, secret: str, vaul
             headers={"Destination": "http://localhost/dav/other/Areas/moved.md", **auth},
         )
         assert moved.status_code == 201
-    stored = keys(vaults)
+    stored = keys(vault_id, vaults)
     assert "Areas/moved.md" in stored and "Areas/något.md" not in stored
     assert not any(key.startswith(("My Vault", "other")) for key in stored)

@@ -60,9 +60,11 @@ def device_login(
     http: httpx2.Client,
     sleep: Callable[[float], None] = time.sleep,
     open_browser: bool = True,
+    vault: str | None = None,
 ) -> dict:
     device_endpoint, token_endpoint = endpoints(http, base)
-    started = http.post(device_endpoint, data={"client_id": CLIENT_ID, "scope": SCOPE, "name": name})
+    form = {"client_id": CLIENT_ID, "scope": SCOPE, "name": name} | ({"vault": vault} if vault else {})
+    started = http.post(device_endpoint, data=form)
     if started.status_code != 200:
         error, description = error_of(started)
         raise LoginError(f"{base} refused to start a sign-in: {error} {description}".rstrip())
@@ -104,12 +106,13 @@ def login(
     http: httpx2.Client | None = None,
     sleep: Callable[[float], None] = time.sleep,
     open_browser: bool = True,
+    vault: str | None = None,
 ) -> dict:
     base = credentials.server_base(url)
     out = out or sys.stdout
     client = http or httpx2.Client(timeout=HTTP_TIMEOUT)
     try:
-        granted = device_login(base, name or socket.gethostname(), out, client, sleep, open_browser)
+        granted = device_login(base, name or socket.gethostname(), out, client, sleep, open_browser, vault)
     finally:
         if http is None:
             client.close()
@@ -117,9 +120,11 @@ def login(
         "key": granted["access_token"],
         "scope": granted.get("scope", ""),
         "name": granted.get("key_name", ""),
+        "vault": granted.get("vault") or vault or "",
+        "vault_name": granted.get("vault_name", ""),
         "saved_at": int(time.time()),
     }
-    credentials.save(base, entry)
+    credentials.save(base, entry, entry["vault"] or None)
     return entry
 
 

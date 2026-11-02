@@ -2,28 +2,17 @@ from __future__ import annotations
 
 import argparse
 import sys
-import tempfile
 import zipfile
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from datetime import date
 from typing import IO, TYPE_CHECKING
 
-import anyio
-from mcp.server.transport_security import RequestBodyLimitMiddleware
-from starlette.datastructures import UploadFile
-from starlette.requests import Request
-from starlette.responses import Response, StreamingResponse
-from starlette.routing import Route, request_response
-from starlette.types import ASGIApp
-
 from notes_vault_mcp.auth import auth_dir
-from notes_vault_mcp.auth.hosted_store import Account, HostedStore
-from notes_vault_mcp.auth.hosted_web import Browser, error_box, esc
+from notes_vault_mcp.auth.hosted_store import HostedStore
 from notes_vault_mcp.backends import VaultBackend, VaultError
 
 if TYPE_CHECKING:
-    from notes_vault_mcp.vault import SubjectVaults
+    pass
 
 MAX_UPLOAD_BYTES = 512 * 1024 * 1024
 MAX_EXPANDED_BYTES = 2 * 1024 * 1024 * 1024
@@ -126,83 +115,6 @@ def export_zip(backend: VaultBackend, out: IO[bytes]) -> int:
     return count
 
 
-def subject_of(account: Account) -> str:
-    return account.sub or account.id
-
-
-class VaultTransfer:
-    def __init__(self, browser: Browser, vaults: SubjectVaults) -> None:
-        self.browser = browser
-        self.vaults = vaults
-
-    def backend(self, account: Account) -> VaultBackend:
-        return self.vaults.for_subject(subject_of(account)).backend
-
-    def section(self, account: Account, csrf: str) -> str:
-        local = self.browser.local
-        return f"""<h2>Your data</h2>
-<p>Your notes are encrypted with a key of their own before they are stored.</p>
-<p><a href="{esc(local("/account/export"))}">Download the whole vault as a zip</a></p>
-<form method="post" action="{esc(local("/account/import"))}" enctype="multipart/form-data">
-<input type="hidden" name="csrf" value="{esc(csrf)}">
-<label>Import a vault from a zip; files with the same path are replaced
-<input type="file" name="archive" accept=".zip,application/zip" required>
-</label>
-<button type="submit" class="secondary">Import</button>
-</form>"""
-
-    async def export(self, request: Request) -> Response:
-        session = await self.browser.require_session(request, self.browser.local("/account/export"))
-        if isinstance(session, Response):
-            return session
-        account, _ = session
-        spool = tempfile.SpooledTemporaryFile(max_size=SPOOL_BYTES)  # noqa: SIM115
-        try:
-            await anyio.to_thread.run_sync(export_zip, self.backend(account), spool)
-        except BaseException:
-            spool.close()
-            raise
-        spool.seek(0)
-
-        def chunks() -> Iterator[bytes]:
-            with spool:
-                while chunk := spool.read(CHUNK_BYTES):
-                    yield chunk
-
-        headers = {
-            "Content-Disposition": f'attachment; filename="vault-{date.today().isoformat()}.zip"',
-            "Cache-Control": "no-store",
-        }
-        return StreamingResponse(chunks(), media_type="application/zip", headers=headers)
-
-    async def upload(self, request: Request) -> Response:
-        submitted = await self.browser.account_form(request)
-        if isinstance(submitted, Response):
-            return submitted
-        account, csrf, _ = submitted
-        upload = (await request.form()).get("archive")
-        if not isinstance(upload, UploadFile):
-            return self.browser.render_account(account, csrf, error_box("Choose a zip file."), status_code=400)
-        try:
-            counts = await anyio.to_thread.run_sync(self.import_upload, account, upload.file)
-        except (zipfile.BadZipFile, BadArchive) as exc:
-            message = str(exc) if isinstance(exc, BadArchive) else "That file is not a zip archive."
-            return self.browser.render_account(account, csrf, error_box(message), status_code=400)
-        notice = f'<p class="warning">Imported: {esc(counts.summary())}.</p>'
-        return self.browser.render_account(account, csrf, notice)
-
-    def import_upload(self, account: Account, file: IO[bytes]) -> Imported:
-        with zipfile.ZipFile(file) as archive:
-            return import_files(self.backend(account), zip_source(archive))
-
-    def routes(self, prefix: str) -> list[Route]:
-        upload: ASGIApp = RequestBodyLimitMiddleware(request_response(self.upload), MAX_UPLOAD_BYTES)
-        return [
-            Route(prefix + "/account/export", endpoint=self.export, methods=["GET"]),
-            Route(prefix + "/account/import", endpoint=upload, methods=["POST"]),
-        ]
-
-
 def import_source(args: argparse.Namespace) -> VaultBackend:
     from notes_vault_mcp.config import ConfigError, env
 
@@ -233,7 +145,7 @@ def import_source(args: argparse.Namespace) -> VaultBackend:
 
 
 def command_import(args: argparse.Namespace) -> int:
-    from notes_vault_mcp.auth.hosted_access import NoGrant, SupportAccess
+    from notes_vault_mcp.auth.hosted_access import NoGrant, SupportAccess, chosen_vault
     from notes_vault_mcp.auth.hosted_keys import sealed_vaults_from_env
 
     store = HostedStore(auth_dir())
@@ -241,18 +153,22 @@ def command_import(args: argparse.Namespace) -> int:
     if account is None:
         print(f"notes-vault-mcp: no account {args.account!r}", file=sys.stderr)
         return 1
+    vault = chosen_vault(store, account, args.vault)
+    if vault is None:
+        print(f"notes-vault-mcp: name one of {account.email}'s vaults with --vault <slug>", file=sys.stderr)
+        return 1
     source = import_source(args)
     sealed = sealed_vaults_from_env(store)
     try:
-        SupportAccess(store).admit(account.id, args.operator, args.reason, "import")
+        SupportAccess(store).admit(vault, args.operator, args.reason, "import")
     except NoGrant as exc:
         print(f"notes-vault-mcp: refused for {account.email}: {exc}", file=sys.stderr)
         return 1
-    target, _ = sealed.for_account(account.id)
+    target, _ = sealed.for_vault(vault.id)
     try:
         counts = import_files(target, backend_source(source))
     except BadArchive as exc:
         print(f"notes-vault-mcp: {exc}", file=sys.stderr)
         return 1
-    print(f"notes-vault-mcp: imported into {account.email}: {counts.summary()}")
+    print(f"notes-vault-mcp: imported into {account.email}'s {vault.slug}: {counts.summary()}")
     return 0

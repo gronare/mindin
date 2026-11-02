@@ -33,6 +33,7 @@ def connector_token(site: Hosted) -> str:
         "grant_id": secrets.token_urlsafe(8),
         "client_id": "connector",
         "account_id": account.id,
+        "vault_id": site.vault_of("ann@example.com"),
         "scopes": ["vault:read", "vault:write"],
         "resource": f"{BASE}/mcp",
     }

@@ -50,23 +50,32 @@ class Served:
         assert account is not None
         return account.id
 
-    def key(self, write: bool = True, email: str = EMAIL, purpose: str = MACHINE_KEY_PURPOSE) -> str:
+    def vault_id(self, slug: str | None = None, email: str = EMAIL) -> str:
+        vaults = self.store.vaults(self.account_id(email))
+        found = [vault for vault in vaults if slug is None or vault.slug == slug]
+        assert found, f"{email} has no vault {slug}"
+        return found[0].id
+
+    def key(
+        self, write: bool = True, email: str = EMAIL, purpose: str = MACHINE_KEY_PURPOSE, vault: str | None = None
+    ) -> str:
         scopes = ["vault:read", "vault:write"] if write else ["vault:read"]
-        return self.store.create_key(self.account_id(email), "laptop", scopes, purpose=purpose)
+        vault_id = self.vault_id(vault, email)
+        return self.store.create_key(self.account_id(email), "laptop", scopes, purpose=purpose, vault_id=vault_id)
 
-    def backend(self, sub: str = SUB) -> VaultBackend:
-        return self.vaults.backend_factory(sub)[0]
+    def backend(self, vault: str | None = None) -> VaultBackend:
+        return self.vaults.backend_factory(self.vault_id(vault))[0]
 
-    def seed(self, source: Path, sub: str = SUB) -> None:
-        backend = self.backend(sub)
+    def seed(self, source: Path, vault: str | None = None) -> None:
+        backend = self.backend(vault)
         for key, text in files_in(source).items():
             backend.put(key, text)
 
-    def read(self, key: str, sub: str = SUB) -> str:
-        return self.backend(sub).get(key)[0]
+    def read(self, key: str, vault: str | None = None) -> str:
+        return self.backend(vault).get(key)[0]
 
-    def write(self, key: str, text: str, sub: str = SUB) -> None:
-        self.backend(sub).put(key, text)
+    def write(self, key: str, text: str, vault: str | None = None) -> None:
+        self.backend(vault).put(key, text)
 
 
 @contextmanager

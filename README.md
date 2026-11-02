@@ -17,7 +17,7 @@ commits made since each relevant note was last updated, so a stale note is caugh
 - **A lifecycle, not a pile.** `close` archives finished work, `backlog_add` files what was deferred, `log_append` writes one line per repo per session, `lint` reports drift and can park stale tasks. A weekly `lint` keeps `active` meaning active.
 - **Memory tied to code.** A note names the paths it describes; the session-start hook prints the commits newer than the note, and the stop hook refuses to end a session that left its commits unlogged.
 - **Search that reads your languages.** Stemming for every language Snowball knows, folded diacritics, synonyms from the schema, and optional search by meaning that runs on your machine with one model process shared by every session.
-- **Your own vault server.** Run it over HTTPS for yourself or a group: accounts with passkeys, email links, GitHub or your identity provider, one vault each, encrypted in storage. claude.ai, Claude Desktop and the mobile app connect to it as a connector, and every machine's CLI, hooks and agents sign in to it.
+- **Your own vault server.** Run it over HTTPS for yourself or a group: accounts with passkeys, email links, GitHub or your identity provider, each with as many vaults as it needs, encrypted in storage. claude.ai, Claude Desktop and the mobile app connect to it as a connector, and every machine's CLI, hooks and agents sign in to it.
 
 [kebbie](https://kebbie.dev) uses it for each task's note.
 
@@ -123,7 +123,7 @@ old schema is kept as `.vault/schema.previous.yml`, and no note is moved or dele
 new layout does not name stay where they are and stay searchable; each is checked against the new rules
 the next time it is written, and `lint` lists the ones that do not fit it. The `init` tool sets up only
 a vault without a schema, so an MCP client cannot change the rules that check its own writes. On a
-[server](#run-a-server), the account page picks the layout the first time and switches it later.
+[server](#run-a-server), a vault picks its layout when it is made and switches it on its page later.
 
 ### The schema
 
@@ -335,8 +335,8 @@ docker run --rm -i -e S3_ENDPOINT -e S3_ACCESS_KEY -e S3_SECRET_KEY -e S3_BUCKET
 
 ## Run a server
 
-`serve --transport http` runs a vault server: people sign in to accounts, and each account has its own
-vault, its own index and its own key. It serves a household, a team, or you on several machines.
+`serve --transport http` runs a vault server: people sign in to accounts, and each account owns one
+or more vaults, each with its own address, keys, connections, index and encryption key. It serves a household, a team, or you on several machines.
 claude.ai, Claude Desktop and the mobile app connect to it as a custom connector, and any machine's CLI,
 hooks and agents [sign in to it](#connect-to-a-server).
 
@@ -358,7 +358,7 @@ It needs three things, and refuses to start without them:
 - `VAULT_HOSTED_MASTER_KEY`, the key that seals every vault (see [Encryption](#encryption)).
 - At least one way to sign in other than passkeys.
 
-The vaults live in the configured folder or bucket, one under `VAULT_SUBJECT_PREFIX/<account>/` each.
+The vaults live in the configured folder or bucket, one under `VAULT_SUBJECT_PREFIX/<vault id>/` each.
 Search by meaning works as [on a single machine](#search-by-meaning), with one model shared by every
 account.
 
@@ -409,18 +409,34 @@ notes-vault-mcp accounts list
 notes-vault-mcp accounts suspend ann@example.com     # every key and token stops at once
 notes-vault-mcp accounts activate ann@example.com
 notes-vault-mcp accounts delete ann@example.com --yes
+notes-vault-mcp accounts vaults ann@example.com                      # slug, name, notes, files, keys
+notes-vault-mcp accounts add-vault ann@example.com "Workshop" [--slug workshop] [--preset para]
+notes-vault-mcp accounts rename-vault ann@example.com workshop --name "Shed" --slug shed
 ```
 
-Each person opens `VAULT_PUBLIC_URL/account`, which shows who they are, how to connect, their keys and
-ways in, and:
+A new account starts with one vault, named Personal, at an address made from its email. Each person
+opens `VAULT_PUBLIC_URL/account`, which lists their vaults and makes new ones. A vault has a name and a
+slug that is unique on the server; its address is `VAULT_PUBLIC_URL/v/<slug>/mcp`. Each vault's page has:
 
-- **Layout.** A new vault picks PARA, Simple, Journal or Custom [layout](#layouts) here, and switches it later. The built-in layout is set from the CLI only.
-- **Export and import.** The whole vault downloads as a zip at any time; a zip imports into it, replacing
-  files with the same path.
-- **Support access.** The person can let the server's staff open the vault for an hour, a day or a week,
-  and end it early. Every access is logged with time, operator and reason, and the log shows on the page.
+- **Connect.** The vault's MCP address, the `login` line for a computer, and the WebDAV address.
+- **Connections and keys.** Every connector, signed-in computer and key that reaches this vault, with when
+  it was last used; disconnect, sign out or revoke each one, and make a key.
+- **Layout.** A new vault picks PARA, Simple, Journal or Custom [layout](#layouts) when it is made, and
+  switches to another of them here later, without moving any note. A vault made without one, such as an
+  account's first vault, asks here. A vault in the built-in layout keeps it; the page names it, and it is
+  switched from the CLI only.
+- **Your data.** The vault downloads as a zip at any time; a zip imports into it, replacing files with
+  the same path.
+- **Delete this vault.** Typing its name, after a sign-in within the last ten minutes, destroys the
+  vault's key, files, index, keys and connections. The account's other vaults stay as they are.
+
+The Account page shows who the person is, their ways in, and:
+
+- **Support access.** The person can let the server's staff open one vault for an hour, a day or a week,
+  and end it early. Every access is logged with time, vault, operator and reason, and the log shows on
+  the page.
 - **Deletion.** The account deletes itself after a sign-in within the last ten minutes and its email typed
-  out: the vault's key goes first, then its files, its index, its keys and its ways in.
+  out: every vault's key goes first, then their files, indexes, keys, connections and the ways in.
 
 `accounts delete` does the same from the shell. `hosted.sqlite` under `VAULT_AUTH_DIR` holds the
 accounts, the ways in, the hashed keys and tokens, the registered clients and every vault's sealed key.
@@ -428,10 +444,10 @@ accounts, the ways in, the hashed keys and tokens, the registered clients and ev
 ### Encryption
 
 Every vault is sealed before it reaches storage: file contents with AES-256-GCM, and file and folder
-names too, so the bucket holds only opaque object names and ciphertext. Each account has its own data
+names too, so the bucket holds only opaque object names and ciphertext. Each vault has its own data
 key, wrapped by the master key in `VAULT_HOSTED_MASTER_KEY` (base64 of 32 bytes, made with
 `notes-vault-mcp master-key generate`). The server refuses to start without it, or with a master key
-that does not open the account keys it holds.
+that does not open the vault keys it holds.
 
 Keep the master key outside the bucket and back it up together with `hosted.sqlite`: a vault is read
 with both, and with neither alone. The server decrypts when it answers, so search, connectors and
@@ -448,11 +464,12 @@ to the same vault is seen late.
 
 ### Support access and import
 
-With the account's permission from its page, the staff reads a vault and imports into it from the shell.
-Each command names who runs it and why, and refuses without the permission:
+With the account's permission for one vault, the staff reads that vault and imports into it from the
+shell. Each command names who runs it and why, and refuses without the permission. `--vault <slug>` names
+the vault when the account has more than one:
 
 ```sh
-notes-vault-mcp support files ann@example.com --operator sam --reason "lost note"
+notes-vault-mcp support files ann@example.com --vault workshop --operator sam --reason "lost note"
 notes-vault-mcp support read ann@example.com Areas/home.md --operator sam --reason "lost note"
 notes-vault-mcp accounts import ann@example.com --from-path ~/old-vault --operator sam --reason "move in"
 notes-vault-mcp accounts import ann@example.com --from-s3-bucket old-vault --from-s3-prefix ann \
@@ -471,40 +488,62 @@ Service name, a LAN hostname, or the host a proxy rewrites requests to goes in `
 
 ## Connect to a server
 
-`VAULT_PUBLIC_URL/account` shows each of these with the server's own addresses. Every connection asks
-for read or read and write.
+Every connection reaches one vault, the one it was made for, and asks for read or read and write. Each
+vault's page on `VAULT_PUBLIC_URL/account` shows these with its own addresses.
 
 | Client | How it connects |
 | --- | --- |
-| claude.ai, Claude Desktop, mobile | A custom connector with `VAULT_PUBLIC_URL/mcp`, signed in through the browser |
-| Claude Code, Codex, kebbie, the hooks and the CLI | [`login`](#sign-a-machine-in) once per machine, then `VAULT_SERVER_URL` |
-| Any other OAuth-capable MCP client | `VAULT_PUBLIC_URL/mcp` as a remote server, signed in through the browser |
-| A client that only takes a header | A key made on `/account`, sent as `Authorization: Bearer nvm_...` |
-| Obsidian's Remotely Save | WebDAV at `VAULT_PUBLIC_URL/dav/` |
+| claude.ai, Claude Desktop, mobile | A custom connector with the vault's address, `VAULT_PUBLIC_URL/v/<slug>/mcp`, signed in through the browser |
+| Claude Code, Codex, kebbie, the hooks and the CLI | [`login`](#sign-a-machine-in) once per machine and vault, then `VAULT_SERVER_URL` |
+| Any other OAuth-capable MCP client | The vault's address as a remote server, signed in through the browser |
+| A client that only takes a header | A key made on the vault's page, sent as `Authorization: Bearer nvm_...` |
+| Obsidian's Remotely Save | WebDAV at `VAULT_PUBLIC_URL/dav/` with a key from the vault's page |
+
+`VAULT_PUBLIC_URL/mcp` works for every client too: a key reaches the vault it was made for, and a client
+signed in through the browser asks which vault it gets.
 
 ### claude.ai, Claude Desktop and mobile
 
-In claude.ai, open Settings, Connectors, Add custom connector, and paste `VAULT_PUBLIC_URL/mcp`. The
-browser signs in to the server and asks for read or read and write. There is nothing to register: the
+In claude.ai, open Settings, Connectors, Add custom connector, and paste the vault's address,
+`VAULT_PUBLIC_URL/v/<slug>/mcp`; name the connector after the vault. The browser signs in to the server
+and asks for read or read and write; the connector reaches that vault and no other. Add one connector
+per vault you want in claude.ai. There is nothing to register: the
 server takes claude.ai's client metadata document, and dynamic registration for other clients. Connect
 once on the web and the same connector appears in Claude Desktop and in the mobile app.
 
 ### Sign a machine in
 
 ```sh
-uvx notes-vault-mcp login https://vault.example.com
+uvx notes-vault-mcp login https://vault.example.com --vault homelab
 ```
 
 It prints a link and a code. Open the link on any device, sign in, check that the code matches and
-approve read and write. The machine gets its own key, named after its host name (`--name` picks another),
+approve read and write. Without `--vault` the approval page asks which vault the machine gets. The machine gets its own key, named after its host name (`--name` picks another),
 stored in `~/.config/notes-vault-mcp/credentials.json` and readable only by you. Over ssh it works the
-same way, and `--no-browser` only prints the link. `notes-vault-mcp whoami` shows the account and whether
-the key may write; `notes-vault-mcp logout` forgets the key on this machine. Revoke it for good on the
-account page.
+same way, and `--no-browser` only prints the link. `notes-vault-mcp whoami` shows the account, the vault
+and whether the key may write; `notes-vault-mcp logout [--vault <slug>]` forgets the keys on this machine.
+Revoke a key for good on its vault's page.
 
 Then set `VAULT_SERVER_URL` to the server. The stdio MCP server, the hooks and every command work through
 it as with a folder or a bucket, except `sync`, since the server keeps the index. `VAULT_SERVER_URL` wins over `VAULT_PATH` and
 `S3_*` when both are set.
+
+### Several vaults on one machine
+
+A machine can be signed in to several of your vaults on the same server: run `login --vault <slug>` once
+for each. The first one becomes the machine's default. A folder, such as a repo, can use another vault,
+and so can everything below it:
+
+```sh
+notes-vault-mcp login https://vault.example.com --vault work
+notes-vault-mcp vault use work --dir ~/projects/client-repo   # this folder and below use work
+notes-vault-mcp vault use homelab                            # the default everywhere else
+notes-vault-mcp vault drop --dir ~/projects/client-repo      # back to the default
+notes-vault-mcp vault list                                   # JSON: the vault here, the default, the folders
+```
+
+The hooks, the stdio MCP server and every command pick the vault of the folder they run in; the hooks
+take it from the session's working directory. The keys and folders are kept in `credentials.json`.
 
 ### Claude Code with a server
 
@@ -538,21 +577,24 @@ A tool that speaks the OAuth device flow can sign itself in the way `login` does
 `POST /token` with `grant_type=urn:ietf:params:oauth:grant-type:device_code` and the `device_code` every
 `interval` seconds; it answers `authorization_pending` until the person approves, `slow_down` when polled
 too often, `access_denied` or `expired_token`, and once `{"access_token": "nvm_...", "token_type":
-"Bearer", "scope": "...", "key_name": "...", "resource": ".../mcp"}`.
+"Bearer", "scope": "...", "key_name": "...", "resource": ".../mcp", "vault": "<slug>", "vault_name":
+"..."}`. `vault=<slug>` on the first request asks for that vault; without it the person picks one when
+approving.
 
 ### Header clients
 
-Make a key on `/account`, named after where it will live and read or read and write, and send
-`Authorization: Bearer nvm_...` to `VAULT_PUBLIC_URL/mcp`. Keys are shown once, show when they were last
-used, and are revoked on `/account`.
+Make a key on the vault's page, named after where it will live and read or read and write, and send
+`Authorization: Bearer nvm_...` to `VAULT_PUBLIC_URL/mcp` or to the vault's address. The key reaches only
+its vault; another vault's address refuses it. Keys are shown once, show when they were last used, and are
+revoked on the vault's page.
 
 ### Obsidian
 
 Remotely Save takes WebDAV at `VAULT_PUBLIC_URL/dav/`, the account's email as the username, and as the
-password either a key from `/account` or the one the `obsidian_access` tool mints when you ask Claude for
+password either a key from the vault's page or the one the `obsidian_access` tool mints when you ask Claude for
 it (asking again replaces it). Leave the base folder as it is: whatever name Remotely Save puts after
 `/dav/`, it syncs the vault itself. Set Depth to "only supports depth='1'". A new vault's welcome note
-carries these steps. Other WebDAV clients open `VAULT_PUBLIC_URL/dav/vault/`. Obsidian hides `.vault/`, so
+carries these steps. The address is the same for every vault: the key decides which vault opens. Other WebDAV clients open `VAULT_PUBLIC_URL/dav/vault/`. Obsidian hides `.vault/`, so
 edit the schema with one of them (Finder's Connect to Server, Cyberduck). A proxy
 in front must pass `/dav/*` straight through, with the `Authorization` header and the WebDAV verbs and
 headers (`PROPFIND`, `MKCOL`, `MOVE`, `COPY`, `Depth`, `Destination`, `Overwrite`) intact.
@@ -636,8 +678,9 @@ notes-vault-mcp backlog --area myapp --priority high
 notes-vault-mcp changelog myapp 2026-08 --repo-path ~/projects/myapp [--write]
 notes-vault-mcp changelog --all                  # this month, and last month during its first week
 notes-vault-mcp hook session-start | stop        # the Claude Code hooks, JSON on stdin
-notes-vault-mcp login [<url>] [--name laptop] [--no-browser]
-notes-vault-mcp whoami [<url>] | logout [<url>]
+notes-vault-mcp login [<url>] [--vault <slug>] [--name laptop] [--no-browser]
+notes-vault-mcp whoami [<url>] | logout [<url>] [--vault <slug>]
+notes-vault-mcp vault list | use <slug> [--dir <folder>] | drop --dir <folder>
 notes-vault-mcp status [--probe]
 ```
 
@@ -646,8 +689,9 @@ On the server's own machine:
 ```sh
 notes-vault-mcp accounts list | invite <email> | suspend <account> | activate <account>
 notes-vault-mcp accounts delete <account> --yes
-notes-vault-mcp accounts import <account> --from-path <dir> | --from-s3-bucket <bucket> --operator <name> --reason <text>
-notes-vault-mcp support files | read <account> [<path>] --operator <name> --reason <text>
+notes-vault-mcp accounts vaults <account> | add-vault <account> <name> [--slug] [--preset] | rename-vault <account> <slug> [--name] [--slug]
+notes-vault-mcp accounts import <account> [--vault <slug>] --from-path <dir> | --from-s3-bucket <bucket> --operator <name> --reason <text>
+notes-vault-mcp support files | read <account> [<path>] [--vault <slug>] --operator <name> --reason <text>
 notes-vault-mcp master-key generate | status | rewrap
 ```
 
@@ -752,7 +796,7 @@ Every variable is also read from `CLAUDE_PLUGIN_OPTION_<NAME>`; the bare name wi
 
 | Variable | Required | Meaning |
 | --- | --- | --- |
-| `VAULT_PATH` | for a local vault | Directory holding the vault. On a server, the folder holding every account's vault. |
+| `VAULT_PATH` | for a local vault | Directory holding the vault. On a server, the folder holding every vault. |
 | `S3_ENDPOINT` | for an S3 vault | Endpoint URL, e.g. `https://minio.example.com`. |
 | `S3_ACCESS_KEY` | for an S3 vault | Access key. |
 | `S3_SECRET_KEY` | for an S3 vault | Secret key. |
@@ -779,8 +823,8 @@ the extensions installed beside it, from the Python entry point group `notes_vau
 | Variable | Meaning |
 | --- | --- |
 | `VAULT_PUBLIC_URL` | Required. The address clients reach, path included when the server is not at the root. Must be `https://`, or `http://localhost` for a local trial. |
-| `VAULT_HOSTED_MASTER_KEY` | Required. Base64 of 32 bytes that wraps every account's data key; `master-key generate` makes one. |
-| `VAULT_HOSTED_MASTER_KEY_PREVIOUS` | Older master keys, space or comma separated, still accepted while `master-key rewrap` moves the account keys off them. |
+| `VAULT_HOSTED_MASTER_KEY` | Required. Base64 of 32 bytes that wraps every vault's data key; `master-key generate` makes one. |
+| `VAULT_HOSTED_MASTER_KEY_PREVIOUS` | Older master keys, space or comma separated, still accepted while `master-key rewrap` moves the vault keys off them. |
 | `VAULT_REGISTRATION` | `invite` (default): only invited addresses get an account. `open`: any verified email does. |
 | `VAULT_PASSKEYS` | `on` (default) or `off`. |
 | `VAULT_SMTP_HOST` | Turns on email links. Needs `VAULT_SMTP_FROM`. |
@@ -801,7 +845,7 @@ the extensions installed beside it, from the Python entry point group `notes_vau
 | `VAULT_IDENTITY_NAME` | The proxy's button label. Default `your company's sign-in`. |
 | `VAULT_ALLOWED_HOSTS` | Extra `Host` header values the server answers on, space or comma separated. |
 | `VAULT_AUTH_DIR` | Where `hosted.sqlite` lives. Default `~/.cache/notes-vault-mcp/auth`. |
-| `VAULT_SUBJECT_PREFIX` | Where the vaults live under the bucket or folder: `<prefix>/<account>/`. Default `users`. |
+| `VAULT_SUBJECT_PREFIX` | Where the vaults live under the bucket or folder: `<prefix>/<vault id>/`, or `<prefix>/<account id>/` for an account's original vault. Default `users`. |
 | `IMPORT_S3_ACCESS_KEY`, `IMPORT_S3_SECRET_KEY` | The keys `accounts import --from-s3-bucket` reads the old bucket with. |
 
 ## Deploy

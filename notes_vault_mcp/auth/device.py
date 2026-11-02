@@ -13,7 +13,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from notes_vault_mcp.auth import MACHINE_KEY_PURPOSE, READ_SCOPE, SCOPES, WRITE_SCOPE, AuthConfig
-from notes_vault_mcp.auth.hosted_store import HostedStore
+from notes_vault_mcp.auth.hosted_store import Account, HostedStore
+from notes_vault_mcp.auth.hosted_vaults import Vault
 from notes_vault_mcp.auth.hosted_web import NO_STORE, Browser, Limits, client_address, error_box, esc, oauth_error, page
 
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
@@ -90,6 +91,7 @@ class DeviceFlow:
             "client_name": client_name,
             "name": machine_name(form.get("name"), client_name),
             "scopes": scopes,
+            "vault": str(form.get("vault") or "").strip().lower() or None,
             "interval": DEVICE_INTERVAL,
             "created_at": moment,
             "expires_at": moment + DEVICE_TTL,
@@ -139,8 +141,11 @@ class DeviceFlow:
         account = self.store.account(row["account_id"] or "")
         if account is None or not account.active:
             return oauth_error("access_denied", "the account is not active")
+        vault = self.store.vault(row["vault_id"] or "")
+        if vault is None or vault.account_id != account.id:
+            return oauth_error("access_denied", "the vault is gone")
         scopes = row["granted"].split()
-        key = self.store.create_key(account.id, row["name"], scopes, purpose=MACHINE_KEY_PURPOSE)
+        key = self.store.create_key(account.id, row["name"], scopes, purpose=MACHINE_KEY_PURPOSE, vault_id=vault.id)
         return JSONResponse(
             {
                 "access_token": key,
@@ -148,6 +153,8 @@ class DeviceFlow:
                 "scope": " ".join(scopes),
                 "key_name": row["name"],
                 "resource": self.config.resource_url,
+                "vault": vault.slug,
+                "vault_name": vault.name,
             },
             headers=NO_STORE,
         )
@@ -161,7 +168,7 @@ class DeviceFlow:
         account, csrf = session
         row = self.pending(user_code) if len(user_code) == USER_CODE_LENGTH else None
         if row is not None:
-            return self.confirm(row, csrf)
+            return self.confirm(row, account, csrf)
         return self.entry(csrf, shown(user_code) if user_code else "")
 
     def pending(self, user_code: str) -> sqlite3.Row | None:
@@ -180,20 +187,51 @@ class DeviceFlow:
 </form>"""
         return page("Connect a device", "Enter the code the device shows.", body, status_code=status_code)
 
-    def confirm(self, row: sqlite3.Row, csrf: str) -> Response:
+    def vault_choice(self, row: sqlite3.Row, account: Account) -> tuple[str, list[Vault]]:
+        requested = row["requested_vault"]
+        if requested:
+            vault = self.store.own_vault(account.id, requested)
+            return (requested, [vault]) if vault is not None and vault.slug == requested else (requested, [])
+        return "", self.store.vaults(account.id)
+
+    def vault_field(self, requested: str, vaults: list[Vault]) -> tuple[str, str]:
+        if requested:
+            vault = vaults[0]
+            return (
+                f"<dt>Vault</dt><dd>{esc(vault.name)} <code>{esc(vault.slug)}</code></dd>",
+                f'<input type="hidden" name="vault" value="{esc(vault.slug)}">',
+            )
+        radios = "".join(
+            f'<label><input type="radio" name="vault" value="{esc(vault.slug)}"{" checked" if index == 0 else ""}>'
+            f" {esc(vault.name)} ({esc(vault.slug)})</label>"
+            for index, vault in enumerate(vaults)
+        )
+        return "", f"<fieldset><legend>The vault it reaches</legend>{radios}</fieldset>"
+
+    def confirm(self, row: sqlite3.Row, account: Account, csrf: str) -> Response:
+        requested, vaults = self.vault_choice(row, account)
+        if not vaults:
+            lead = (
+                f"The device asks for the vault {requested}, which is not one of yours."
+                if requested
+                else "You have no vault yet. Make one on your account page first."
+            )
+            return page("Connect a device", lead, status_code=403 if requested else 400)
         write_choice = (
             '<label><input type="radio" name="access" value="write" checked> read and write</label>'
             if WRITE_SCOPE in row["scopes"].split()
             else ""
         )
         read_checked = "" if write_choice else " checked"
+        vault_fact, vault_field = self.vault_field(requested, vaults)
         body = f"""<p class="warning">Approve only if you started this yourself, just now, on a machine you use.</p>
 <dl><dt>Code</dt><dd><code>{esc(shown(row["user_code"]))}</code></dd>
 <dt>Asked by</dt><dd>{esc(row["client_name"])}</dd>
-<dt>The key will be named</dt><dd>{esc(row["name"])}</dd></dl>
+<dt>The key will be named</dt><dd>{esc(row["name"])}</dd>{vault_fact}</dl>
 <form method="post" action="{esc(self.browser.local("/device"))}">
 <input type="hidden" name="csrf" value="{esc(csrf)}">
 <input type="hidden" name="user_code" value="{esc(row["user_code"])}">
+{vault_field}
 <fieldset><legend>Access</legend>
 <label><input type="radio" name="access" value="read"{read_checked}> read</label>
 {write_choice}
@@ -201,7 +239,7 @@ class DeviceFlow:
 <button type="submit" name="action" value="approve">Approve</button>
 <button type="submit" name="action" value="deny" class="secondary">Deny</button>
 </form>"""
-        return page("Connect a device", "A device asks for a key to your vault.", body)
+        return page("Connect a device", "A device asks for a key to one of your vaults.", body)
 
     async def submit(self, request: Request) -> Response:
         form = await request.form()
@@ -217,14 +255,18 @@ class DeviceFlow:
             return self.entry(csrf, error="That code is unknown or has expired.", status_code=400)
         action = form.get("action")
         if action == "lookup":
-            return self.confirm(row, csrf)
+            return self.confirm(row, account, csrf)
         if action == "deny":
             self.store.update_device(row["device_hash"], status="denied", account_id=account.id)
             return page("Denied", "The device gets no key. You can close this page.")
-        if action != "approve":
-            return self.confirm(row, csrf)
+        requested, vaults = self.vault_choice(row, account)
+        vault = next((vault for vault in vaults if vault.slug == form.get("vault")), None)
+        if action != "approve" or vault is None:
+            return self.confirm(row, account, csrf)
         scopes = [READ_SCOPE]
         if form.get("access") == "write" and WRITE_SCOPE in row["scopes"].split():
             scopes.append(WRITE_SCOPE)
-        self.store.update_device(row["device_hash"], status="approved", account_id=account.id, granted=" ".join(scopes))
-        return page("Approved", f"Go back to {row['name']}; it picks its key up within a few seconds.")
+        self.store.update_device(
+            row["device_hash"], status="approved", account_id=account.id, granted=" ".join(scopes), vault_id=vault.id
+        )
+        return page("Approved", f"Go back to {row['name']}; it picks up its key to {vault.name} within a few seconds.")

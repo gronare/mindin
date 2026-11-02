@@ -19,7 +19,7 @@ The schema in `.vault/schema.yml` describes the folders, the frontmatter and the
 tag vocabulary. It is yours to edit as a file over WebDAV, with the address
 below in any WebDAV client (Finder's Connect to Server, Cyberduck); Obsidian
 hides dot-folders, so it does not show it. An edit that does not hold leaves
-the vault on the layout the file names, and `context`, `lint` and your account
+the vault on the layout the file names, and `context`, `lint` and the vault's
 page say what is wrong until it is fixed.
 
 Start a session with `context` (the working directory and repo name). Before

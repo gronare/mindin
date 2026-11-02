@@ -7,8 +7,8 @@ import httpx2
 import pytest
 from hosted_support import NOTE_BODY, Hosted, call_tool, csrf_of, hosted, post_mcp, text_of
 
-from notes_vault_mcp.auth.hosted_deletion import RECENT_SIGN_IN
-from notes_vault_mcp.auth.hosted_keys import AccountKeys
+from notes_vault_mcp.auth.hosted_keys import VaultKeys
+from notes_vault_mcp.auth.hosted_web import RECENT_SIGN_IN
 from notes_vault_mcp.vault import SubjectVaults
 
 
@@ -35,14 +35,14 @@ async def confirm(http: httpx2.AsyncClient, email: str) -> httpx2.Response:
 async def test_the_account_page_links_to_deletion_and_the_confirmation_says_what_goes(site: Hosted):
     http, _ = await member_with_a_note(site)
     async with http:
-        account = (await http.get("/account")).text
+        account = (await http.get("/account/settings")).text
         page = await http.get("/account/delete")
     assert 'href="/account/delete"' in account
     assert page.status_code == 200
     assert "Type ann@example.com to confirm" in page.text
     assert "files, and the key they are encrypted with" in page.text
     assert "1 keys, every way you sign in, every session and every connected client" in page.text
-    assert 'href="/account/export"' in page.text
+    assert 'href="/account"' in page.text
 
 
 @pytest.mark.anyio
@@ -51,22 +51,23 @@ async def test_typing_the_address_deletes_the_vault_the_key_the_sessions_and_the
 ):
     http, key = await member_with_a_note(site)
     account = site.store.account("ann@example.com")
-    assert (storage / "users" / account.id).is_dir()
+    vault_id = site.vault_of("ann@example.com")
+    assert (storage / "users" / vault_id).is_dir()
     async with http:
         deleted = await confirm(http, " Ann@Example.com ")
         after = await http.get("/account")
         refused = await post_mcp(http, key, {"jsonrpc": "2.0", "id": 1, "method": "ping"})
     assert deleted.status_code == 200, deleted.text
-    assert "ann@example.com and its vault are gone" in deleted.text
+    assert "ann@example.com and its vaults are gone" in deleted.text
     assert after.status_code == 303
     assert refused.status_code == 401
     assert site.store.account(account.id) is None
-    assert not AccountKeys(site.store, site.keyring).has_key(account.id)
-    assert not (storage / "users" / account.id).exists()
+    assert not VaultKeys(site.store, site.keyring).has_key(vault_id)
+    assert not (storage / "users" / vault_id).exists()
     assert not list((tmp_path / "cache").glob("*.sqlite*"))
     assert vaults.open_subjects == []
     with sqlite3.connect(site.store.path) as connection:
-        for table in ("sessions", "tokens", "api_keys", "identities"):
+        for table in ("sessions", "tokens", "api_keys", "identities", "vaults"):
             count = connection.execute(f"SELECT COUNT(*) FROM {table} WHERE account_id = ?", (account.id,))
             assert count.fetchone()[0] == 0, table
 
@@ -80,7 +81,7 @@ async def test_a_wrong_address_deletes_nothing(site: Hosted, storage: Path):
     assert refused.status_code == 400
     assert "not this account" in refused.text
     assert site.store.account(account.id) is not None
-    assert (storage / "users" / account.id).is_dir()
+    assert (storage / "users" / site.vault_of("ann@example.com")).is_dir()
 
 
 @pytest.mark.anyio
@@ -97,7 +98,7 @@ async def test_deletion_needs_a_sign_in_from_the_last_ten_minutes(site: Hosted, 
     assert "Sign in again" in stale.text and "Type ann@example.com" not in stale.text
     assert refused.status_code == 403
     assert site.store.account(account.id) is not None
-    assert (storage / "users" / account.id).is_dir()
+    assert (storage / "users" / site.vault_of("ann@example.com")).is_dir()
     assert again.status_code == 303
     assert again.headers["location"] == "/signin?next=%2Faccount%2Fdelete"
     assert signed_out.status_code == 303

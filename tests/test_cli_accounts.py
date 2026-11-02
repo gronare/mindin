@@ -39,9 +39,9 @@ def test_list_shows_status_keys_and_last_sign_in(store: HostedStore, capsys: pyt
     store.invite("bo@example.com")
     assert main(["accounts", "list"]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert "ann@example.com  active  1 keys" in lines[0]
+    assert "ann@example.com  active  1 vaults  1 keys" in lines[0]
     assert "never signed in" not in lines[0]
-    assert "bo@example.com  invited  0 keys  never signed in" in lines[1]
+    assert "bo@example.com  invited  1 vaults  0 keys  never signed in" in lines[1]
 
 
 def test_suspend_and_activate_by_email_or_id(store: HostedStore, capsys: pytest.CaptureFixture[str]):

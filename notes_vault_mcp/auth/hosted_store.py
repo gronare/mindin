@@ -13,8 +13,22 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from notes_vault_mcp.auth import READ_SCOPE, WRITE_SCOPE, auth_dir
+from notes_vault_mcp.auth.hosted_vaults import (
+    RESERVED_SLUGS,
+    Vault,
+    add_first_vault,
+    clean_name,
+    insert_vault,
+    migrate,
+    new_vault_id,
+    slug_taken,
+    slugify,
+    valid_slug,
+    vault_of,
+)
 from notes_vault_mcp.auth.pages import stamp
 from notes_vault_mcp.config import private_dir
 from notes_vault_mcp.extensions import Extension, installed
@@ -139,10 +153,28 @@ class Account:
 @dataclass(frozen=True)
 class KeyGrant:
     account: Account
+    vault: Vault
     key_id: str
     name: str
     scopes: list[str]
     purpose: str = "api"
+
+
+class VaultNameError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class Connection:
+    client_id: str
+    name: str
+    scopes: str
+    last_used_at: int
+    live: bool
+
+
+def client_label(client_id: str) -> str:
+    return (urlsplit(client_id).hostname or client_id) if "://" in client_id else client_id
 
 
 def account_of(row: sqlite3.Row | None) -> Account | None:
@@ -166,6 +198,8 @@ class HostedStore:
         self.path = private_dir(directory) / "hosted.sqlite"
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+        migrate(self.path)
+        with self.connect() as connection:
             for extension in installed() if extensions is None else extensions:
                 extension.migrate(connection)
 
@@ -202,11 +236,13 @@ class HostedStore:
         if existing is not None:
             return existing, False
         moment = now()
+        account_id = "acc_" + secrets.token_urlsafe(16)
         with self.connect() as connection:
             connection.execute(
                 "INSERT INTO accounts(id, email, status, status_changed_at, created_at) VALUES(?, ?, 'invited', ?, ?)",
-                ("acc_" + secrets.token_urlsafe(16), address, moment, moment),
+                (account_id, address, moment, moment),
             )
+            add_first_vault(connection, account_id, address, moment)
         created = self.account(address)
         assert created is not None
         return created, True
@@ -224,14 +260,89 @@ class HostedStore:
             )
         return self.account(account.id)
 
-    def create_key(self, account_id: str, name: str, scopes: list[str], purpose: str = "api") -> str:
+    def vaults(self, account_id: str) -> list[Vault]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM vaults WHERE account_id = ? ORDER BY created_at, rowid", (account_id,)
+            ).fetchall()
+        return [vault for vault in map(vault_of, rows) if vault is not None]
+
+    def vault(self, vault_id: str) -> Vault | None:
+        with self.connect() as connection:
+            return vault_of(connection.execute("SELECT * FROM vaults WHERE id = ?", (vault_id,)).fetchone())
+
+    def vault_by_slug(self, slug: str) -> Vault | None:
+        with self.connect() as connection:
+            return vault_of(connection.execute("SELECT * FROM vaults WHERE slug = ?", (slug,)).fetchone())
+
+    def own_vault(self, account_id: str, ref: str) -> Vault | None:
+        vault = self.vault_by_slug(ref) or self.vault(ref)
+        return vault if vault is not None and vault.account_id == account_id else None
+
+    def first_vault(self, account_id: str) -> Vault | None:
+        found = self.vaults(account_id)
+        return found[0] if found else None
+
+    def create_vault(self, account_id: str, name: str, slug: str | None = None) -> Vault:
+        cleaned = clean_name(name)
+        address = slug if slug is not None else slugify(cleaned)
+        if not cleaned:
+            raise VaultNameError("Give the vault a name.")
+        self.check_slug(address)
+        vault_id = new_vault_id()
+        with self.connect() as connection:
+            if slug_taken(connection, address):
+                raise VaultNameError(f"The address {address} is taken. Choose another name.")
+            insert_vault(connection, vault_id, account_id, cleaned, address, now())
+        created = self.vault(vault_id)
+        assert created is not None
+        return created
+
+    def check_slug(self, slug: str) -> None:
+        if slug in RESERVED_SLUGS or not valid_slug(slug):
+            raise VaultNameError(
+                f"{slug or 'That name'} cannot be an address: use letters a-z, digits and dashes, up to 40."
+            )
+
+    def rename_vault(self, vault_id: str, name: str | None = None, slug: str | None = None) -> Vault:
+        vault = self.vault(vault_id)
+        if vault is None:
+            raise VaultNameError("There is no such vault.")
+        cleaned = clean_name(name) if name is not None else vault.name
+        if not cleaned:
+            raise VaultNameError("Give the vault a name.")
+        address = slug if slug is not None else vault.slug
+        self.check_slug(address)
+        with self.connect() as connection:
+            if address != vault.slug and slug_taken(connection, address):
+                raise VaultNameError(f"The address {address} is taken.")
+            connection.execute("UPDATE vaults SET name = ?, slug = ? WHERE id = ?", (cleaned, address, vault_id))
+        renamed = self.vault(vault_id)
+        assert renamed is not None
+        return renamed
+
+    def create_key(
+        self, account_id: str, name: str, scopes: list[str], purpose: str = "api", vault_id: str | None = None
+    ) -> str:
+        vault = self.vault(vault_id) if vault_id else self.first_vault(account_id)
+        if vault is None or vault.account_id != account_id:
+            raise ValueError("a key belongs to one of the account's vaults")
         key_id = secrets.token_hex(KEY_ID_LENGTH // 2)
         key = f"{KEY_PREFIX}{key_id}{secrets.token_urlsafe(32)}"
         with self.connect() as connection:
             connection.execute(
-                "INSERT INTO api_keys(id, account_id, name, key_hash, scopes, purpose, created_at)"
-                " VALUES(?, ?, ?, ?, ?, ?, ?)",
-                (key_id, account_id, name.strip()[:64] or "unnamed", digest(key), " ".join(scopes), purpose, now()),
+                "INSERT INTO api_keys(id, account_id, vault_id, name, key_hash, scopes, purpose, created_at)"
+                " VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    key_id,
+                    account_id,
+                    vault.id,
+                    name.strip()[:64] or "unnamed",
+                    digest(key),
+                    " ".join(scopes),
+                    purpose,
+                    now(),
+                ),
             )
         return key
 
@@ -249,35 +360,75 @@ class HostedStore:
             account = account_of(
                 connection.execute("SELECT * FROM accounts WHERE id = ?", (row["account_id"],)).fetchone()
             )
-        if account is None:
+            vault = vault_of(connection.execute("SELECT * FROM vaults WHERE id = ?", (row["vault_id"],)).fetchone())
+        if account is None or vault is None or vault.account_id != account.id:
             return None
         return KeyGrant(
-            account=account, key_id=key_id, name=row["name"], scopes=row["scopes"].split(), purpose=row["purpose"]
+            account=account,
+            vault=vault,
+            key_id=key_id,
+            name=row["name"],
+            scopes=row["scopes"].split(),
+            purpose=row["purpose"],
         )
 
-    def keys(self, account_id: str) -> list[sqlite3.Row]:
+    def keys(self, account_id: str, vault_id: str | None = None) -> list[sqlite3.Row]:
         with self.connect() as connection:
             return connection.execute(
-                "SELECT id, name, scopes, purpose, created_at, last_used_at FROM api_keys"
-                " WHERE account_id = ? AND revoked_at IS NULL ORDER BY created_at, rowid",
-                (account_id,),
+                "SELECT id, vault_id, name, scopes, purpose, created_at, last_used_at FROM api_keys"
+                " WHERE account_id = ? AND (? IS NULL OR vault_id = ?) AND revoked_at IS NULL"
+                " ORDER BY created_at, rowid",
+                (account_id, vault_id, vault_id),
             ).fetchall()
 
-    def revoke_key(self, account_id: str, key_id: str) -> bool:
+    def revoke_key(self, account_id: str, key_id: str, vault_id: str | None = None) -> bool:
         with self.connect() as connection:
             return (
                 connection.execute(
-                    "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND account_id = ? AND revoked_at IS NULL",
-                    (now(), key_id, account_id),
+                    "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND account_id = ? AND (? IS NULL OR vault_id = ?)"
+                    " AND revoked_at IS NULL",
+                    (now(), key_id, account_id, vault_id, vault_id),
                 ).rowcount
                 > 0
             )
 
-    def revoke_purpose(self, account_id: str, purpose: str) -> None:
+    def revoke_purpose(self, vault_id: str, purpose: str) -> None:
         with self.connect() as connection:
             connection.execute(
-                "UPDATE api_keys SET revoked_at = ? WHERE account_id = ? AND purpose = ? AND revoked_at IS NULL",
-                (now(), account_id, purpose),
+                "UPDATE api_keys SET revoked_at = ? WHERE vault_id = ? AND purpose = ? AND revoked_at IS NULL",
+                (now(), vault_id, purpose),
+            )
+
+    def connections(self, vault_id: str) -> list[Connection]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT tokens.client_id, tokens.kind, tokens.scopes, tokens.issued_at, tokens.expires_at,"
+                " clients.client_name FROM tokens LEFT JOIN clients ON clients.client_id = tokens.client_id"
+                " WHERE tokens.vault_id = ? AND tokens.revoked = 0 ORDER BY tokens.issued_at",
+                (vault_id,),
+            ).fetchall()
+        moment = now()
+        found: dict[str, Connection] = {}
+        for row in rows:
+            known = found.get(row["client_id"])
+            live = row["kind"] == "refresh" and row["expires_at"] > moment
+            found[row["client_id"]] = Connection(
+                client_id=row["client_id"],
+                name=row["client_name"] or client_label(row["client_id"]),
+                scopes=row["scopes"] if live or known is None else known.scopes,
+                last_used_at=row["issued_at"],
+                live=live or (known is not None and known.live),
+            )
+        return sorted((item for item in found.values() if item.live), key=lambda item: item.last_used_at, reverse=True)
+
+    def disconnect(self, vault_id: str, client_id: str) -> bool:
+        with self.connect() as connection:
+            return (
+                connection.execute(
+                    "UPDATE tokens SET revoked = 1 WHERE vault_id = ? AND client_id = ? AND revoked = 0",
+                    (vault_id, client_id),
+                ).rowcount
+                > 0
             )
 
     def account_for_sub(self, sub: str) -> Account | None:
@@ -371,14 +522,15 @@ class HostedStore:
         issued_at = now()
         with self.connect() as connection:
             connection.execute(
-                "INSERT INTO tokens(token_hash, kind, grant_id, client_id, account_id, scopes, resource, issued_at,"
-                " expires_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO tokens(token_hash, kind, grant_id, client_id, account_id, vault_id, scopes, resource,"
+                " issued_at, expires_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     digest(token),
                     kind,
                     grant["grant_id"],
                     grant["client_id"],
                     grant["account_id"],
+                    grant["vault_id"],
                     " ".join(grant["scopes"]),
                     grant["resource"],
                     issued_at,
@@ -416,8 +568,8 @@ class HostedStore:
         with self.connect() as connection:
             connection.execute("DELETE FROM devices WHERE expires_at < ?", (record["created_at"] - LOGIN_TTL,))
             connection.execute(
-                "INSERT INTO devices(device_hash, user_code, client_id, client_name, name, scopes, interval,"
-                " created_at, expires_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO devices(device_hash, user_code, client_id, client_name, name, scopes, requested_vault,"
+                " interval, created_at, expires_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     digest(device_code),
                     user_code,
@@ -425,6 +577,7 @@ class HostedStore:
                     record["client_name"],
                     record["name"],
                     " ".join(record["scopes"]),
+                    record.get("vault"),
                     record["interval"],
                     record["created_at"],
                     record["expires_at"],
@@ -459,18 +612,21 @@ class ApiKeyCredentials:
         self.allowed = allowed or (lambda _account, scopes: scopes)
 
     def issue(self, subject: str, label: str = "") -> str:
-        account = self.store.account_for_sub(subject)
-        if account is None or not account.active:
-            raise PermissionError("no active account for this subject")
-        self.store.revoke_purpose(account.id, "webdav")
-        return self.store.create_key(account.id, WEBDAV_KEY_NAME, [READ_SCOPE, WRITE_SCOPE], purpose="webdav")
+        vault = self.store.vault(subject)
+        account = self.store.account_by_id(vault.account_id) if vault else None
+        if vault is None or account is None or not account.active:
+            raise PermissionError("no active account for this vault")
+        self.store.revoke_purpose(vault.id, "webdav")
+        return self.store.create_key(
+            account.id, WEBDAV_KEY_NAME, [READ_SCOPE, WRITE_SCOPE], purpose="webdav", vault_id=vault.id
+        )
 
     def lookup(self, secret: str) -> tuple[str, bool] | None:
         grant = self.store.key_grant(secret)
         if grant is None or not grant.account.active or not grant.account.sub:
             return None
         scopes = self.allowed(grant.account, grant.scopes)
-        return (grant.account.sub, WRITE_SCOPE in scopes) if scopes else None
+        return (grant.vault.id, WRITE_SCOPE in scopes) if scopes else None
 
 
 def command_accounts(args: argparse.Namespace) -> int:
@@ -482,8 +638,9 @@ def command_accounts(args: argparse.Namespace) -> int:
             print("notes-vault-mcp: no accounts yet; `notes-vault-mcp accounts invite <email>` adds one")
         for account in accounts:
             keys = len(store.keys(account.id))
+            vaults = len(store.vaults(account.id))
             signed_in = stamp(account.last_login_at) if account.last_login_at else "never signed in"
-            print(f"{account.id}  {account.email}  {account.status}  {keys} keys  {signed_in}")
+            print(f"{account.id}  {account.email}  {account.status}  {vaults} vaults  {keys} keys  {signed_in}")
         return 0
     if action == "invite":
         try:
@@ -494,10 +651,49 @@ def command_accounts(args: argparse.Namespace) -> int:
         verb = "invited" if created else "already has an account,"
         print(f"notes-vault-mcp: {account.email} {verb} status {account.status}")
         return 0
+    if action in ("vaults", "add-vault", "rename-vault"):
+        return command_vaults(store, args)
     status: AccountStatus = "suspended" if action == "suspend" else "active"
     account = store.set_status(args.account, status)
     if account is None:
         print(f"notes-vault-mcp: no account {args.account!r}", file=sys.stderr)
         return 1
     print(f"notes-vault-mcp: {account.email} is {account.status}")
+    return 0
+
+
+def command_vaults(store: HostedStore, args: argparse.Namespace) -> int:
+    from notes_vault_mcp.auth.hosted_keys import sealed_vaults_from_env
+
+    account = store.account(args.account)
+    if account is None:
+        print(f"notes-vault-mcp: no account {args.account!r}", file=sys.stderr)
+        return 1
+    action = args.accounts_command
+    try:
+        if action == "add-vault":
+            vault = store.create_vault(account.id, args.name, args.slug)
+            if args.preset:
+                from notes_vault_mcp import provision
+
+                backend, _ = sealed_vaults_from_env(store).for_vault(vault.id)
+                provision.initialize(backend, preset=args.preset)
+            print(f"notes-vault-mcp: {account.email} has the vault {vault.name} at /v/{vault.slug}/mcp")
+            return 0
+        if action == "rename-vault":
+            vault = store.own_vault(account.id, args.vault)
+            if vault is None:
+                print(f"notes-vault-mcp: {account.email} has no vault {args.vault!r}", file=sys.stderr)
+                return 1
+            renamed = store.rename_vault(vault.id, args.name, args.slug)
+            print(f"notes-vault-mcp: {renamed.name} is at /v/{renamed.slug}/mcp")
+            return 0
+    except VaultNameError as exc:
+        print(f"notes-vault-mcp: {exc}", file=sys.stderr)
+        return 2
+    sealed = sealed_vaults_from_env(store)
+    for vault in store.vaults(account.id):
+        facts = sealed.facts(vault.id)
+        keys = len(store.keys(account.id, vault.id))
+        print(f"{vault.slug}  {vault.name}  {vault.id}  {facts.notes} notes  {facts.files} files  {keys} keys")
     return 0

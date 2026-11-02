@@ -35,6 +35,7 @@ class Ledger(Extension):
 
         server.routes.append(Route(server.config.path_prefix + "/ledger/count", endpoint=count, methods=["GET"]))
         server.account_sections.append(lambda account, csrf: f"<h2>Ledger</h2><p>{account.email}</p>")
+        server.vault_sections.append(lambda account, vault, csrf: f"<h2>Ledger</h2><p>{vault.slug}</p>")
 
     def access(self, account: Account) -> Access:
         return self.granted.get(account.email, "full")
@@ -56,13 +57,16 @@ async def site(vaults: SubjectVaults, tmp_path: Path):
 
 
 @pytest.mark.anyio
-async def test_an_extension_adds_a_route_and_an_account_section(site: Hosted):
+async def test_an_extension_adds_a_route_and_sections_on_the_account_and_vault_pages(site: Hosted):
     http = await site.member("ann@example.com")
+    slug = site.store.vaults(site.store.account("ann@example.com").id)[0].slug
     async with http:
         counted = await http.get("/ledger/count")
-        page = await http.get("/account")
+        page = await http.get("/account/settings")
+        vault_page = await http.get(f"/account/vaults/{slug}")
     assert (counted.status_code, counted.text) == (200, "1")
     assert "<h2>Ledger</h2><p>ann@example.com</p>" in page.text
+    assert f"<h2>Ledger</h2><p>{slug}</p>" in vault_page.text
 
 
 @pytest.mark.anyio
@@ -76,7 +80,7 @@ async def test_an_extensions_access_narrows_every_request(site: Hosted):
         refused_write = await call_tool(http, key, "write_file", {"path": "Areas/b.md", "content": NOTE_BODY})
         site.ledger.granted["ann@example.com"] = "none"
         refused = await post_mcp(http, key, {"jsonrpc": "2.0", "id": 1, "method": "ping"})
-        page = await http.get("/account")
+        page = await http.get("/account/settings")
     assert not written.get("isError"), text_of(written)
     assert "Hemligt" in text_of(read)
     assert refused_write.get("isError") and "may only read" in text_of(refused_write)

@@ -194,6 +194,14 @@ class Hosted:
         assert account is not None and account.sub
         return account.sub
 
+    def vault_of(self, email: str, slug: str | None = None) -> str:
+        account = self.store.account(email)
+        assert account is not None
+        vaults = self.store.vaults(account.id)
+        found = [vault for vault in vaults if slug is None or vault.slug == slug]
+        assert found, f"{email} has no vault {slug}"
+        return found[0].id
+
     def invite(self, email: str) -> None:
         self.store.invite(email)
 
@@ -204,11 +212,11 @@ class Hosted:
         assert signed_in.status_code == 303, signed_in.text
         return http
 
-    def key_for(self, email: str, write: bool = True, name: str = "laptop") -> str:
+    def key_for(self, email: str, write: bool = True, name: str = "laptop", vault: str | None = None) -> str:
         account = self.store.account(email)
         assert account is not None
         scopes = ["vault:read", "vault:write"] if write else ["vault:read"]
-        return self.store.create_key(account.id, name, scopes)
+        return self.store.create_key(account.id, name, scopes, vault_id=self.vault_of(email, vault))
 
 
 @asynccontextmanager
@@ -248,6 +256,21 @@ def key_for_subject(auth_dir: Path, email: str, sub: str, write: bool = True) ->
     return store.create_key(account.id, "dav", ["vault:read", "vault:write"] if write else ["vault:read"])
 
 
+def first_vault_id(auth_dir: Path, email: str) -> str:
+    store = HostedStore(auth_dir)
+    account = store.account(email)
+    assert account is not None
+    vault = store.first_vault(account.id)
+    assert vault is not None
+    return vault.id
+
+
+def vault_choice_of(page: str) -> str:
+    marker = 'name="vault" value="'
+    start = page.index(marker) + len(marker)
+    return page[start : page.index('"', start)]
+
+
 def csrf_of(page: str) -> str:
     marker = 'name="csrf" value="'
     start = page.index(marker) + len(marker)
@@ -255,12 +278,12 @@ def csrf_of(page: str) -> str:
 
 
 async def post_mcp(
-    http: httpx2.AsyncClient, token: str, body: dict[str, Any], session: str | None = None
+    http: httpx2.AsyncClient, token: str, body: dict[str, Any], session: str | None = None, path: str = "/mcp"
 ) -> httpx2.Response:
     headers = dict(MCP_HEADERS, Authorization=f"Bearer {token}")
     if session is not None:
         headers["mcp-session-id"] = session
-    return await http.post("/mcp", headers=headers, content=json.dumps(body))
+    return await http.post(path, headers=headers, content=json.dumps(body))
 
 
 def sse_payload(text: str) -> dict[str, Any]:
@@ -270,19 +293,21 @@ def sse_payload(text: str) -> dict[str, Any]:
     return json.loads(text)
 
 
-async def open_session(http: httpx2.AsyncClient, token: str) -> str:
-    response = await post_mcp(http, token, INITIALIZE)
+async def open_session(http: httpx2.AsyncClient, token: str, path: str = "/mcp") -> str:
+    response = await post_mcp(http, token, INITIALIZE, path=path)
     assert response.status_code == 200, response.text
     session = response.headers["mcp-session-id"]
-    ready = await post_mcp(http, token, {"jsonrpc": "2.0", "method": "notifications/initialized"}, session)
+    ready = await post_mcp(http, token, {"jsonrpc": "2.0", "method": "notifications/initialized"}, session, path)
     assert ready.status_code == 202, ready.text
     return session
 
 
-async def call_tool(http: httpx2.AsyncClient, token: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    session = await open_session(http, token)
+async def call_tool(
+    http: httpx2.AsyncClient, token: str, name: str, arguments: dict[str, Any], path: str = "/mcp"
+) -> dict[str, Any]:
+    session = await open_session(http, token, path)
     body = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
-    response = await post_mcp(http, token, body, session)
+    response = await post_mcp(http, token, body, session, path)
     assert response.status_code == 200, response.text
     return sse_payload(response.text)["result"]
 

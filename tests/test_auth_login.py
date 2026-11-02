@@ -45,7 +45,7 @@ async def github_sign_in(
 
 
 async def add_passkey(http: httpx2.AsyncClient, authenticator: Authenticator, name: str = "laptop") -> httpx2.Response:
-    page = await http.get("/account")
+    page = await http.get("/account/settings")
     csrf = csrf_of(page.text)
     begun = await http.post("/account/passkeys/options", json={"csrf": csrf})
     assert begun.status_code == 200, begun.text
@@ -106,7 +106,7 @@ async def test_an_email_link_signs_an_invited_address_in_over_starttls(site: Hos
     site.invite("ann@example.com")
     async with site.browser() as http:
         landed = await email_sign_in(site, http, "Ann@Example.com")
-        page = await http.get("/account")
+        page = await http.get("/account/settings")
     assert landed.status_code == 303 and landed.headers["location"] == "/account"
     assert page.status_code == 200 and "ann@example.com" in page.text
     assert site.smtp.connections == [("smtp.example.test", 587)]
@@ -186,7 +186,7 @@ async def test_github_signs_in_by_a_verified_email_and_keys_the_identity_by_nume
     site.invite("ann@example.com")
     async with site.browser() as http:
         landed = await github_sign_in(site, http, 4242, "ann-codes", [("ann@example.com", True, True)])
-        page = await http.get("/account")
+        page = await http.get("/account/settings")
     assert landed.status_code == 303, landed.text
     assert page.status_code == 200
     account = site.store.account("ann@example.com")
@@ -246,7 +246,7 @@ async def test_open_registration_makes_an_account_for_a_verified_email(vaults: S
 async def test_a_verified_email_joins_a_new_identity_to_the_existing_account(site: Hosted):
     http = await site.member("ann@example.com", sub="oidc-ann")
     async with http:
-        await http.post("/logout", data={"csrf": csrf_of((await http.get("/account")).text)})
+        await http.post("/logout", data={"csrf": csrf_of((await http.get("/account/settings")).text)})
     async with site.browser() as http:
         landed = await github_sign_in(
             site, http, 99, "ann", [("other@example.com", True, True), ("ann@example.com", True, False)]
@@ -261,12 +261,12 @@ async def test_a_verified_email_joins_a_new_identity_to_the_existing_account(sit
 async def test_a_signed_in_account_links_github_with_another_email(site: Hosted):
     http = await site.member("ann@example.com")
     async with http:
-        page = await http.get("/account")
+        page = await http.get("/account/settings")
         started = await http.post("/signin/github", data={"csrf": csrf_of(page.text)})
         state, code = site.github.approve(started.headers["location"], 5, "ann", [("ann@work.example", True, True)])
         linked = await http.get("/signin/github/callback", params={"state": state, "code": code})
         forged = await http.post("/signin/github", data={"csrf": "wrong"})
-    assert linked.status_code == 303 and linked.headers["location"] == "/account"
+    assert linked.status_code == 303 and linked.headers["location"] == "/account/settings"
     assert ("github", "ann") in ways(site, "ann@example.com")
     assert forged.status_code == 403
 
@@ -278,7 +278,7 @@ async def test_linking_an_identity_that_opens_another_account_is_refused(site: H
         await github_sign_in(site, bo, 5, "bo", [("bo@example.com", True, True)])
     ann = await site.member("ann@example.com")
     async with ann:
-        page = await ann.get("/account")
+        page = await ann.get("/account/settings")
         started = await ann.post("/signin/github", data={"csrf": csrf_of(page.text)})
         state, code = site.github.approve(started.headers["location"], 5, "bo", [("bo@example.com", True, True)])
         refused = await ann.get("/signin/github/callback", params={"state": state, "code": code})
@@ -290,13 +290,13 @@ async def test_linking_an_identity_that_opens_another_account_is_refused(site: H
 async def test_the_last_way_in_cannot_be_removed(site: Hosted):
     http = await site.member("ann@example.com", sub="oidc-ann")
     async with http:
-        page = await http.get("/account")
+        page = await http.get("/account/settings")
         assert "Ways in" in page.text and ">Remove</button>" not in page.text.split("Ways in")[1].split("<h2>")[0]
         last = await http.post(
             "/account/identities/remove", data={"csrf": csrf_of(page.text), "method": "oidc", "subject": "oidc-ann"}
         )
         await github_sign_in(site, http, 5, "ann", [("ann@example.com", True, True)])
-        page = await http.get("/account")
+        page = await http.get("/account/settings")
         removed = await http.post(
             "/account/identities/remove", data={"csrf": csrf_of(page.text), "method": "oidc", "subject": "oidc-ann"}
         )
@@ -318,13 +318,13 @@ async def test_a_passkey_added_on_the_account_page_signs_in_on_its_own(site: Hos
     http = await site.member("ann@example.com")
     async with http:
         added = await add_passkey(http, authenticator)
-        page = await http.get("/account")
+        page = await http.get("/account/settings")
     assert added.status_code == 200, added.text
-    assert added.json()["redirect"] == "/account"
+    assert added.json()["redirect"] == "/account/settings"
     assert "Passkey" in page.text and "laptop" in page.text
     async with site.browser() as fresh:
         signed_in = await passkey_sign_in(fresh, authenticator)
-        account_page = await fresh.get("/account")
+        account_page = await fresh.get("/account/settings")
         again = await passkey_sign_in(fresh, authenticator)
     assert signed_in.status_code == 200, signed_in.text
     assert signed_in.json()["redirect"] == "/account"
@@ -340,7 +340,7 @@ async def test_a_passkey_asserted_for_another_origin_is_refused(site: Hosted):
         await add_passkey(http, authenticator)
     async with site.browser() as fresh:
         refused = await passkey_sign_in(fresh, authenticator, origin="https://evil.example")
-        page = await fresh.get("/account")
+        page = await fresh.get("/account/settings")
     assert refused.status_code == 403, WEBAUTHN
     assert page.status_code == 303
 
@@ -373,7 +373,7 @@ async def test_adding_a_passkey_needs_the_session_and_its_csrf(site: Hosted):
         forged = await http.post("/account/passkeys/options", json={"csrf": "wrong"})
         anonymous = await stranger.post("/account/passkeys/options", json={"csrf": "x"})
         as_form = await http.post(
-            "/account/passkeys/options", data={"csrf": csrf_of((await http.get("/account")).text)}
+            "/account/passkeys/options", data={"csrf": csrf_of((await http.get("/account/settings")).text)}
         )
         added = await add_passkey(http, authenticator)
         duplicate = await add_passkey(http, authenticator)
@@ -389,7 +389,7 @@ async def test_removing_a_passkey_leaves_the_other_way_in(site: Hosted):
     http = await site.member("ann@example.com")
     async with http:
         await add_passkey(http, authenticator)
-        page = await http.get("/account")
+        page = await http.get("/account/settings")
         passkey_id = next(
             way.subject
             for way in site.identities.ways_in(site.store.account("ann@example.com").id)
@@ -420,7 +420,7 @@ async def test_a_forwarded_identity_reaches_the_vault_through_a_configured_proxy
         headers = {"X-Forwarded-Identity": proxy.token("1042")}
         mcp = await http.post("/mcp", headers={**headers, **mcp_headers()}, content=json.dumps(INITIALIZE))
         page = await http.get("/signin", params={"next": "/account"}, headers=headers)
-        account_page = await http.get("/account")
+        account_page = await http.get("/account/settings")
     assert mcp.status_code == 200, mcp.text
     assert page.status_code == 303 and page.headers["location"] == "/account"
     assert account_page.status_code == 200 and "user1042@example.com" in account_page.text

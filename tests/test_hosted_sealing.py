@@ -17,7 +17,7 @@ from moto import mock_aws
 
 from notes_vault_mcp.auth.hosted import build_hosted_app
 from notes_vault_mcp.auth.hosted_access import SupportAccess
-from notes_vault_mcp.auth.hosted_keys import AccountKeys, Keyring, MasterKey, SealedVaults
+from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
 from notes_vault_mcp.auth.hosted_store import HostedStore
 from notes_vault_mcp.auth.hosted_transfer import export_zip
 from notes_vault_mcp.backends import VaultError
@@ -131,7 +131,7 @@ async def test_writes_through_mcp_and_webdav_leave_no_plaintext_in_storage(
 @pytest.mark.anyio
 async def test_a_hosted_vault_is_always_sealed_and_cannot_be_switched_to_plain(site: Hosted, vaults: SubjectVaults):
     await site.member("ann@example.com", sub="sub-ann")
-    assert isinstance(vaults.for_subject(site.sub_of("ann@example.com")).backend, SealedBackend)
+    assert isinstance(vaults.for_subject(site.vault_of("ann@example.com")).backend, SealedBackend)
     with pytest.raises(VaultError):
         vaults.use_backends(vaults.plain_backend)
 
@@ -158,12 +158,12 @@ async def test_the_account_downloads_its_whole_vault_as_a_zip(site: Hosted, vaul
     key = site.key_for("ann@example.com")
     async with http:
         await http.put("/dav/vault/Bilagor/bild.png", content=bytes(range(256)), headers=basic(key))
-        response = await http.get("/account/export")
+        response = await http.get("/account/vaults/ann/export")
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/zip"
     assert "attachment" in response.headers["content-disposition"]
     exported = unzip(response.content)
-    assert exported == files_of(vaults.for_subject(site.sub_of("ann@example.com")).backend)
+    assert exported == files_of(vaults.for_subject(site.vault_of("ann@example.com")).backend)
     assert exported["Bilagor/bild.png"] == bytes(range(256))
     assert {".vault/schema.yml", "Welcome.md"} <= exported.keys()
 
@@ -171,7 +171,7 @@ async def test_the_account_downloads_its_whole_vault_as_a_zip(site: Hosted, vaul
 @pytest.mark.anyio
 async def test_export_needs_a_session(site: Hosted):
     async with site.browser() as http:
-        response = await http.get("/account/export")
+        response = await http.get("/account/vaults/ann/export")
     assert response.status_code == 303
     assert response.headers["location"].startswith("/signin")
 
@@ -185,9 +185,9 @@ def zipped(files: dict[str, bytes]) -> bytes:
 
 
 async def upload(http: httpx2.AsyncClient, archive: bytes) -> httpx2.Response:
-    csrf = csrf_of((await http.get("/account")).text)
+    csrf = csrf_of((await http.get("/account/vaults/ann")).text)
     return await http.post(
-        "/account/import", data={"csrf": csrf}, files={"archive": ("vault.zip", archive, "application/zip")}
+        "/account/vaults/ann/import", data={"csrf": csrf}, files={"archive": ("vault.zip", archive, "application/zip")}
     )
 
 
@@ -205,7 +205,7 @@ async def test_a_zip_upload_imports_files_and_a_second_upload_changes_nothing(
     assert "3 files written" in first.text
     assert "0 files written, 3 unchanged" in second.text
     assert folder_files(storage) == raw
-    held = files_of(vaults.for_subject(site.sub_of("ann@example.com")).backend)
+    held = files_of(vaults.for_subject(site.vault_of("ann@example.com")).backend)
     assert all(held[name] == data for name, data in files.items())
 
 
@@ -213,12 +213,12 @@ async def test_a_zip_upload_imports_files_and_a_second_upload_changes_nothing(
 async def test_a_zip_with_a_climbing_path_is_refused_whole(site: Hosted, vaults: SubjectVaults):
     http = await site.member("ann@example.com", sub="sub-ann")
     async with http:
-        before = files_of(vaults.for_subject(site.sub_of("ann@example.com")).backend)
+        before = files_of(vaults.for_subject(site.vault_of("ann@example.com")).backend)
         refused = await upload(http, zipped({"Areas/fine.md": b"fine", "../evil.md": b"evil"}))
         garbage = await upload(http, b"not a zip")
     assert refused.status_code == 400
     assert garbage.status_code == 400
-    assert files_of(vaults.for_subject(site.sub_of("ann@example.com")).backend) == before
+    assert files_of(vaults.for_subject(site.vault_of("ann@example.com")).backend) == before
 
 
 @pytest.mark.anyio
@@ -226,13 +226,15 @@ async def test_the_upload_needs_the_pages_csrf_token(site: Hosted):
     http = await site.member("ann@example.com", sub="sub-ann")
     async with http:
         response = await http.post(
-            "/account/import", data={"csrf": "wrong"}, files={"archive": ("v.zip", zipped({}), "application/zip")}
+            "/account/vaults/ann/import",
+            data={"csrf": "wrong"},
+            files={"archive": ("v.zip", zipped({}), "application/zip")},
         )
     assert response.status_code == 403
 
 
 async def post_account(http: httpx2.AsyncClient, path: str, **fields: str) -> httpx2.Response:
-    csrf = csrf_of((await http.get("/account")).text)
+    csrf = csrf_of((await http.get("/account/settings")).text)
     return await http.post(path, data={"csrf": csrf, **fields})
 
 
@@ -248,16 +250,16 @@ async def test_support_opens_a_vault_only_under_a_live_grant_and_every_access_is
         assert not written.get("isError")
         assert main(["support", "files", "ann@example.com", *support]) == 1
         assert "refused" in capsys.readouterr().err
-        assert "Nobody from support has opened your vault" in (await http.get("/account")).text
-        assert (await post_account(http, "/account/support", duration="day")).status_code == 303
+        assert "Nobody from support has opened your vaults" in (await http.get("/account/settings")).text
+        assert (await post_account(http, "/account/support", vault="ann", duration="day")).status_code == 303
         assert main(["support", "files", "ann@example.com", *support]) == 0
         assert "Areas/secret.md" in capsys.readouterr().out.splitlines()
         assert main(["support", "read", "ann@example.com", "Areas/secret.md", *support]) == 0
         assert "Hemligt" in capsys.readouterr().out
-        page = (await http.get("/account")).text
-        assert (await post_account(http, "/account/support/end")).status_code == 303
+        page = (await http.get("/account/settings")).text
+        assert (await post_account(http, "/account/support/end", vault="ann")).status_code == 303
         assert main(["support", "read", "ann@example.com", "Areas/secret.md", *support]) == 1
-    assert "Support can open your vault until" in page
+    assert "Personal: open to support until" in page
     assert page.count("ticket 4711") == 2
     assert "read Areas/secret.md" in page and "list files" in page and "carl" in page
     account = site.store.account("ann@example.com")
@@ -268,14 +270,15 @@ async def test_support_opens_a_vault_only_under_a_live_grant_and_every_access_is
 async def test_a_grant_expires_and_a_reason_is_required(site: Hosted):
     await site.member("ann@example.com", sub="sub-ann")
     account = site.store.account("ann@example.com")
+    vault = site.store.vault(site.vault_of("ann@example.com"))
     access = SupportAccess(site.store, clock=lambda: site.clock.now)
-    access.grant(account.id, 3600)
+    access.grant(vault, 3600)
     with pytest.raises(PermissionError):
-        access.admit(account.id, "carl", "  ", "list files")
-    access.admit(account.id, "carl", "ticket", "list files")
+        access.admit(vault, "carl", "  ", "list files")
+    access.admit(vault, "carl", "ticket", "list files")
     site.clock.advance(3601)
     with pytest.raises(PermissionError):
-        access.admit(account.id, "carl", "ticket", "list files")
+        access.admit(vault, "carl", "ticket", "list files")
     assert len(access.log(account.id)) == 1
 
 
@@ -288,23 +291,24 @@ async def test_a_deleted_accounts_notes_are_unreadable_even_with_the_master_key(
     async with http:
         await call_tool(http, key, "write_file", {"path": "Areas/secret.md", "content": NOTE_BODY})
     account = site.store.account("ann@example.com")
+    vault_id = site.vault_of("ann@example.com")
     vaults.close()
     snapshot = tmp_path / "snapshot"
     shutil.copytree(storage, snapshot)
     assert main(["accounts", "delete", "ann@example.com"]) == 2
     assert main(["accounts", "delete", "ann@example.com", "--yes"]) == 0
     assert "deleted ann@example.com" in capsys.readouterr().out
-    assert not (storage / "users" / account.id).exists()
+    assert not (storage / "users" / vault_id).exists()
     assert not list((tmp_path / "cache").glob("*.sqlite*"))
     assert site.store.account(account.id) is None
     with sqlite3.connect(site.store.path) as connection:
-        assert connection.execute("SELECT COUNT(*) FROM vault_keys").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM vault_data_keys").fetchone()[0] == 0
     shutil.copytree(snapshot, storage, dirs_exist_ok=True)
-    keys = AccountKeys(site.store, site.keyring)
-    assert not keys.has_key(account.id)
-    revived = SealedBackend(LocalBackend(storage / "users" / account.id), os.urandom(32))
+    keys = VaultKeys(site.store, site.keyring)
+    assert not keys.has_key(vault_id)
+    revived = SealedBackend(LocalBackend(storage / "users" / vault_id), os.urandom(32))
     assert revived.list_all() == []
-    blobs = folder_files(storage / "users" / account.id).values()
+    blobs = folder_files(storage / "users" / vault_id).values()
     assert blobs
     for blob in blobs:
         with pytest.raises(Unreadable):
@@ -325,14 +329,14 @@ async def test_rotating_the_master_key_keeps_every_vault_readable(
     monkeypatch.setenv("VAULT_HOSTED_MASTER_KEY", new.encoded())
     monkeypatch.setenv("VAULT_HOSTED_MASTER_KEY_PREVIOUS", old.encoded())
     assert main(["master-key", "rewrap"]) == 0
-    assert "rewrapped 2 account keys" in capsys.readouterr().out
+    assert "rewrapped 2 vault keys" in capsys.readouterr().out
     monkeypatch.delenv("VAULT_HOSTED_MASTER_KEY_PREVIOUS")
     assert main(["master-key", "status"]) == 0
-    assert f"{new.key_id}  2 account keys  current" in capsys.readouterr().out
+    assert f"{new.key_id}  2 vault keys  current" in capsys.readouterr().out
     store = HostedStore(site.config.auth_dir)
-    rotated = SealedVaults(store, AccountKeys(store, Keyring(new)))
+    rotated = SealedVaults(store, VaultKeys(store, Keyring(new)))
     for name in ("ann", "bo"):
-        backend, _ = rotated.for_account(store.account(f"{name}@example.com").id)
+        backend, _ = rotated.for_vault(site.vault_of(f"{name}@example.com"))
         assert "Hemligt" in backend.get(f"Areas/{name}.md")[0]
     with pytest.raises(ConfigError, match=new.key_id):
         build_hosted_app(SubjectVaults(cache=tmp_path / "other"), site.config, keyring=Keyring(old))
@@ -348,7 +352,12 @@ def account_env(storage: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
 
 def sealed_target(store: HostedStore, account_id: str) -> SealedBackend:
-    return SealedVaults(store, AccountKeys(store, Keyring.from_env())).for_account(account_id)[0]
+    vault = store.first_vault(account_id)
+    return SealedVaults(store, VaultKeys(store, Keyring.from_env())).for_vault(vault.id)[0]
+
+
+def grant_first_vault(store: HostedStore, account_id: str) -> None:
+    SupportAccess(store).grant(store.first_vault(account_id), 3600)
 
 
 IMPORT = ["accounts", "import", "ann@example.com", "--operator", "carl", "--reason", "moving my vault in"]
@@ -358,7 +367,7 @@ def test_importing_a_folder_seals_every_file_and_the_export_matches_byte_for_byt
     account_env: tuple[HostedStore, str], vault_dir: Path, storage: Path, capsys: pytest.CaptureFixture[str]
 ):
     store, account_id = account_env
-    SupportAccess(store).grant(account_id, 3600)
+    grant_first_vault(store, account_id)
     source = folder_files(vault_dir)
     assert main([*IMPORT, "--from-path", str(vault_dir)]) == 0
     assert capsys.readouterr().out.strip().endswith(f"{len(source)} files written, 0 unchanged, 0 folders made")
@@ -376,7 +385,7 @@ def test_importing_from_a_bucket_preserves_paths_and_bytes(
     account_env: tuple[HostedStore, str], vault_dir: Path, monkeypatch: pytest.MonkeyPatch
 ):
     store, account_id = account_env
-    SupportAccess(store).grant(account_id, 3600)
+    grant_first_vault(store, account_id)
     source = folder_files(vault_dir)
     monkeypatch.setenv("IMPORT_S3_ACCESS_KEY", "k")
     monkeypatch.setenv("IMPORT_S3_SECRET_KEY", "s")
@@ -407,11 +416,12 @@ async def test_the_data_key_is_shredded_before_any_object_is_deleted(
     from notes_vault_mcp.auth.hosted_keys import delete_account
 
     await site.member("ann@example.com", sub="sub-ann")
-    vaults.for_subject(site.sub_of("ann@example.com"))
+    vaults.for_subject(site.vault_of("ann@example.com"))
     vaults.close()
     account = site.store.account("ann@example.com")
-    keys = AccountKeys(site.store, site.keyring)
-    assert keys.has_key(account.id)
+    vault_id = site.vault_of("ann@example.com")
+    keys = VaultKeys(site.store, site.keyring)
+    assert keys.has_key(vault_id)
 
     def broken(self, key: str) -> None:
         raise OSError("storage is down")
@@ -419,4 +429,4 @@ async def test_the_data_key_is_shredded_before_any_object_is_deleted(
     monkeypatch.setattr(LocalBackend, "delete", broken)
     with pytest.raises(OSError):
         delete_account(SealedVaults(site.store, keys), account, site.config.auth_dir)
-    assert not keys.has_key(account.id)
+    assert not keys.has_key(vault_id)

@@ -350,7 +350,15 @@ def build_server(
         token = get_access_token()
         if token is None:
             return json.dumps({"email": None, "write": True})
-        return json.dumps({"email": (token.claims or {}).get("email"), "write": WRITE_SCOPE in token.scopes})
+        claims = token.claims or {}
+        return json.dumps(
+            {
+                "email": claims.get("email"),
+                "vault": claims.get("vault"),
+                "vault_name": claims.get("vault_name"),
+                "write": WRITE_SCOPE in token.scopes,
+            }
+        )
 
     @server.tool(
         name="lint",

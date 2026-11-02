@@ -8,6 +8,10 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 - The stop hook asks the agent to save the decisions and ideas in your messages once you have written three since its last vault write, also outside a git repo; `VAULT_STOP_HOOK_PROMPTS` sets the number or turns the check `off`.
 - `VAULT_STOP_HOOK_COMMITS=off` turns off the stop hook's unlogged-commit and stale-note checks and keeps the message check, for sessions whose log another tool writes.
 - A vault server loads the extensions installed beside it, from the Python entry point group `notes_vault_mcp.extensions`.
+- An account on a vault server owns several vaults, each with its own name, address (`/v/<slug>/mcp`), keys, connections, layout and encryption key; a key, connector or signed-in computer reaches only the vault it was made for. An existing account's vault becomes its first vault, in place, on the first start.
+- `/account` lists your vaults and makes new ones; each vault has its own page to connect, see and revoke what reaches it, export, import and delete it. Who you are, ways in, support access and account deletion move to Account. A vault's layout is picked when it is made and switched on its own page.
+- `login --vault <slug>` signs a machine in to one vault, and `vault use <slug> [--dir <folder>]` picks the vault for this machine or for a folder and everything below it; the hooks and the stdio server follow the folder they run in.
+- Support access is granted per vault, and `support` and `accounts import` take `--vault` when the account has several. `accounts vaults`, `add-vault` and `rename-vault` manage an account's vaults from the shell.
 
 ### Fixed
 

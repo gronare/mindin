@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx2
 import pytest
-from hosted_support import BASE, IDP, Hosted, call_tool, csrf_of, hosted, query, text_of
+from hosted_support import BASE, IDP, Hosted, call_tool, csrf_of, hosted, query, text_of, vault_choice_of
 
 from notes_vault_mcp.auth.device import DEVICE_GRANT, USER_CODE_ALPHABET
 from notes_vault_mcp.vault import SubjectVaults
@@ -32,10 +32,13 @@ async def poll(site: Hosted, http: httpx2.AsyncClient, device: dict[str, Any], w
     return await http.post("/token", data={"grant_type": DEVICE_GRANT, "device_code": device["device_code"]})
 
 
-async def decide(http: httpx2.AsyncClient, user_code: str, action: str = "approve", access: str = "write"):
+async def decide(
+    http: httpx2.AsyncClient, user_code: str, action: str = "approve", access: str = "write", vault: str = ""
+):
     page = await http.get("/device", params={"user_code": user_code})
     assert page.status_code == 200, page.text
-    form = {"csrf": csrf_of(page.text), "user_code": user_code, "action": action, "access": access}
+    chosen = vault or vault_choice_of(page.text)
+    form = {"csrf": csrf_of(page.text), "user_code": user_code, "action": action, "access": access, "vault": chosen}
     return page, await http.post("/device", data=form)
 
 

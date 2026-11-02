@@ -149,7 +149,7 @@ def test_login_stores_the_key_with_mode_600(tmp_path: Path, capsys):
     path = tmp_path / "config" / "notes-vault-mcp" / "credentials.json"
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
-    stored = json.loads(path.read_text(encoding="utf-8"))["servers"]["https://vault.example.test"]
+    stored = json.loads(path.read_text(encoding="utf-8"))["servers"]["https://vault.example.test"]["vaults"][""]
     assert stored["key"] == FAKE_KEY and stored["name"] == "devbox"
     assert server.started == {"client_id": "cli", "scope": "vault:read vault:write", "name": "devbox"}
     assert server.polls[0]["grant_type"] == "urn:ietf:params:oauth:grant-type:device_code"
@@ -176,20 +176,25 @@ def test_login_through_the_hosted_device_grant(served: Served):
         with served.store.connect() as connection:
             row = connection.execute("SELECT device_hash FROM devices").fetchone()
         served.store.update_device(
-            row["device_hash"], status="approved", account_id=served.account_id(), granted="vault:read vault:write"
+            row["device_hash"],
+            status="approved",
+            account_id=served.account_id(),
+            granted="vault:read vault:write",
+            vault_id=served.vault_id(),
         )
 
     entry = login.login(served.url, name="devbox", out=io.StringIO(), sleep=approve, open_browser=False)
-    assert entry["key"].startswith("nvm_")
+    assert entry["key"].startswith("nvm_") and entry["vault"] == "ann"
     assert credentials.stored(served.url)["key"] == entry["key"]
+    assert credentials.server_state(served.url)["default"] == "ann"
     assert [row["name"] for row in served.store.keys(served.account_id())] == ["devbox"]
 
 
 def test_whoami_and_logout(remote: Served, capsys):
     found = run_json(capsys, "whoami")
-    assert found == {"server": remote.url, "email": EMAIL, "key": "laptop", "write": True}
+    assert found == {"server": remote.url, "email": EMAIL, "vault": "ann", "key": "laptop", "write": True}
     assert main(["logout"]) == 0
-    assert "Forgot the key" in capsys.readouterr().out
+    assert "Forgot every key" in capsys.readouterr().out
     assert credentials.stored(remote.url) is None
     assert main(["whoami"]) == 1
     assert "notes-vault-mcp login" in capsys.readouterr().err
@@ -593,3 +598,103 @@ def test_read_prints_a_note_through_the_server_as_the_local_vault_does(
     assert capsys.readouterr().err.strip() == "notes-vault-mcp: no such note: Projects/nowhere.md"
     assert main(["read", "../outside.md"]) == 1
     assert len(capsys.readouterr().err.strip().splitlines()) == 1
+
+
+WORKSHOP_NOTE = "---\ntitle: lathe\ndate: 2020-01-01\nupdated: 2020-01-01\ntags: [workshop]\nstatus: active\n---\n\n"
+
+
+def workshop_vault(served: Served) -> str:
+    served.store.create_vault(served.account_id(), "Workshop")
+    served.write("Areas/lathe.md", WORKSHOP_NOTE + "Oil the bed.\n", vault="workshop")
+    credentials.save(served.url, {"key": served.key(vault="workshop"), "scope": "vault:read vault:write"}, "workshop")
+    return "workshop"
+
+
+def test_credentials_keep_a_key_per_vault_and_read_an_older_single_key(tmp_path: Path):
+    url = "https://vault.example.test"
+    credentials.save(url, {"key": "nvm_legacy", "name": "laptop"})
+    assert credentials.stored(url)["key"] == "nvm_legacy", "a key saved before vaults is still this machine's key"
+    credentials.save(url, {"key": "nvm_orchard", "name": "laptop"}, "orchard")
+    credentials.save(url, {"key": "nvm_workshop", "name": "laptop"}, "workshop")
+    state = credentials.server_state(url)
+    assert state["default"] == "orchard", "the first vault signed in to becomes the default"
+    assert credentials.stored(url, str(tmp_path))["key"] == "nvm_orchard"
+    repo = tmp_path / "repos" / "lathe"
+    (repo / "src").mkdir(parents=True)
+    credentials.use(url, "workshop", repo)
+    assert credentials.stored(url, str(repo / "src"))["key"] == "nvm_workshop"
+    assert credentials.stored(url, str(tmp_path / "repos"))["key"] == "nvm_orchard"
+    credentials.use(url, "orchard", repo / "src")
+    assert credentials.vault_for(url, str(repo / "src")) == "orchard", "the deepest folder wins"
+    assert credentials.drop_dir(url, repo / "src")
+    assert credentials.vault_for(url, str(repo / "src")) == "workshop"
+    assert credentials.forget(url, "workshop")
+    assert credentials.chosen(url, str(repo)) == ("workshop", None)
+
+
+def test_a_login_for_a_named_vault_asks_the_server_for_it(tmp_path: Path):
+    server = FakeDeviceServer(
+        [(200, {"access_token": FAKE_KEY, "scope": "vault:read", "key_name": "devbox", "vault": "workshop"})]
+    )
+    with httpx2.Client(transport=httpx2.MockTransport(server.handle)) as http:
+        entry = login.login(
+            "https://vault.example.test",
+            name="devbox",
+            out=io.StringIO(),
+            http=http,
+            sleep=lambda _: None,
+            open_browser=False,
+            vault="workshop",
+        )
+    assert server.started["vault"] == "workshop"
+    assert entry["vault"] == "workshop"
+    assert credentials.server_state("https://vault.example.test")["vaults"]["workshop"]["key"] == FAKE_KEY
+
+
+def test_the_hooks_and_commands_pick_the_vault_of_the_folder(
+    remote: Served, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    credentials.save(remote.url, {"key": remote.key(), "scope": "vault:read vault:write"}, "ann")
+    workshop_vault(remote)
+    repo = make_repo(tmp_path / "repos", "lathe")
+    other = make_repo(tmp_path / "repos", "frame")
+    remote.write("Areas/lathe.md", system_note(repo).replace("frame", "lathe-system"), vault="workshop")
+    assert main(["vault", "use", "workshop", "--dir", str(repo)]) == 0
+    capsys.readouterr()
+    in_repo = hook_output(monkeypatch, capsys, repo)
+    elsewhere = hook_output(monkeypatch, capsys, other)
+    assert "Areas/lathe.md" in in_repo and "Kontrollplanet" not in in_repo
+    assert "Areas/lathe.md" not in elsewhere
+    listed = run_json(capsys, "vault", "list")
+    assert listed["default"] == "ann" and listed["dirs"] == {str(repo.resolve()): "workshop"}
+    assert sorted(listed["vaults"]) == ["ann", "workshop"]
+    opened = run_json(capsys, "task", "open", "--name", "oil-the-lathe", "--cwd", str(repo))
+    assert remote.read(opened["path"], vault="workshop")
+    with pytest.raises(NotFound):
+        remote.read(opened["path"])
+
+
+def test_a_folder_mapped_to_a_vault_without_a_key_says_how_to_sign_in(
+    remote: Served, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    repo = make_repo(tmp_path / "repos", "lathe")
+    assert main(["vault", "use", "workshop", "--dir", str(repo)]) == 0
+    assert "login" in capsys.readouterr().out
+    monkeypatch.chdir(repo)
+    assert main(["whoami"]) == 1
+    assert f"notes-vault-mcp login {remote.url} --vault workshop" in capsys.readouterr().err
+
+
+@pytest.mark.anyio
+async def test_the_proxy_serves_the_vault_of_its_folder(remote: Served, tmp_path: Path, monkeypatch):
+    workshop_vault(remote)
+    repo = make_repo(tmp_path / "repos", "lathe")
+    credentials.use(remote.url, "workshop", repo)
+    monkeypatch.chdir(repo)
+    upstream = Upstream(remote.url)
+    async with anyio.create_task_group() as group:
+        group.start_soon(upstream.supervise)
+        await upstream.ready.wait()
+        found = await upstream.use(lambda server: server.call("whoami"))
+        group.cancel_scope.cancel()
+    assert json.loads(found)["vault"] == "workshop"

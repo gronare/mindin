@@ -13,14 +13,16 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Re
 
 from notes_vault_mcp.auth import READ_SCOPE, WRITE_SCOPE, AuthConfig
 from notes_vault_mcp.auth.cimd import is_loopback, is_metadata_url
-from notes_vault_mcp.auth.hosted_store import SESSION_TTL, Account, HostedStore, scope_label
-from notes_vault_mcp.auth.pages import PAGE, PAGE_HEADERS, stamp
+from notes_vault_mcp.auth.hosted_store import SESSION_TTL, Account, HostedStore, digest
+from notes_vault_mcp.auth.hosted_vaults import Vault
+from notes_vault_mcp.auth.pages import APP_PAGE, APP_SCRIPT, PAGE, PAGE_HEADERS, stamp
 
 logger = logging.getLogger(__name__)
 
 SESSION_COOKIE = "nvm_session"
 LOGIN_COOKIE = "nvm_login"
 REQUEST_TTL = 900
+RECENT_SIGN_IN = 600
 NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 EXTRA_STYLE = """
 input[type=text], input[type=email] { display: block; width: 100%; box-sizing: border-box; margin-top: .35rem;
@@ -50,6 +52,34 @@ def page(heading: str, lead: str, body: str = "", status_code: int = 200, wide: 
     style = EXTRA_STYLE + (WIDE_STYLE if wide else "")
     document = PAGE.format(heading=esc(heading), lead=esc(lead), body=body).replace("</style>", style + "</style>", 1)
     return HTMLResponse(document, status_code=status_code, headers=PAGE_HEADERS)
+
+
+def app_page(config: AuthConfig, title: str, body: str, on: str = "vaults", status_code: int = 200) -> HTMLResponse:
+    local = config.path_prefix
+    current = ' class="on" aria-current="page"'
+    nav = "".join(
+        f'<a href="{esc(local + path)}"{current if name == on else ""}>{label}</a>'
+        for name, label, path in (("vaults", "Vaults", "/account"), ("account", "Account", "/account/settings"))
+    )
+    document = APP_PAGE.format(
+        title=esc(title), host=esc(config.public_host), nav=nav, body=body, script=esc(local + "/account/page.js")
+    )
+    return HTMLResponse(document, status_code=status_code, headers=PAGE_HEADERS)
+
+
+async def app_script(_: Request) -> Response:
+    return Response(APP_SCRIPT, media_type="text/javascript", headers={"Cache-Control": "public, max-age=3600"})
+
+
+def copy_field(field_id: str, text: str) -> str:
+    return (
+        f'<div class="copy"><code id="{esc(field_id)}">{esc(text)}</code>'
+        f'<button class="btn secondary small" type="button" data-copy="{esc(field_id)}" hidden>Copy</button></div>'
+    )
+
+
+def hidden_field(name: str, value: str) -> str:
+    return f'<input type="hidden" name="{esc(name)}" value="{esc(value)}">'
 
 
 def oauth_error(error: str, description: str, status_code: int = 400) -> JSONResponse:
@@ -161,6 +191,20 @@ class Browser:
     def csrf_ok(self, form_value: object, csrf: str) -> bool:
         return isinstance(form_value, str) and hmac.compare_digest(form_value, csrf)
 
+    def signed_in_at(self, request: Request) -> int | None:
+        with self.store.connect() as connection:
+            row = connection.execute(
+                "SELECT created_at FROM sessions WHERE id_hash = ?", (digest(request.cookies.get(SESSION_COOKIE, "")),)
+            ).fetchone()
+        return row["created_at"] if row else None
+
+    def recent(self, request: Request) -> bool:
+        started = self.signed_in_at(request)
+        return started is not None and self.clock() - started <= RECENT_SIGN_IN
+
+    def app(self, title: str, body: str, on: str = "vaults", status_code: int = 200) -> Response:
+        return app_page(self.config, title, body, on, status_code)
+
     async def consent_page(self, request: Request) -> Response:
         request_id = request.query_params.get("request", "")
         pending = self.store.load_request(request_id, REQUEST_TTL) if request_id else None
@@ -190,13 +234,31 @@ class Browser:
             if WRITE_SCOPE in pending["scopes"]
             else ""
         )
+        bound = self.store.vault(pending["vault_id"]) if pending.get("vault_id") else None
+        if bound is not None and bound.account_id != account.id:
+            return page("Not your vault", "The client asks for a vault this account does not own.", status_code=403)
+        vaults = [bound] if bound else self.store.vaults(account.id)
+        if not vaults:
+            return page("No vault yet", "Make a vault on your account page first, then connect again.", status_code=400)
+        if bound:
+            vault_choice = f"<dt>Vault</dt><dd>{esc(bound.name)} <code>{esc(bound.slug)}</code></dd>"
+            vault_field = hidden_field("vault", bound.slug)
+        else:
+            vault_choice = ""
+            radios = "".join(
+                f'<label><input type="radio" name="vault" value="{esc(vault.slug)}"{" checked" if index == 0 else ""}>'
+                f" {esc(vault.name)} ({esc(vault.slug)})</label>"
+                for index, vault in enumerate(vaults)
+            )
+            vault_field = f"<fieldset><legend>The vault it reaches</legend>{radios}</fieldset>"
         body = f"""{error_box(error)}{warning}
 <dl><dt>Signed in as</dt><dd>{esc(account.email)}</dd>
 <dt>Client</dt><dd>{origin}</dd>
-<dt>Returns to</dt><dd><code>{esc(redirect_host)}</code></dd></dl>
+<dt>Returns to</dt><dd><code>{esc(redirect_host)}</code></dd>{vault_choice}</dl>
 <form method="post" action="{esc(self.local("/login"))}">
 <input type="hidden" name="request" value="{esc(request_id)}">
 <input type="hidden" name="csrf" value="{esc(csrf)}">
+{vault_field}
 <fieldset><legend>Grant this client</legend>
 <label><input type="radio" name="access" value="read" checked> read</label>
 {write_choice}
@@ -204,9 +266,11 @@ class Browser:
 <button type="submit" name="decision" value="approve">Approve</button>
 <button type="submit" name="decision" value="deny" class="secondary">Deny</button>
 </form>"""
-        return page("Vault access", f"{pending['client_name']} is asking to reach your vault.", body)
+        return page("Vault access", f"{pending['client_name']} is asking to reach one of your vaults.", body)
 
-    async def consent_submit(self, request: Request, mint_code: Callable[[dict, list[str], Account], str]) -> Response:
+    async def consent_submit(
+        self, request: Request, mint_code: Callable[[dict, list[str], Account, Vault], str]
+    ) -> Response:
         form = await request.form()
         request_id = str(form.get("request") or "")
         pending = self.store.load_request(request_id, REQUEST_TTL) if request_id else None
@@ -216,8 +280,11 @@ class Browser:
         if session is None or not session[0].active or not self.csrf_ok(form.get("csrf"), session[1]):
             return page("Not signed in", "Open the link from the client again.", status_code=403)
         account, _ = session
+        vault = self.store.own_vault(account.id, str(form.get("vault") or ""))
+        if form.get("decision") == "approve" and (vault is None or pending.get("vault_id") not in (None, vault.id)):
+            return self.render_consent(request_id, pending, account, session[1], "Choose one of your vaults.")
         self.store.drop_request(request_id)
-        if form.get("decision") != "approve":
+        if form.get("decision") != "approve" or vault is None:
             target = construct_redirect_uri(
                 pending["redirect_uri"],
                 error="access_denied",
@@ -229,7 +296,7 @@ class Browser:
         scopes = [READ_SCOPE]
         if form.get("access") == "write" and WRITE_SCOPE in pending["scopes"]:
             scopes.append(WRITE_SCOPE)
-        code = mint_code(pending, scopes, account)
+        code = mint_code(pending, scopes, account, vault)
         target = construct_redirect_uri(
             pending["redirect_uri"], code=code, state=pending["state"], iss=self.config.issuer
         )
@@ -242,64 +309,25 @@ class Browser:
             status_code=400,
         )
 
-    async def account_page(self, request: Request) -> Response:
-        session = await self.require_session(request, self.local("/account"))
+    async def settings_page(self, request: Request) -> Response:
+        session = await self.require_session(request, self.local("/account/settings"))
         if isinstance(session, Response):
             return session
         account, csrf = session
-        return self.render_account(account, csrf)
+        return self.render_settings(account, csrf)
 
-    def render_account(self, account: Account, csrf: str, notice: str = "", status_code: int = 200) -> Response:
-        rows = "".join(
-            f"<tr><td>{esc(key['name'])}</td><td>{esc(scope_label(key['scopes']))}</td>"
-            f"<td>{esc(stamp(key['created_at']))}</td><td>{esc(stamp(key['last_used_at']))}</td><td>"
-            f'<form method="post" action="{esc(self.local("/account/keys/revoke"))}">'
-            f'<input type="hidden" name="csrf" value="{esc(csrf)}">'
-            f'<input type="hidden" name="key" value="{esc(key["id"])}">'
-            f'<button type="submit" class="secondary inline" aria-label="Revoke {esc(key["name"])}">Revoke</button>'
-            "</form></td></tr>"
-            for key in self.store.keys(account.id)
-        )
-        keys = (
-            "<table><thead><tr><th>Name</th><th>Access</th><th>Made</th><th>Last used</th><th></th></tr></thead>"
-            f"<tbody>{rows}</tbody></table>"
-            if rows
-            else "<p>No keys yet.</p>"
-        )
-        mcp = esc(self.config.resource_url)
-        device = esc(f"{self.config.public_url.rstrip('/')}/device")
-        body = f"""{notice}
-<dl><dt>Signed in as</dt><dd>{esc(account.email)}</dd></dl>
+    def render_settings(self, account: Account, csrf: str, notice: str = "", status_code: int = 200) -> Response:
+        body = f"""<div><h1>Account</h1><p class="lead">You and how you sign in. Keys and connections live
+with each vault.</p></div>
+{notice}
+<dl class="kv"><dt>Signed in as</dt><dd>{esc(account.email)}</dd>
+<dt>Member since</dt><dd>{esc(stamp(account.created_at)[:10])}</dd></dl>
 {"".join(section(account, csrf) for section in self.sections)}
-<h2>Connect</h2>
-<ul>
-<li>claude.ai, Claude Desktop and mobile: add a custom connector with the URL <code>{mcp}</code>.</li>
-<li>Claude Code, Codex, Cursor: add <code>{mcp}</code> as a remote MCP server; each signs in here the first time.</li>
-<li>A machine over ssh: a tool that uses the device flow shows a short code; enter it at <code>{device}</code>.</li>
-<li>A client that only takes a header: make a key below and send <code>Authorization: Bearer &lt;key&gt;</code>.</li>
-<li>Obsidian's Remotely Save: WebDAV at <code>{esc(self.config.dav_url)}</code>, your email as the username
-and a key as the password.</li>
-</ul>
-<h2>Keys</h2>
-{keys}
-<form method="post" action="{esc(self.local("/account/keys"))}">
-<input type="hidden" name="csrf" value="{esc(csrf)}">
-<label>New key, named after where it will live
-<input type="text" name="name" maxlength="64" required placeholder="laptop">
-</label>
-<fieldset><legend>Access</legend>
-<label><input type="radio" name="access" value="read" checked> read</label>
-<label><input type="radio" name="access" value="write"> read and write</label>
-</fieldset>
-<button type="submit">Make a key</button>
-</form>
 <form method="post" action="{esc(self.local("/logout"))}">
 <input type="hidden" name="csrf" value="{esc(csrf)}">
-<button type="submit" class="secondary">Sign out</button>
+<button type="submit" class="btn secondary">Sign out</button>
 </form>"""
-        return page(
-            "Your vault", "Who you are, your keys, and how to connect.", body, status_code=status_code, wide=True
-        )
+        return self.app("Account", body, on="account", status_code=status_code)
 
     async def account_form(self, request: Request) -> tuple[Account, str, dict] | Response:
         form = await request.form()
@@ -307,30 +335,6 @@ and a key as the password.</li>
         if session is None or not session[0].active or not self.csrf_ok(form.get("csrf"), session[1]):
             return page("Not signed in", "Open your account page again.", status_code=403)
         return session[0], session[1], {key: str(value) for key, value in form.items()}
-
-    async def create_key(self, request: Request) -> Response:
-        submitted = await self.account_form(request)
-        if isinstance(submitted, Response):
-            return submitted
-        account, csrf, form = submitted
-        name = " ".join(form.get("name", "").split())[:64]
-        if not name:
-            return self.render_account(account, csrf, error_box("Give the key a name."), status_code=400)
-        scopes = [READ_SCOPE, WRITE_SCOPE] if form.get("access") == "write" else [READ_SCOPE]
-        key = self.store.create_key(account.id, name, scopes)
-        notice = (
-            f'<p class="warning">The key {esc(name)} is shown once. Copy it now.</p>'
-            f'<code class="key" aria-label="the new key">{esc(key)}</code>'
-        )
-        return self.render_account(account, csrf, notice)
-
-    async def revoke_key(self, request: Request) -> Response:
-        submitted = await self.account_form(request)
-        if isinstance(submitted, Response):
-            return submitted
-        account, _, form = submitted
-        self.store.revoke_key(account.id, form.get("key", ""))
-        return RedirectResponse(self.local("/account"), status_code=303)
 
     async def sign_out(self, request: Request) -> Response:
         submitted = await self.account_form(request)

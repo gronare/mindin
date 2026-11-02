@@ -16,11 +16,13 @@ if TYPE_CHECKING:
 
     from notes_vault_mcp.auth import AuthConfig
     from notes_vault_mcp.auth.hosted_store import Account, HostedStore
+    from notes_vault_mcp.auth.hosted_vaults import Vault
 
 GROUP = "notes_vault_mcp.extensions"
 Access = Literal["full", "read", "none"]
 ACCESS_RANK: dict[str, int] = {"none": 0, "read": 1, "full": 2}
 Section = Callable[["Account", str], str]
+VaultSection = Callable[["Account", "Vault", str], str]
 
 
 @dataclass
@@ -37,6 +39,7 @@ class Server:
     smtp_factory: Any = None
     routes: list[BaseRoute] = field(default_factory=list)
     account_sections: list[Section] = field(default_factory=list)
+    vault_sections: list[VaultSection] = field(default_factory=list)
 
 
 class Extension:
@@ -49,7 +52,7 @@ class Extension:
         """Add subcommands to the notes-vault-mcp CLI."""
 
     def attach(self, server: Server) -> None:
-        """Add routes and account page sections to a hosted server."""
+        """Add routes and sections on the account and vault pages to a hosted server."""
 
     def access(self, account: Account) -> Access:
         """How much of its vaults an active account may use right now."""

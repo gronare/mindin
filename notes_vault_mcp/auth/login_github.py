@@ -66,7 +66,7 @@ class GithubSignIn:
             linked = self.login.linking(request, form)
             if isinstance(linked, Response):
                 return linked
-            link_account, next_url = linked, self.login.local("/account")
+            link_account, next_url = linked, self.login.local("/account/settings")
         if not self.login.limits.sign_in.allow(client_address(request)):
             return page("Slow down", "Too many sign-ins from here. Try again in a minute.", status_code=429)
         state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(48)

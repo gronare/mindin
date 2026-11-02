@@ -9,14 +9,11 @@ from starlette.responses import Response
 from starlette.routing import Route
 
 from notes_vault_mcp.auth.hosted_keys import SealedVaults, delete_account
-from notes_vault_mcp.auth.hosted_store import Account, digest
-from notes_vault_mcp.auth.hosted_transfer import subject_of
-from notes_vault_mcp.auth.hosted_web import SESSION_COOKIE, Browser, error_box, esc, page
+from notes_vault_mcp.auth.hosted_store import Account
+from notes_vault_mcp.auth.hosted_web import SESSION_COOKIE, Browser, error_box, esc, hidden_field, page
 
 if TYPE_CHECKING:
     from notes_vault_mcp.vault import SubjectVaults
-
-RECENT_SIGN_IN = 600
 
 
 class SelfDeletion:
@@ -28,53 +25,49 @@ class SelfDeletion:
     def section(self, account: Account, csrf: str) -> str:
         target = esc(self.browser.local("/account/delete"))
         return (
-            "<h2>Delete account</h2><p>Deleting the account destroys your vault and everything that opens it.</p>"
-            f'<p><a href="{target}">Delete your account</a></p>'
+            '<div class="danger-zone"><h2>Delete account</h2><p class="small muted">Deletes every vault you own,'
+            " with its notes, keys and connections, and every way you sign in.</p>"
+            f'<div><a class="btn danger" href="{target}">Delete account…</a></div></div>'
         )
-
-    def signed_in_at(self, request: Request) -> int | None:
-        with self.browser.store.connect() as connection:
-            row = connection.execute(
-                "SELECT created_at FROM sessions WHERE id_hash = ?", (digest(request.cookies.get(SESSION_COOKIE, "")),)
-            ).fetchone()
-        return row["created_at"] if row else None
-
-    def recent(self, request: Request) -> bool:
-        started = self.signed_in_at(request)
-        return started is not None and self.browser.clock() - started <= RECENT_SIGN_IN
 
     def destroyed(self, account: Account) -> str:
-        files = sum(1 for entry in self.vaults.for_subject(subject_of(account)).backend.list_all() if not entry.is_dir)
+        vaults = "".join(
+            f"<li>{esc(vault.name)}: {self.files_of(vault.id)} files, and the key they are encrypted with.</li>"
+            for vault in self.browser.store.vaults(account.id)
+        )
         keys = len(self.browser.store.keys(account.id))
         return (
-            "<ul>"
-            f"<li>Your vault: {files} files, and the key they are encrypted with.</li>"
-            "<li>The vault's search index.</li>"
+            f"<ul>{vaults}"
+            "<li>Each vault's search index.</li>"
             f"<li>Your {keys} keys, every way you sign in, every session and every connected client.</li>"
             "<li>The support access log.</li>"
-            "</ul><p>The key goes first, so nothing stored can be read again.</p>"
+            "</ul><p>The keys go first, so nothing stored can be read again.</p>"
         )
 
+    def files_of(self, vault_id: str) -> int:
+        return sum(1 for entry in self.vaults.for_subject(vault_id).backend.list_all() if not entry.is_dir)
+
     def confirm_page(self, account: Account, csrf: str, error: str = "", status_code: int = 200) -> Response:
-        export = esc(self.browser.local("/account/export"))
+        vaults = esc(self.browser.local("/account"))
         body = f"""{error_box(error)}<p>This destroys, at once and for good:</p>
 {self.destroyed(account)}
-<p>Keep a copy first: <a href="{export}">download the whole vault as a zip</a>.</p>
+<p>Keep a copy first: each vault on <a href="{vaults}">your vaults</a> downloads as a zip.</p>
 <form method="post" action="{esc(self.browser.local("/account/delete"))}">
 <input type="hidden" name="csrf" value="{esc(csrf)}">
 <label>Type {esc(account.email)} to confirm
 <input type="email" name="email" autocomplete="off" required>
 </label>
-<button type="submit">Delete my account and vault</button>
+<button type="submit">Delete my account and vaults</button>
 </form>"""
         return page("Delete your account", f"Signed in as {account.email}.", body, status_code=status_code)
 
-    def sign_in_again(self, csrf: str, status_code: int = 200) -> Response:
+    def sign_in_again(self, csrf: str, status_code: int = 200, then: str = "", what: str = "the account") -> Response:
         body = f"""<form method="post" action="{esc(self.browser.local("/account/delete/again"))}">
 <input type="hidden" name="csrf" value="{esc(csrf)}">
+{hidden_field("next", then or self.browser.local("/account/delete"))}
 <button type="submit">Sign in again</button>
 </form>"""
-        lead = "Deleting the account needs a sign-in from the last ten minutes."
+        lead = f"Deleting {what} needs a sign-in from the last ten minutes."
         return page("Sign in again", lead, body, status_code=status_code)
 
     async def show(self, request: Request) -> Response:
@@ -82,7 +75,7 @@ class SelfDeletion:
         if isinstance(session, Response):
             return session
         account, csrf = session
-        if not self.recent(request):
+        if not self.browser.recent(request):
             return self.sign_in_again(csrf)
         return await anyio.to_thread.run_sync(self.confirm_page, account, csrf)
 
@@ -91,7 +84,8 @@ class SelfDeletion:
         if isinstance(submitted, Response):
             return submitted
         self.browser.store.end_session(request.cookies.get(SESSION_COOKIE, ""))
-        response = await self.browser.start_sign_in(request, self.browser.local("/account/delete"))
+        then = self.browser.safe_return(submitted[2].get("next", "") or self.browser.local("/account/delete"))
+        response = await self.browser.start_sign_in(request, then)
         response.delete_cookie(SESSION_COOKIE, path=self.browser.cookie_path)
         return response
 
@@ -100,18 +94,19 @@ class SelfDeletion:
         if isinstance(submitted, Response):
             return submitted
         account, csrf, form = submitted
-        if not self.recent(request):
+        if not self.browser.recent(request):
             return self.sign_in_again(csrf, status_code=403)
         if form.get("email", "").strip().lower() != account.email.lower():
             error = "The address you typed is not this account's."
             return await anyio.to_thread.run_sync(lambda: self.confirm_page(account, csrf, error, 400))
         await anyio.to_thread.run_sync(self.erase, account)
-        response = page("Account deleted", f"{account.email} and its vault are gone.")
+        response = page("Account deleted", f"{account.email} and its vaults are gone.")
         response.delete_cookie(SESSION_COOKIE, path=self.browser.cookie_path)
         return response
 
     def erase(self, account: Account) -> None:
-        self.vaults.discard(subject_of(account))
+        for vault in self.browser.store.vaults(account.id):
+            self.vaults.discard(vault.id)
         delete_account(self.sealed, account, self.vaults.cache)
 
     def routes(self, prefix: str, limited: Callable) -> list[Route]:

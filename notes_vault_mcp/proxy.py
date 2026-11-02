@@ -16,10 +16,12 @@ from notes_vault_mcp.server import MACHINE_TOOLS
 T = TypeVar("T")
 
 
-def sign_in_text(url: str) -> str:
+def sign_in_text(url: str, vault: str | None = None) -> str:
+    command = f"notes-vault-mcp login {url}" + (f" --vault {vault}" if vault else "")
+    which = f"the vault {vault} on {url}" if vault else url
     return (
-        f"The vault lives on {url}, and this machine is not signed in to it. Tell the user to run "
-        f"`notes-vault-mcp login {url}` in a terminal (or /vault:login), then reconnect this server with /mcp."
+        f"The vault lives on {which}, and this machine is not signed in to it. Tell the user to run "
+        f"`{command}` in a terminal (or /vault:login), then reconnect this server with /mcp."
     )
 
 
@@ -89,11 +91,11 @@ def build_proxy(upstream: Upstream, instructions: str | None) -> Server[Any]:
     )
 
 
-def build_signed_out(url: str) -> Server[Any]:
+def build_signed_out(url: str, vault: str | None = None) -> Server[Any]:
     async def list_tools(_: Any, __: types.PaginatedRequestParams | None) -> types.ListToolsResult:
         return types.ListToolsResult(tools=[])
 
-    return Server("vault", version=__version__, instructions=sign_in_text(url), on_list_tools=list_tools)
+    return Server("vault", version=__version__, instructions=sign_in_text(url, vault), on_list_tools=list_tools)
 
 
 async def serve(server: Server[Any]) -> None:
@@ -102,8 +104,9 @@ async def serve(server: Server[Any]) -> None:
 
 
 async def run_proxy(url: str) -> None:
-    if credentials.stored(url) is None:
-        await serve(build_signed_out(url))
+    vault, entry = credentials.chosen(url)
+    if entry is None:
+        await serve(build_signed_out(url, vault))
         return
     upstream = Upstream(url)
     async with anyio.create_task_group() as group:

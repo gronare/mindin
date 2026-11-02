@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import secrets
 import time
 from collections.abc import Callable, Sequence
@@ -30,7 +31,7 @@ from mcp.server.auth.provider import (
 from mcp.server.auth.routes import build_resource_metadata_url, create_protected_resource_routes
 from mcp.server.auth.settings import ClientRegistrationOptions
 from mcp.server.transport_security import RequestBodyLimitMiddleware, TransportSecuritySettings
-from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken, ProtectedResourceMetadata
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from starlette.applications import Starlette
 from starlette.authentication import AuthCredentials
@@ -53,10 +54,10 @@ from notes_vault_mcp.auth.cimd import (
 from notes_vault_mcp.auth.device import DEVICE_GRANT, DeviceFlow
 from notes_vault_mcp.auth.hosted_access import SupportAccess, SupportDesk
 from notes_vault_mcp.auth.hosted_deletion import SelfDeletion
-from notes_vault_mcp.auth.hosted_keys import AccountKeys, Keyring, SealedVaults
-from notes_vault_mcp.auth.hosted_layout import Layouts
+from notes_vault_mcp.auth.hosted_keys import Keyring, SealedVaults, VaultKeys
 from notes_vault_mcp.auth.hosted_store import Account, ApiKeyCredentials, HostedStore
-from notes_vault_mcp.auth.hosted_transfer import VaultTransfer
+from notes_vault_mcp.auth.hosted_vault_pages import VaultPages
+from notes_vault_mcp.auth.hosted_vaults import Vault
 from notes_vault_mcp.auth.hosted_web import Browser, Limits, oauth_error
 from notes_vault_mcp.auth.login import Login
 from notes_vault_mcp.auth.login_email import EmailSignIn, Mailer, SmtpFactory
@@ -110,8 +111,20 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
     def allowed(self, account: Account, scopes: list[str]) -> list[str]:
         return narrowed(extended_access(self.extensions, account), scopes)
 
+    def vault_resource(self, vault: Vault) -> str:
+        return vault_resource_url(self.config, vault.slug)
+
+    def resource_target(self, resource: str | None) -> tuple[bool, Vault | None]:
+        if resource is None or canonical(resource) == canonical(self.config.resource_url):
+            return True, None
+        wanted = canonical(resource)
+        base = canonical(self.config.public_url) + "/v/"
+        slug = wanted[len(base) :].removesuffix("/mcp") if wanted.startswith(base) and wanted.endswith("/mcp") else ""
+        vault = self.store.vault_by_slug(slug) if slug and "/" not in slug else None
+        return vault is not None, vault
+
     def for_this_resource(self, resource: str | None) -> bool:
-        return resource is None or canonical(resource) == canonical(self.config.resource_url)
+        return self.resource_target(resource)[0]
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         if is_metadata_url(client_id):
@@ -134,7 +147,8 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
         )
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
-        if not self.for_this_resource(params.resource):
+        known, vault = self.resource_target(params.resource)
+        if not known:
             raise AuthorizeError("invalid_target", f"this server only issues tokens for {self.config.resource_url}")
         request_id = secrets.token_urlsafe(24)
         self.store.save_request(
@@ -147,12 +161,14 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
                 "code_challenge": params.code_challenge,
                 "redirect_uri": str(params.redirect_uri),
                 "redirect_uri_provided_explicitly": params.redirect_uri_provided_explicitly,
+                "resource": self.vault_resource(vault) if vault else self.config.resource_url,
+                "vault_id": vault.id if vault else None,
             },
             REQUEST_TTL,
         )
         return f"{self.config.public_url.rstrip('/')}/login?request={request_id}"
 
-    def mint_code(self, pending: dict[str, Any], scopes: list[str], account: Account) -> str:
+    def mint_code(self, pending: dict[str, Any], scopes: list[str], account: Account, vault: Vault) -> str:
         code = secrets.token_urlsafe(32)
         record = {
             "code": code,
@@ -162,9 +178,10 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
             "code_challenge": pending["code_challenge"],
             "redirect_uri": pending["redirect_uri"],
             "redirect_uri_provided_explicitly": pending["redirect_uri_provided_explicitly"],
-            "resource": self.config.resource_url,
+            "resource": pending.get("resource") or self.config.resource_url,
             "subject": account.sub,
             "account_id": account.id,
+            "vault_id": vault.id,
         }
         self.store.save_code(code, record["expires_at"], record)
         return code
@@ -185,14 +202,21 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
             raise TokenError("invalid_grant", "authorization code does not exist")
         if record["expires_at"] < time.time():
             raise TokenError("invalid_grant", "authorization code has expired")
-        self.require_active(record["account_id"])
-        return self.issue(client.client_id, record["account_id"], authorization_code.scopes)
+        account = self.require_active(record["account_id"])
+        vault = self.require_vault(account, record.get("vault_id"))
+        return self.issue(client.client_id, account.id, vault.id, record["resource"], authorization_code.scopes)
 
     def require_active(self, account_id: str) -> Account:
         account = self.store.account(account_id)
         if account is None or not account.active:
             raise TokenError("invalid_grant", "the account is not active")
         return account
+
+    def require_vault(self, account: Account, vault_id: str | None) -> Vault:
+        vault = self.store.vault(vault_id or "")
+        if vault is None or vault.account_id != account.id:
+            raise TokenError("invalid_grant", "the vault is gone")
+        return vault
 
     async def load_refresh_token(self, client: OAuthClientInformationFull, refresh_token: str) -> RefreshToken | None:
         row = self.store.load_token(refresh_token, "refresh")
@@ -210,18 +234,21 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
     async def exchange_refresh_token(
         self, client: OAuthClientInformationFull, refresh_token: RefreshToken, scopes: list[str]
     ) -> OAuthToken:
-        if not self.store.revoke_token(refresh_token.token):
+        row = self.store.load_token(refresh_token.token, "refresh")
+        if row is None or not self.store.revoke_token(refresh_token.token):
             raise TokenError("invalid_grant", "refresh token does not exist")
         account = self.require_active(refresh_token.subject or "")
-        return self.issue(client.client_id, account.id, scopes or refresh_token.scopes)
+        vault = self.require_vault(account, row["vault_id"])
+        return self.issue(client.client_id, account.id, vault.id, row["resource"], scopes or refresh_token.scopes)
 
-    def issue(self, client_id: str, account_id: str, scopes: list[str]) -> OAuthToken:
+    def issue(self, client_id: str, account_id: str, vault_id: str, resource: str, scopes: list[str]) -> OAuthToken:
         grant = {
             "grant_id": secrets.token_urlsafe(16),
             "client_id": client_id,
             "account_id": account_id,
+            "vault_id": vault_id,
             "scopes": scopes,
-            "resource": self.config.resource_url,
+            "resource": resource,
         }
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         self.store.save_token(access, "access", grant, ACCESS_TTL)
@@ -235,33 +262,51 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
         )
 
     async def load_access_token(self, token: str) -> AccessToken | None:
-        return self.authenticate(token).access
+        return self.authenticate(token, None).access
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         self.store.revoke_grant(token.token)
 
-    def authenticate(self, token: str) -> Verdict:
+    def authenticate(self, token: str, resource: str | None, vault: Vault | None = None) -> Verdict:
         grant = self.store.key_grant(token)
         if grant is not None:
-            return self.verdict(grant.account, token, f"key:{grant.key_id}", grant.scopes, None, grant.purpose)
+            if vault is not None and grant.vault.id != vault.id:
+                return Verdict(None, 403, "wrong_vault", "this key belongs to another vault")
+            return self.verdict(
+                grant.account, grant.vault, token, f"key:{grant.key_id}", grant.scopes, None, grant.purpose, resource
+            )
         row = self.store.load_token(token, "access")
         if row is None or row["expires_at"] <= time.time():
             return Verdict(None, 401, "invalid_token", "the token is unknown, revoked or expired")
-        if canonical(row["resource"]) != canonical(self.config.resource_url):
+        if resource is not None and canonical(row["resource"]) != canonical(resource):
             return Verdict(None, 401, "invalid_token", "the token was issued for another resource")
         account = self.store.account(row["account_id"])
         if account is None:
             return Verdict(None, 401, "invalid_token", "the token's account is gone")
-        return self.verdict(account, token, row["client_id"], row["scopes"].split(), int(row["expires_at"]))
+        bound = self.store.vault(row["vault_id"] or "")
+        if bound is None or bound.account_id != account.id or (vault is not None and bound.id != vault.id):
+            return Verdict(None, 401, "invalid_token", "the token's vault is gone")
+        return self.verdict(
+            account,
+            bound,
+            token,
+            row["client_id"],
+            row["scopes"].split(),
+            int(row["expires_at"]),
+            None,
+            row["resource"],
+        )
 
     def verdict(
         self,
         account: Account,
+        vault: Vault,
         token: str,
         client_id: str,
         scopes: list[str],
         expires_at: int | None,
         key_purpose: str | None = None,
+        resource: str | None = None,
     ) -> Verdict:
         if not account.active or not account.sub:
             return Verdict(None, 403, "account_suspended", "the account is not active")
@@ -273,11 +318,25 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
             client_id=client_id,
             scopes=allowed,
             expires_at=expires_at,
-            resource=self.config.resource_url,
-            subject=account.sub,
-            claims={"email": account.email, "account": account.id, "key_purpose": key_purpose},
+            resource=resource or self.config.resource_url,
+            subject=vault.id,
+            claims={
+                "email": account.email,
+                "account": account.id,
+                "vault": vault.slug,
+                "vault_name": vault.name,
+                "key_purpose": key_purpose,
+            },
         )
         return Verdict(access)
+
+
+@dataclass(frozen=True)
+class Target:
+    resource: str
+    metadata_url: str
+    path: str
+    vault: Vault | None = None
 
 
 class HostedGuard:
@@ -293,26 +352,50 @@ class HostedGuard:
         self.provider = provider
         self.protected = protected
         self.metadata_url = metadata_url
+        self.vault_paths = re.compile(re.escape(protected.removesuffix("/mcp")) + r"/v/([^/]+)/mcp(/.*)?")
         self.forwarded = forwarded
 
+    def target(self, path: str) -> Target | None | Response:
+        if path == self.protected or path.startswith(self.protected + "/"):
+            return Target(self.provider.config.resource_url, self.metadata_url, path)
+        matched = self.vault_paths.fullmatch(path)
+        if matched is None:
+            return None
+        vault = self.provider.store.vault_by_slug(matched.group(1))
+        if vault is None:
+            return JSONResponse({"error": "not_found", "error_description": "there is no such vault"}, 404)
+        resource = self.provider.vault_resource(vault)
+        metadata_url = str(build_resource_metadata_url(URL.validate_python(resource)))
+        return Target(resource, metadata_url, self.protected + (matched.group(2) or ""), vault)
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        path = scope.get("path", "")
-        if scope["type"] != "http" or not (path == self.protected or path.startswith(self.protected + "/")):
+        found = self.target(scope.get("path", "")) if scope["type"] == "http" else None
+        if found is None:
             await self.app(scope, receive, send)
             return
+        if isinstance(found, Response):
+            await found(scope, receive, send)
+            return
         token = bearer(scope)
-        verdict = self.provider.authenticate(token) if token else self.through_proxy(scope)
+        verdict = (
+            self.provider.authenticate(token, found.resource, found.vault)
+            if token
+            else self.through_proxy(scope, found)
+        )
         if verdict.access is None:
-            await self.refuse(send, verdict)
+            await self.refuse(send, verdict, found)
             return
         user = AuthenticatedUser(verdict.access)
         context = auth_context_var.set(user)
+        inner = {**scope, "user": user, "auth": AuthCredentials(verdict.access.scopes)}
+        if found.vault is not None:
+            inner |= {"path": found.path, "raw_path": found.path.encode("utf-8")}
         try:
-            await self.app({**scope, "user": user, "auth": AuthCredentials(verdict.access.scopes)}, receive, send)
+            await self.app(inner, receive, send)
         finally:
             auth_context_var.reset(context)
 
-    def through_proxy(self, scope: Scope) -> Verdict:
+    def through_proxy(self, scope: Scope, found: Target) -> Verdict:
         if self.forwarded is None:
             return Verdict(None, 401)
         try:
@@ -324,10 +407,15 @@ class HostedGuard:
         account = self.forwarded.account(forwarded)
         if account is None:
             return Verdict(None, 403, "no_account", "the forwarded identity has no account on this vault")
-        return self.provider.verdict(account, "", "forwarded", forwarded.scopes, forwarded.expires_at)
+        vault = found.vault or self.provider.store.first_vault(account.id)
+        if vault is None or vault.account_id != account.id:
+            return Verdict(None, 403, "wrong_vault", "this vault is not one of the account's")
+        return self.provider.verdict(
+            account, vault, "", "forwarded", forwarded.scopes, forwarded.expires_at, None, found.resource
+        )
 
-    async def refuse(self, send: Send, verdict: Verdict) -> None:
-        challenge = f'Bearer resource_metadata="{self.metadata_url}", scope="{" ".join(SCOPES)}"'
+    async def refuse(self, send: Send, verdict: Verdict, found: Target) -> None:
+        challenge = f'Bearer resource_metadata="{found.metadata_url}", scope="{" ".join(SCOPES)}"'
         if verdict.error == "invalid_token":
             challenge += f', error="invalid_token", error_description="{verdict.description}"'
         body = json.dumps({"error": verdict.error or "invalid_token", "error_description": verdict.description})
@@ -344,6 +432,10 @@ def bearer(scope: Scope) -> str:
             scheme, _, token = value.decode("latin-1").partition(" ")
             return token.strip() if scheme.lower() == "bearer" else ""
     return ""
+
+
+def vault_resource_url(config: AuthConfig, slug: str) -> str:
+    return f"{config.public_url.rstrip('/')}/v/{slug}/mcp"
 
 
 def metadata(config: AuthConfig) -> dict[str, Any]:
@@ -461,7 +553,7 @@ def build_hosted_app(
     store = HostedStore(auth.auth_dir or auth_dir(), extensions)
     if not isinstance(vaults, SubjectVaults):
         raise ConfigError("notes-vault-mcp: the HTTP server serves one sealed vault per account")
-    keys = AccountKeys(store, keyring or Keyring.from_env())
+    keys = VaultKeys(store, keyring or Keyring.from_env())
     keys.verify()
     sealed = SealedVaults(store, keys, vaults.prefix)
     vaults.use_backends(sealed)
@@ -472,20 +564,19 @@ def build_hosted_app(
     forwarded = sign_in_methods(auth, login, oidc_transport, github_transport, smtp_factory)
     device = DeviceFlow(auth, store, provider.get_client, browser, limits, clock)
     credentials = ApiKeyCredentials(store, provider.allowed)
-    transfer = VaultTransfer(browser, vaults)
     support = SupportDesk(browser, SupportAccess(store, clock))
     deletion = SelfDeletion(browser, vaults, sealed)
-    layouts = Layouts(browser, vaults)
+    pages = VaultPages(browser, vaults, sealed, deletion)
     extended = Server(auth, store, clock, browser, vaults, sealed, deletion, smtp_factory)
     for extension in extensions:
         extension.attach(extended)
-    browser.sections += [
-        *extended.account_sections,
-        layouts.section,
-        transfer.section,
-        support.section,
-        deletion.section,
-    ]
+    pages.sections += extended.vault_sections
+
+    def extended_and_support(account: Account, csrf: str) -> str:
+        added = "".join(section(account, csrf) for section in extended.account_sections)
+        return f'<div class="cols">{added}{support.section(account, csrf)}</div>'
+
+    browser.sections += [extended_and_support, deletion.section]
     server = build_server(vaults, personal_tokens=credentials, dav_url=auth.dav_url, machine_tools=True)
     mcp_app = server.streamable_http_app(host=host, transport_security=transport_security(auth))
     prefix = auth.path_prefix
@@ -499,6 +590,19 @@ def build_hosted_app(
 
     async def consent_submit(request: Request) -> Response:
         return await browser.consent_submit(request, provider.mint_code)
+
+    async def vault_metadata(request: Request) -> Response:
+        vault = store.vault_by_slug(request.path_params["slug"])
+        if vault is None:
+            return JSONResponse({"error": "not_found"}, status_code=404)
+        document = ProtectedResourceMetadata(
+            resource=URL.validate_python(provider.vault_resource(vault)),
+            authorization_servers=[URL.validate_python(auth.issuer)],
+            scopes_supported=list(SCOPES),
+        )
+        return JSONResponse(
+            document.model_dump(mode="json", exclude_none=True), headers={"Cache-Control": "public, max-age=300"}
+        )
 
     registration = RegistrationHandler(
         provider, ClientRegistrationOptions(enabled=True, valid_scopes=list(SCOPES), default_scopes=[READ_SCOPE])
@@ -516,6 +620,13 @@ def build_hosted_app(
         Route(path, endpoint=cors(request_response(serve_metadata), ["GET", "OPTIONS"]), methods=["GET", "OPTIONS"])
         for path in sorted(well_known)
     ]
+    routes.append(
+        Route(
+            f"/.well-known/oauth-protected-resource{prefix}/v/{{slug}}/mcp",
+            endpoint=cors(request_response(vault_metadata), ["GET", "OPTIONS"]),
+            methods=["GET", "OPTIONS"],
+        )
+    )
     routes += [
         Route(prefix + "/up", endpoint=health, methods=["GET"]),
         Route(prefix + "/authorize", endpoint=limited(AuthorizationHandler(provider).handle), methods=["GET", "POST"]),
@@ -543,13 +654,11 @@ def build_hosted_app(
         Route(prefix + "/device", endpoint=limited(device.submit), methods=["POST"]),
         Route(prefix + "/login", endpoint=browser.consent_page, methods=["GET"]),
         Route(prefix + "/login", endpoint=limited(consent_submit), methods=["POST"]),
-        Route(prefix + "/account", endpoint=browser.account_page, methods=["GET"]),
-        Route(prefix + "/account/keys", endpoint=limited(browser.create_key), methods=["POST"]),
-        Route(prefix + "/account/keys/revoke", endpoint=limited(browser.revoke_key), methods=["POST"]),
+        Route(prefix + "/account/settings", endpoint=browser.settings_page, methods=["GET"]),
         Route(prefix + "/logout", endpoint=limited(browser.sign_out), methods=["POST"]),
     ]
-    routes += login.routes(prefix) + transfer.routes(prefix) + support.routes(prefix, limited)
-    routes += deletion.routes(prefix, limited) + layouts.routes(prefix, limited) + extended.routes
+    routes += login.routes(prefix) + pages.routes(prefix, limited) + support.routes(prefix, limited)
+    routes += deletion.routes(prefix, limited) + extended.routes
     routes.append(Mount(prefix + "/dav", app=WebDav(vaults, credentials, mount=prefix + "/dav")))
     routes.append(Mount(prefix or "/", app=mcp_app))
     guard = Middleware(

@@ -18,6 +18,7 @@ from hosted_support import (
     post_mcp,
     query,
     text_of,
+    vault_choice_of,
 )
 
 from notes_vault_mcp.auth.hosted_store import UNUSED_CLIENT_TTL
@@ -71,11 +72,19 @@ async def authorize(
     return verifier, await http.get("/authorize", params=params)
 
 
-async def consent(http: httpx2.AsyncClient, login_url: str, access: str = "write", decision: str = "approve"):
+async def consent(
+    http: httpx2.AsyncClient, login_url: str, access: str = "write", decision: str = "approve", vault: str = ""
+):
     request_id = query(login_url)["request"]
     page = await http.get("/login", params={"request": request_id})
     assert page.status_code == 200, page.text
-    form = {"request": request_id, "csrf": csrf_of(page.text), "access": access, "decision": decision}
+    form = {
+        "request": request_id,
+        "csrf": csrf_of(page.text),
+        "vault": vault or vault_choice_of(page.text),
+        "access": access,
+        "decision": decision,
+    }
     return page, await http.post("/login", data=form)
 
 
@@ -151,11 +160,12 @@ async def test_an_invited_address_signs_in_and_becomes_active(site: Hosted):
         landed = await http.get("/oidc/callback", params={"state": state, "code": code})
         assert landed.status_code == 303
         assert landed.headers["location"] == "/account"
-        page = await http.get("/account")
+        page = await http.get("/account/settings")
+        vault_page = await http.get("/account/vaults/ann")
     assert page.status_code == 200
     assert "ann@example.com" in page.text
-    assert f"{BASE}/mcp" in page.text
-    assert "<script>" not in page.text, "scripts load from this server, never inline"
+    assert f"{BASE}/v/ann/mcp" in vault_page.text
+    assert "<script>" not in page.text + vault_page.text, "scripts load from this server, never inline"
     account = site.store.account("ann@example.com")
     assert account is not None and account.status == "active" and account.sub
     assert site.identities.account_for("oidc", "sub-ann") == account
@@ -227,7 +237,7 @@ async def test_a_dcr_client_connects_and_reaches_its_own_vault(site: Hosted, vau
             http, tokens["access_token"], "write_file", {"path": "Areas/a.md", "content": NOTE_BODY}
         )
     assert not written.get("isError"), text_of(written)
-    assert "Hemligt" in vaults.for_subject(site.sub_of("ann@example.com")).backend.get("Areas/a.md")[0]
+    assert "Hemligt" in vaults.for_subject(site.vault_of("ann@example.com")).backend.get("Areas/a.md")[0]
 
 
 @pytest.mark.anyio
@@ -480,18 +490,20 @@ async def test_a_suspended_accounts_key_is_refused_at_once(site: Hosted):
 async def test_the_account_page_makes_lists_and_revokes_keys(site: Hosted):
     http = await site.member("ann@example.com")
     async with http:
-        page = await http.get("/account")
-        made = await http.post("/account/keys", data={"csrf": csrf_of(page.text), "name": "devbox", "access": "write"})
-        key = made.text.split('aria-label="the new key">')[1].split("<")[0]
+        page = await http.get("/account/vaults/ann")
+        made = await http.post(
+            "/account/vaults/ann/keys", data={"csrf": csrf_of(page.text), "name": "devbox", "access": "write"}
+        )
+        key = made.text.split('<code id="new-key">')[1].split("<")[0]
         assert key.startswith("nvm_")
-        listed = await http.get("/account")
+        listed = await http.get("/account/vaults/ann")
         assert "devbox" in listed.text and "read and write" in listed.text and key not in listed.text
         used = await call_tool(http, key, "list_files", {})
         assert not used.get("isError")
         key_id = key[4:16]
-        forged = await http.post("/account/keys/revoke", data={"csrf": "wrong", "key": key_id})
+        forged = await http.post("/account/vaults/ann/keys/revoke", data={"csrf": "wrong", "key": key_id})
         assert forged.status_code == 403
-        revoked = await http.post("/account/keys/revoke", data={"csrf": csrf_of(listed.text), "key": key_id})
+        revoked = await http.post("/account/vaults/ann/keys/revoke", data={"csrf": csrf_of(listed.text), "key": key_id})
         assert revoked.status_code == 303
         refused = await post_mcp(http, key, INITIALIZE_BODY)
     assert refused.status_code == 401
@@ -553,7 +565,7 @@ async def test_two_accounts_never_see_each_others_notes_or_index(site: Hosted, v
     assert "Areas/secret.md" not in text_of(listing)
     assert missing.get("isError")
     assert dav.status_code == 404
-    bo_files = {entry.key for entry in vaults.for_subject(site.sub_of("bo@example.com")).backend.list_all()}
+    bo_files = {entry.key for entry in vaults.for_subject(site.vault_of("bo@example.com")).backend.list_all()}
     assert "Areas/secret.md" not in bo_files
     indexes = sorted(path.name for path in (tmp_path / "cache").glob("*.sqlite"))
     assert len(indexes) == 2, indexes

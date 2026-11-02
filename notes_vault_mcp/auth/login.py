@@ -102,7 +102,7 @@ class Login:
             return page("Not signed in", "Open your account page again.", status_code=403)
         if not self.identities.link(account_id, proof):
             return page("Already in use", "That sign-in already opens another account.", status_code=409)
-        return RedirectResponse(self.local("/account"), status_code=303, headers={"Cache-Control": "no-store"})
+        return RedirectResponse(self.local("/account/settings"), status_code=303, headers={"Cache-Control": "no-store"})
 
     def refused(self, proof: Proof, outcome: Outcome) -> Response:
         if outcome.account is not None:
@@ -115,11 +115,12 @@ class Login:
         ways = self.identities.ways_in(account.id)
         removable = len(ways) > 1
         rows = "".join(
-            f"<tr><td>{esc(way.method_name)}</td><td>{esc(way.label)}</td><td>{esc(stamp(way.created_at))}</td><td>"
+            f"<tr><td>{esc(way.method_name)}</td><td>{esc(way.label)}</td>"
+            f'<td class="nowrap">{esc(stamp(way.last_used_at or way.created_at))}</td><td>'
             + (
                 f'<form method="post" action="{esc(self.local("/account/identities/remove"))}">'
                 f"{hidden('csrf', csrf)}{hidden('method', way.method)}{hidden('subject', way.subject)}"
-                f'<button type="submit" class="secondary inline" aria-label="Remove {esc(way.method_name)}'
+                f'<button type="submit" class="btn secondary small" aria-label="Remove {esc(way.method_name)}'
                 f' {esc(way.label)}">Remove</button></form>'
                 if removable
                 else ""
@@ -128,13 +129,13 @@ class Login:
             for way in ways
         )
         table = (
-            "<table><thead><tr><th>Method</th><th>Who</th><th>Added</th><th></th></tr></thead>"
-            f"<tbody>{rows}</tbody></table>"
+            '<div class="tablewrap"><table><thead><tr><th>Method</th><th>Detail</th><th>Last used</th><th></th></tr>'
+            f"</thead><tbody>{rows}</tbody></table></div>"
             if rows
-            else "<p>No ways in yet.</p>"
+            else '<p class="small muted">No ways in yet.</p>'
         )
         adding = "".join(method.connect_form(csrf) for method in self.methods)
-        return f"<h2>Ways in</h2>{table}{adding}"
+        return f'<div class="stack"><h2>Ways in</h2>{table}<div class="adding">{adding}</div></div>'
 
     async def remove(self, request: Request) -> Response:
         submitted = await self.browser.account_form(request)
@@ -144,8 +145,8 @@ class Login:
         removal = self.identities.remove(account.id, form.get("method", ""), form.get("subject", ""))
         if removal == "last":
             notice = error_box("That is your last way in. Add another before removing it.")
-            return self.browser.render_account(account, csrf, notice, status_code=400)
-        return RedirectResponse(self.local("/account"), status_code=303)
+            return self.browser.render_settings(account, csrf, notice, status_code=400)
+        return RedirectResponse(self.local("/account/settings"), status_code=303)
 
     def routes(self, prefix: str) -> list[BaseRoute]:
         from notes_vault_mcp.auth.hosted import limited

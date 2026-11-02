@@ -9,6 +9,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 - `deploy/docker/` holds the Docker Compose setup, and each GitHub release carries its `compose.yml`, `Caddyfile` and `example.env`, so a server installs with two `curl` lines. Its `.env` keeps the vaults in the container's volume unless you set a bucket.
 
 ### Fixed
+- A note's age counts calendar days in local time, so a note from five days back reads "5 days" also just after midnight.
 - A vault server's root address opens the account page instead of answering not found.
 
 ## 0.12.0

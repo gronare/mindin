@@ -129,21 +129,23 @@ def stem_query(query: str) -> str | None:
     return stem or None
 
 
-def parse_day(stamp: str) -> float | None:
+def parse_date(stamp: str) -> date | None:
     try:
         year, month, day = (int(part) for part in stamp[:10].split("-"))
+        return date(year, month, day)
     except ValueError:
         return None
-    try:
-        return datetime(year, month, day, tzinfo=UTC).timestamp()
-    except ValueError:
-        return None
+
+
+def parse_day(stamp: str) -> float | None:
+    day = parse_date(stamp)
+    return None if day is None else datetime(day.year, day.month, day.day, tzinfo=UTC).timestamp()
 
 
 def age_days(note: Note, now: float) -> float:
-    moment = parse_day(note.updated or note.date)
-    if moment is not None:
-        return max(0.0, (now - moment) / DAY_SECONDS)
+    day = parse_date(note.updated or note.date)
+    if day is not None:
+        return float(max(0, (date.fromtimestamp(now) - day).days))
     if note.mtime:
         return max(0.0, (now - note.mtime) / DAY_SECONDS)
     return 0.0

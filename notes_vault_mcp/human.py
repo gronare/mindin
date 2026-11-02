@@ -3,11 +3,12 @@ from __future__ import annotations
 import re
 import textwrap
 import time
+from datetime import date
 
 from notes_vault_mcp.frontmatter import FrontmatterError, parse
 from notes_vault_mcp.hooks import Commit
 from notes_vault_mcp.notes import Findings
-from notes_vault_mcp.search import DAY_SECONDS, parse_day, partial_hint, translate_hint
+from notes_vault_mcp.search import DAY_SECONDS, parse_date, partial_hint, translate_hint
 from notes_vault_mcp.terminal import (
     Terminal,
     age_words,
@@ -183,9 +184,9 @@ def meta_line(frontmatter: dict, term: Terminal) -> str:
     priority = str(frontmatter.get("priority") or "")
     if priority:
         parts.append(priority_dot(term, priority) + " " + term.paint(priority, PRIORITY_COLORS.get(priority, "grey")))
-    moment = parse_day(str(frontmatter.get("updated") or frontmatter.get("date") or ""))
-    if moment is not None:
-        parts.append(updated_words(max(0.0, (time.time() - moment) / DAY_SECONDS)))
+    day = parse_date(str(frontmatter.get("updated") or frontmatter.get("date") or ""))
+    if day is not None:
+        parts.append(updated_words(max(0, (date.today() - day).days)))
     tags = frontmatter.get("tags")
     if isinstance(tags, list) and tags:
         parts.append(" ".join(f"#{tag}" for tag in tags))

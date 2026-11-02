@@ -14,7 +14,7 @@ import httpx2
 import pytest
 from mcp import Client, StdioServerParameters
 from remote_support import EMAIL, Served, serve
-from test_cli_hooks import feed, head_sha, make_repo
+from test_cli_hooks import feed, head_sha, make_repo, prompts, transcript_of
 
 from notes_vault_mcp import credentials, login, provision
 from notes_vault_mcp.backends import NotFound
@@ -32,7 +32,12 @@ RFC_8628 = "https://www.rfc-editor.org/rfc/rfc8628"
 def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
-    for name in ("VAULT_SERVER_URL", "CLAUDE_PLUGIN_OPTION_VAULT_SERVER_URL", "VAULT_STOP_HOOK"):
+    for name in (
+        "VAULT_SERVER_URL",
+        "CLAUDE_PLUGIN_OPTION_VAULT_SERVER_URL",
+        "VAULT_STOP_HOOK",
+        "VAULT_STOP_HOOK_PROMPTS",
+    ):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -267,6 +272,25 @@ def test_stop_blocks_on_an_unlogged_commit_through_the_server(
     payload = json.loads(capsys.readouterr().out)
     assert payload["decision"] == "block"
     assert head_sha(repo) in payload["reason"]
+
+
+def test_stop_asks_once_about_prompts_through_the_server(
+    remote: Served, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    repo = make_repo(tmp_path / "repos", "frame")
+    transcript = transcript_of(tmp_path / "t.jsonl", prompts("p1", "p2", "p3"))
+    feed(monkeypatch, {"cwd": str(repo), "session_id": "s-frame", "transcript_path": str(transcript)})
+    assert main(["hook", "stop"]) == 0
+    reason = json.loads(capsys.readouterr().out)["reason"]
+    assert head_sha(repo) in reason and "the user wrote 3 messages since" in reason
+    outside = tmp_path / "shed"
+    outside.mkdir()
+    feed(monkeypatch, {"cwd": str(outside), "session_id": "s-frame", "transcript_path": str(transcript)})
+    assert main(["hook", "stop"]) == 0
+    assert capsys.readouterr().out.strip() == ""
+    feed(monkeypatch, {"cwd": str(outside), "session_id": "s-shed", "transcript_path": str(transcript)})
+    assert main(["hook", "stop"]) == 0
+    assert "the user wrote 3 messages since" in json.loads(capsys.readouterr().out)["reason"]
 
 
 def test_claim_and_release_round_trip_through_the_server(remote: Served, capsys):

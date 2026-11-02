@@ -5,6 +5,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 ## Unreleased
 
 ### What's new
+- The stop hook asks the agent to save the decisions and ideas in your messages once you have written three since its last vault write, also outside a git repo; `VAULT_STOP_HOOK_PROMPTS` sets the number or turns the check `off`.
 
 ### Fixed
 

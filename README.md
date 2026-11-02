@@ -296,8 +296,12 @@ that left work unrecorded: commits made in this checkout in the last 24 hours wh
 repo log, and open task notes older than `stale_after_days` that the session read or wrote through the
 vault tools. It answers `{"decision": "block", "reason": ...}` with the `log_append` call to make, or
 nothing when the vault is up to date. Stale notes the session did not touch are listed by `context`
-under `triage` at the next start instead. `VAULT_STOP_HOOK=off` silences it, which a tool that drives
-agent sessions and writes the log itself sets in the sessions it starts.
+under `triage` at the next start instead. It also blocks, in any directory, once you have written three
+messages since the session's last write through the vault tools, asking the agent to save the decisions,
+deferrals and ideas in them; it asks once per message, so an agent with nothing to save stops on its next
+try and is asked again after three more. `VAULT_STOP_HOOK=off` silences the hook, which a tool that drives
+agent sessions and writes the log itself sets in the sessions it starts. `VAULT_STOP_HOOK_PROMPTS` sets how
+many messages it waits for, or turns that check off with `off`.
 
 ### Codex, Cursor and other MCP clients
 
@@ -778,6 +782,7 @@ Every variable is also read from `CLAUDE_PLUGIN_OPTION_<NAME>`; the bare name wi
 | `VAULT_EMBED_THREADS` | no | Threads the model runs on, default half the cores the process may use, at most `4`, counting a container's CPU limit (cgroup v2 `cpu.max`); ONNX Runtime on its own takes every physical core of the node. |
 | `VAULT_EMBED_MAX_TOKENS` | no | Tokens of a section the model reads, default `256`. Prose sections stay under it; a section of links or code is cut there instead of padding its batch to 512. |
 | `VAULT_STOP_HOOK` | no | `off` disables the stop hook. |
+| `VAULT_STOP_HOOK_PROMPTS` | no | How many messages you write after the agent's last vault write before the stop hook asks it to save them, default `3`; `off` turns that check off. |
 
 ### Server
 

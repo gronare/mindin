@@ -454,3 +454,147 @@ def test_commits_since_shows_the_count_and_the_newest_ten(tmp_path):
     text = _commits_since(root, "2000-01-01", [str(root)])
     assert text.startswith("12 commits, newest 10:")
     assert len(text.splitlines()) == 11
+
+
+def vault_call(tool: str, server: str = "plugin_vault_vault") -> dict:
+    tool_use = {"type": "tool_use", "name": f"mcp__{server}__{tool}", "input": {"path": "Projects/orchard-fresh.md"}}
+    return {"type": "assistant", "uuid": f"a-{tool}", "message": {"role": "assistant", "content": [tool_use]}}
+
+
+def prompt(uuid: str, text: str = "Låt oss beskära äppelträden i mars", **extra) -> dict:
+    return {
+        "type": "user",
+        "uuid": uuid,
+        "origin": {"kind": "human"},
+        "message": {"role": "user", "content": text},
+        **extra,
+    }
+
+
+def not_prompts() -> list[dict]:
+    result = {"type": "tool_result", "tool_use_id": "t1", "content": "ok"}
+    return [
+        {"type": "user", "uuid": "n1", "message": {"role": "user", "content": [result]}},
+        {"type": "user", "uuid": "n2", "isMeta": True, "message": {"role": "user", "content": "Caveat: the bench"}},
+        {"type": "user", "uuid": "n3", "isCompactSummary": True, "message": {"role": "user", "content": "Summary"}},
+        {"type": "user", "uuid": "n4", "message": {"role": "user", "content": "<bash-input>ls</bash-input>"}},
+        {"type": "user", "uuid": "n5", "message": {"role": "user", "content": "<command-name>/clear</command-name>"}},
+        {"type": "user", "uuid": "n6", "origin": {"kind": "task-notification"}, "message": {"content": "done"}},
+        {"type": "user", "uuid": "n7", "origin": {"kind": "peer"}, "message": {"content": "Report from the shed"}},
+        {
+            "type": "user",
+            "uuid": "n8",
+            "message": {"content": [{"type": "text", "text": "[Request interrupted by user]"}]},
+        },
+    ]
+
+
+def transcript_of(path: Path, entries: list[dict]) -> Path:
+    path.write_text("".join(json.dumps(entry) + "\n" for entry in entries), encoding="utf-8")
+    return path
+
+
+def test_only_the_users_own_prompts_count_as_prompts():
+    assert [entry["uuid"] for entry in not_prompts() if hooks.is_prompt(entry)] == []
+    images = [{"type": "image", "source": {}}, {"type": "text", "text": "Se verkstadens ritning"}]
+    assert hooks.is_prompt({"type": "user", "uuid": "p", "message": {"content": images}})
+    assert hooks.is_prompt({"type": "user", "uuid": "p", "message": {"content": "Plantera päron"}})
+
+
+def test_vault_writes_are_told_apart_from_reads_and_other_servers():
+    assert hooks.is_vault_write("mcp__plugin_vault_vault__write_file")
+    assert hooks.is_vault_write("mcp__claude_ai_Vault__append_file")
+    assert not hooks.is_vault_write("mcp__plugin_vault_vault__search")
+    assert not hooks.is_vault_write("mcp__orchard__write_file")
+    assert not hooks.is_vault_write("vault_write_file")
+
+
+def test_prompts_are_counted_from_the_last_vault_write(tmp_path: Path):
+    entries = [prompt("p1"), vault_call("search"), vault_call("backlog_add"), *not_prompts(), prompt("p2")]
+    entries += [vault_call("read_file"), prompt("p3")]
+    found = hooks.read_transcript(str(transcript_of(tmp_path / "t.jsonl", entries)))
+    assert found.prompts_since_write == ["p2", "p3"]
+    assert hooks.unsaved_prompts(found, "p2") == ["p3"]
+    assert hooks.unsaved_prompts(found, "p3") == []
+    assert hooks.unsaved_prompts(found, "p1") == ["p2", "p3"]
+
+
+@pytest.fixture
+def cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "cache"))
+    return tmp_path / "cache"
+
+
+def stop_payload(monkeypatch: pytest.MonkeyPatch, capsys, payload: dict) -> dict | None:
+    feed(monkeypatch, payload)
+    assert main(["hook", "stop"]) == 0
+    out = capsys.readouterr().out.strip()
+    return json.loads(out) if out else None
+
+
+def prompts(*uuids: str) -> list[dict]:
+    return [prompt(uuid) for uuid in uuids]
+
+
+def test_stop_waits_for_three_prompts_after_the_last_vault_write_and_asks_once(
+    cache: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    transcript = transcript_of(tmp_path / "t.jsonl", [prompt("p0"), vault_call("write_file"), *prompts("p1", "p2")])
+    payload = {"cwd": str(tmp_path), "session_id": "s-orchard", "transcript_path": str(transcript)}
+    assert stop_payload(monkeypatch, capsys, payload) is None
+    transcript_of(transcript, [prompt("p0"), vault_call("write_file"), *prompts("p1", "p2", "p3")])
+    blocked = stop_payload(monkeypatch, capsys, payload)
+    assert blocked["decision"] == "block"
+    assert "the user wrote 3 messages since your last vault write" in blocked["reason"]
+    assert stop_payload(monkeypatch, capsys, payload) is None
+    transcript_of(transcript, [vault_call("write_file"), *prompts("p1", "p2", "p3", "p4", "p5")])
+    assert stop_payload(monkeypatch, capsys, payload) is None
+    transcript_of(transcript, [vault_call("write_file"), *prompts("p1", "p2", "p3", "p4", "p5", "p6")])
+    assert "wrote 3 messages since" in stop_payload(monkeypatch, capsys, payload)["reason"]
+
+
+@pytest.mark.parametrize(("setting", "threshold"), [("1", 1), ("5", 5), ("0", 3), ("-2", 3), ("many", 3), ("", 3)])
+def test_the_prompt_threshold_comes_from_the_setting(monkeypatch: pytest.MonkeyPatch, setting: str, threshold: int):
+    monkeypatch.setenv("VAULT_STOP_HOOK_PROMPTS", setting)
+    assert hooks.prompt_threshold() == threshold
+
+
+def test_stop_asks_at_a_custom_number_of_prompts(cache: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
+    transcript = transcript_of(tmp_path / "t.jsonl", [prompt("p1")])
+    payload = {"cwd": str(tmp_path), "session_id": "s-orchard", "transcript_path": str(transcript)}
+    monkeypatch.setenv("VAULT_STOP_HOOK_PROMPTS", "1")
+    assert "wrote 1 message since" in stop_payload(monkeypatch, capsys, payload)["reason"]
+    assert stop_payload(monkeypatch, capsys, {**payload, "session_id": "s-workshop"})["decision"] == "block"
+
+
+def test_stop_is_silent_when_the_last_prompts_came_before_a_vault_write(
+    cache: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    entries = [*prompts("p1", "p2", "p3"), vault_call("log_append", "claude_ai_Vault")]
+    transcript = transcript_of(tmp_path / "t.jsonl", entries)
+    payload = {"cwd": str(tmp_path), "session_id": "s-orchard", "transcript_path": str(transcript)}
+    assert stop_payload(monkeypatch, capsys, payload) is None
+
+
+def test_the_prompt_check_switches_off_alone(cache: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
+    transcript = transcript_of(tmp_path / "t.jsonl", prompts("p1", "p2", "p3"))
+    payload = {"cwd": str(tmp_path), "session_id": "s-orchard", "transcript_path": str(transcript)}
+    monkeypatch.setenv("VAULT_STOP_HOOK_PROMPTS", "off")
+    assert stop_payload(monkeypatch, capsys, payload) is None
+    monkeypatch.delenv("VAULT_STOP_HOOK_PROMPTS")
+    monkeypatch.setenv("VAULT_STOP_HOOK", "off")
+    assert stop_payload(monkeypatch, capsys, payload) is None
+    assert stop_payload(monkeypatch, capsys, {**payload, "stop_hook_active": True}) is None
+
+
+def test_stop_names_prompts_and_unlogged_commits_in_one_block(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    repo = make_repo(tmp_path / "repos", "workshop")
+    transcript = transcript_of(tmp_path / "t.jsonl", prompts("p1", "p2", "p3"))
+    payload = {"cwd": str(repo), "session_id": "s-workshop", "transcript_path": str(transcript)}
+    blocked = stop_payload(monkeypatch, capsys, payload)
+    assert head_sha(repo) in blocked["reason"]
+    assert "the user wrote 3 messages since" in blocked["reason"]
+    monkeypatch.setenv("VAULT_STOP_HOOK_PROMPTS", "off")
+    assert "message" not in stop_payload(monkeypatch, capsys, payload)["reason"]

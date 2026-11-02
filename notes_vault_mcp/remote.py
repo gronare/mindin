@@ -220,6 +220,10 @@ def stop(url: str, raw: str) -> str | None:
     if target is None:
         return None
     state = LocalState(url)
+    asked = hooks.AskedPrompts(state.data.setdefault("prompts_asked", {}), state.save)
+    root = target.root
+    if root is None:
+        return hooks.verdict(target, [], [], asked)
 
     async def action(remote: Remote) -> str | None:
         with contextlib.suppress(Exception):
@@ -228,9 +232,9 @@ def stop(url: str, raw: str) -> str | None:
             logged = await remote.read((await remote.schema()).log_key(target.repo))
         except (RemoteError, NoHome):
             logged = ""
-        commits = hooks.unlogged_in(logged, target.root)
+        commits = hooks.unlogged_in(logged, root)
         stale = hooks.stale_labels((await remote.context(target.cwd))["triage"])
-        return hooks.verdict(target, commits, stale)
+        return hooks.verdict(target, commits, stale, asked)
 
     return run(url, action)
 

@@ -157,6 +157,13 @@ def command_import(args: argparse.Namespace) -> int:
     if vault is None:
         print(f"notes-vault-mcp: name one of {account.email}'s vaults with --vault <slug>", file=sys.stderr)
         return 1
+    if vault.shared:
+        print(
+            f"notes-vault-mcp: {vault.slug} is a shared vault; it takes notes through its connections, so each change"
+            " is kept in its history",
+            file=sys.stderr,
+        )
+        return 1
     source = import_source(args)
     sealed = sealed_vaults_from_env(store)
     try:

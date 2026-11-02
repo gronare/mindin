@@ -15,6 +15,7 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from notes_vault_mcp.backends import Entry, NotFound, VaultBackend
+from notes_vault_mcp.shared import SharedRefusal, acting_as
 from notes_vault_mcp.vault import SubjectVaults
 
 ALLOW = "OPTIONS, PROPFIND, GET, HEAD, PUT, DELETE, MKCOL, MOVE, COPY"
@@ -26,7 +27,7 @@ MAX_BODY_BYTES = 32 * 1024 * 1024
 
 
 class DavCredentials(Protocol):
-    def issue(self, subject: str, label: str = "") -> str: ...
+    def issue(self, subject: str, label: str = "", account_id: str | None = None) -> str: ...
 
     def lookup(self, secret: str) -> tuple[str, bool] | None: ...
 
@@ -125,26 +126,29 @@ class WebDav:
             return Response("method not allowed", 405, headers={"Allow": ALLOW})
         backend = self.vaults.for_subject(subject).backend
         base = self.mount + "/" + quote(name, safe="") + "/"
+        actor = getattr(self.tokens, "actor", None)
         try:
-            return await handler(request, backend, key, base)
+            with acting_as(actor(self._secret(request)) if actor else None):
+                return await handler(request, backend, key, base)
         except NotFound:
             return Response("not found", 404)
         except BodyTooLarge:
             return Response(f"body larger than {self.max_body} bytes", 413)
+        except SharedRefusal as exc:
+            return Response(str(exc), 403)
 
-    def _grant(self, request: Request) -> tuple[str, bool] | None:
-        header = request.headers.get("authorization", "")
-        scheme, _, value = header.partition(" ")
+    def _secret(self, request: Request) -> str:
+        scheme, _, value = request.headers.get("authorization", "").partition(" ")
         if scheme.lower() == "basic":
             try:
-                decoded = base64.b64decode(value.strip()).decode("utf-8")
+                return base64.b64decode(value.strip()).decode("utf-8").partition(":")[2]
             except (ValueError, UnicodeDecodeError):
-                return None
-            _, _, secret = decoded.partition(":")
-            return self.tokens.lookup(secret)
-        if scheme.lower() == "bearer":
-            return self.tokens.lookup(value.strip())
-        return None
+                return ""
+        return value.strip() if scheme.lower() == "bearer" else ""
+
+    def _grant(self, request: Request) -> tuple[str, bool] | None:
+        secret = self._secret(request)
+        return self.tokens.lookup(secret) if secret else None
 
     def _target(self, scope: Scope) -> tuple[str | None, str] | None:
         path = scope.get("path", "")

@@ -38,10 +38,11 @@ from notes_vault_mcp.auth.hosted_transfer import (
     import_files,
     zip_source,
 )
-from notes_vault_mcp.auth.hosted_vaults import NAME_MAX, Vault
+from notes_vault_mcp.auth.hosted_vaults import KINDS, NAME_MAX, PERSONAL, SHARED, Vault
 from notes_vault_mcp.auth.hosted_web import Browser, app_script, copy_field, error_box, esc, hidden_field
+from notes_vault_mcp.auth.login_email import SmtpFactory
 from notes_vault_mcp.backends import SCHEMA_KEY, VaultBackend
-from notes_vault_mcp.presets import OFFERED, PRESETS
+from notes_vault_mcp.presets import OFFERED, PRESETS, SHARED_PRESET
 
 if TYPE_CHECKING:
     from notes_vault_mcp.vault import SubjectVaults
@@ -81,13 +82,24 @@ def ago(moment: float | None, now: float) -> str:
 
 
 class VaultPages:
-    def __init__(self, browser: Browser, vaults: SubjectVaults, sealed: SealedVaults, deletion: SelfDeletion) -> None:
+    def __init__(
+        self,
+        browser: Browser,
+        vaults: SubjectVaults,
+        sealed: SealedVaults,
+        deletion: SelfDeletion,
+        smtp_factory: SmtpFactory | None = None,
+    ) -> None:
         self.browser = browser
+        self.smtp_factory = smtp_factory
         self.store = browser.store
         self.vaults = vaults
         self.sealed = sealed
         self.deletion = deletion
         self.sections: list[Callable[[Account, Vault, str], str]] = []
+        from notes_vault_mcp.auth.hosted_shared_pages import SharedPages
+
+        self.shared = SharedPages(self)
 
     def local(self, path: str) -> str:
         return self.browser.local(path)
@@ -110,24 +122,40 @@ class VaultPages:
     def summary_line(self, vault: Vault, facts: VaultFacts) -> str:
         keys = self.store.keys(vault.account_id, vault.id)
         computers = sum(1 for key in keys if key["purpose"] == MACHINE_KEY_PURPOSE)
-        links = len(self.store.connections(vault.id)) + computers
+        links = len(self.store.connections(vault.id, vault.account_id)) + computers
         parts = [counted(facts.notes, "note"), size_label(facts.size)]
         parts.append(f"written {ago(facts.written_at, self.browser.clock())}" if facts.written_at else "empty")
         parts.append(f"{counted(len(keys) - computers, 'key')}, {counted(links, 'connection')}")
         return " · ".join(parts)
 
-    def render_list(self, account: Account, notice: str = "", status_code: int = 200) -> Response:
-        rows = "".join(
+    def vault_row(self, account: Account, vault: Vault) -> str:
+        if vault.shared:
+            role = "Owner" if vault.account_id == account.id else "Member"
+            chips = f'<span class="chip shared">Shared</span> <span class="chip role">{role}</span>'
+            facts = self.shared.summary_line(account, vault, self.facts(vault))
+        else:
+            chips, facts = '<span class="chip">Personal</span>', self.summary_line(vault, self.facts(vault))
+        return (
             f'<a class="vault" href="{esc(self.vault_url(vault))}">'
-            f'<div class="name">{esc(vault.name)} <span class="chip">Personal</span></div>'
+            f'<div class="name">{esc(vault.name)} {chips}</div>'
             '<span class="go" aria-hidden="true">›</span>'
-            f'<div class="facts">{esc(self.summary_line(vault, self.facts(vault)))}</div>'
+            f'<div class="facts">{esc(facts)}</div>'
             f'<div class="where">…/v/{esc(vault.slug)}/mcp</div></a>'
-            for vault in self.store.vaults(account.id)
         )
+
+    def render_list(self, account: Account, notice: str = "", status_code: int = 200) -> Response:
+        reachable = self.store.reachable_vaults(account.id)
+        groups = [
+            (label, "".join(self.vault_row(account, vault) for vault in reachable if vault.shared == shared))
+            for label, shared in (("Personal", False), ("Shared", True))
+        ]
         listing = (
-            f'<div><p class="group-label">Personal</p><div class="vaults">{rows}</div></div>'
-            if rows
+            "".join(
+                f'<div><p class="group-label">{label}</p><div class="vaults">{rows}</div></div>'
+                for label, rows in groups
+                if rows
+            )
+            if reachable
             else '<p class="muted">You have no vault yet. Make one to connect a client.</p>'
         )
         body = f"""<div class="head"><div><h1>Your vaults</h1><p class="lead">Each vault has its own address, keys
@@ -136,7 +164,7 @@ and connections. A connection only ever reaches the vault it was made for.</p></
 {notice}{listing}"""
         return self.browser.app("Your vaults", body, status_code=status_code)
 
-    def connection_rows(self, vault: Vault, csrf: str) -> str:
+    def connection_rows(self, account: Account, vault: Vault, csrf: str) -> str:
         now = self.browser.clock()
         rows = [
             f"<tr><td>{esc(link.name)}</td><td>Connector</td><td>{esc(scope_label(link.scopes))}</td>"
@@ -145,9 +173,9 @@ and connections. A connection only ever reaches the vault it was made for.</p></
             f"{hidden_field('client', link.client_id)}"
             f'<button type="submit" class="btn secondary small" aria-label="Disconnect {esc(link.name)}">'
             "Disconnect</button></form></td></tr>"
-            for link in self.store.connections(vault.id)
+            for link in self.store.connections(vault.id, account.id)
         ]
-        keys = sorted(self.store.keys(vault.account_id, vault.id), key=lambda key: key["purpose"] != "device")
+        keys = sorted(self.store.keys(account.id, vault.id), key=lambda key: key["purpose"] != "device")
         for key in keys:
             kind, action = KIND_OF_PURPOSE.get(key["purpose"], ("Key", "Revoke"))
             rows.append(
@@ -167,38 +195,19 @@ and connections. A connection only ever reaches the vault it was made for.</p></
     def render_vault(
         self, account: Account, csrf: str, vault: Vault, notice: str = "", status_code: int = 200
     ) -> Response:
+        if vault.shared:
+            return self.shared.render(account, csrf, vault, notice, status_code)
         backend = self.storage(vault)
         schema = provision.stored(backend, SCHEMA_KEY)
         facts = facts_of(backend.list_all())
         lead = " · ".join(["Personal", layout_title(schema), counted(facts.notes, "note"), size_label(facts.size)])
-        public = self.browser.config.public_url.rstrip("/")
-        login_line = f"notes-vault-mcp login {public} --vault {vault.slug}"
         name = esc(vault.name)
         body = f"""<div><div class="breadcrumb"><a href="{esc(self.local("/account"))}">Vaults</a> › {name}</div>
 <div class="head"><div><h1>{name}</h1><p class="lead">{esc(lead)}</p></div>
 <span class="chip">Personal</span></div></div>
 {notice}{broken_box(schema)}{self.layout_box(vault, csrf, schema)}
-<div class="stack"><h2>Connect</h2><div class="cols">
-<div class="box"><b>claude.ai, Claude Desktop and mobile</b>
-<p class="small muted">Add a custom connector with this address. Name it after the vault, for example
-<i>Vault · {name}</i>.</p>{copy_field("mcp-url", self.mcp_url(vault))}</div>
-<div class="box"><b>Claude Code, Codex, Cursor</b>
-<p class="small muted">Sign this computer in to the vault. A repo can point at another of your vaults with
-<code>notes-vault-mcp vault use</code>.</p>{copy_field("cli-login", login_line)}</div>
-<div class="box"><b>Obsidian (Remotely Save)</b>
-<p class="small muted">WebDAV with your email as the username and a key from this vault as the password. The key
-decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url)}</div>
-</div></div>
-<div class="stack"><h2>Connections and keys</h2>
-{self.connection_rows(vault, csrf)}
-{self.form_head(csrf, self.vault_url(vault, "/keys"), ' class="row"')}
-<label class="field">New key, named after where it will live
-<input type="text" name="name" maxlength="64" required placeholder="laptop"></label>
-<label class="field narrow">Access<select name="access">
-<option value="write">read and write</option><option value="read">read</option></select></label>
-<button class="btn" type="submit">Make a key</button></form></div>
-{self.added(account, vault, csrf)}<div class="cols">
-<div class="box"><h2>Your data</h2>
+{self.connect_section(account, vault, csrf)}
+{self.added(account, vault, csrf)}<div class="box"><h2>Your data</h2>
 <p class="small muted">Download every file in this vault as a zip, or bring files in from one; a file with the same
 path is replaced.</p>
 <div class="row"><a class="btn secondary" href="{esc(self.vault_url(vault, "/export"))}">Download zip</a></div>
@@ -217,6 +226,30 @@ path is replaced.</p>
 
     def added(self, account: Account, vault: Vault, csrf: str) -> str:
         return "".join(section(account, vault, csrf) for section in self.sections)
+
+    def connect_section(self, account: Account, vault: Vault, csrf: str, heading: str = "Connections and keys") -> str:
+        public = self.browser.config.public_url.rstrip("/")
+        login_line = f"notes-vault-mcp login {public} --vault {vault.slug}"
+        name = esc(vault.name)
+        return f"""<div class="stack"><h2>Connect</h2><div class="cols">
+<div class="box"><b>claude.ai, Claude Desktop and mobile</b>
+<p class="small muted">Add a custom connector with this address. Name it after the vault, for example
+<i>Vault · {name}</i>.</p>{copy_field("mcp-url", self.mcp_url(vault))}</div>
+<div class="box"><b>Claude Code, Codex, Cursor</b>
+<p class="small muted">Sign this computer in to the vault. A repo can point at another of your vaults with
+<code>notes-vault-mcp vault use</code>.</p>{copy_field("cli-login", login_line)}</div>
+<div class="box"><b>Obsidian (Remotely Save)</b>
+<p class="small muted">WebDAV with your email as the username and a key from this vault as the password. The key
+decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url)}</div>
+</div></div>
+<div class="stack"><h2>{esc(heading)}</h2>
+{self.connection_rows(account, vault, csrf)}
+{self.form_head(csrf, self.vault_url(vault, "/keys"), ' class="row"')}
+<label class="field">New key, named after where it will live
+<input type="text" name="name" maxlength="64" required placeholder="laptop"></label>
+<label class="field narrow">Access<select name="access">
+<option value="write">read and write</option><option value="read">read</option></select></label>
+<button class="btn" type="submit">Make a key</button></form></div>"""
 
     def layout_box(self, vault: Vault, csrf: str, schema: str | None) -> str:
         current = provision.named_preset(schema)
@@ -242,6 +275,9 @@ path is replaced.</p>
             return found
         account, csrf, vault, form = found
         preset = form.get("preset", "")
+        if vault.shared:
+            notice = error_box("A shared vault keeps its own layout; it is not switched.")
+            return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, 409))
         if preset not in OFFERED:
             notice = error_box("Pick one of the layouts.")
             return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, 400))
@@ -263,8 +299,9 @@ path is replaced.</p>
         return f'<div class="notice"><p>This vault now uses {title}.{moved}</p></div>', 200
 
     def render_new(
-        self, csrf: str, name: str = "", preset: str = "", error: str = "", status_code: int = 200
+        self, csrf: str, name: str = "", preset: str = "", error: str = "", status_code: int = 200, kind: str = ""
     ) -> Response:
+        shared = kind == SHARED
         base = f"{self.browser.config.public_url.rstrip('/')}/v/"
         body = f"""<div><div class="breadcrumb"><a href="{esc(self.local("/account"))}">Vaults</a> › New vault</div>
 <h1>New vault</h1></div>
@@ -275,7 +312,14 @@ path is replaced.</p>
 <span class="small muted">Address:
 <code data-slug-from="vault-name" data-base="{esc(base)}">{esc(base)}…/mcp</code></span>
 </label>
-<fieldset class="choice"><legend>Layout</legend>
+<fieldset class="choice"><legend>Kind</legend>
+<label class="option"><input type="radio" name="kind" value="personal" required{"" if shared else " checked"}>
+<b>Personal</b><span>Only you. Plans, logs, backlog and your own reasoning, in the layout you pick next.</span></label>
+<label class="option"><input type="radio" name="kind" value="shared" required{" checked" if shared else ""}>
+<b>Shared</b><span>You and the people you invite. Only how things are now: systems, how-tos, decisions and
+references. Every change is kept with who made it.</span></label>
+</fieldset>
+<fieldset class="choice" data-layout-for-kind="personal"><legend>Layout</legend>
 {layout_options(preset or OFFERED[0])}
 </fieldset>
 <div class="row"><button class="btn" type="submit">Create vault</button>
@@ -290,6 +334,7 @@ path is replaced.</p>
         session = await self.session(request, "/account")
         if isinstance(session, Response):
             return session
+        self.store.accept_invitations(session[0])
         return await anyio.to_thread.run_sync(self.render_list, session[0])
 
     async def new_page(self, request: Request) -> Response:
@@ -309,7 +354,8 @@ path is replaced.</p>
         if isinstance(session, Response):
             return session
         account, csrf = session
-        vault = self.store.own_vault(account.id, slug)
+        self.store.accept_invitations(account)
+        vault = self.store.reachable_vault(account.id, slug)
         if vault is None or vault.slug != slug:
             return self.not_found()
         return await anyio.to_thread.run_sync(self.render_vault, account, csrf, vault)
@@ -319,28 +365,41 @@ path is replaced.</p>
         if isinstance(submitted, Response):
             return submitted
         account, csrf, form = submitted
-        vault = self.store.own_vault(account.id, request.path_params["slug"])
+        vault = self.store.reachable_vault(account.id, request.path_params["slug"])
         if vault is None or vault.slug != request.path_params["slug"]:
             return self.not_found()
         return account, csrf, vault, form
+
+    async def owned(self, request: Request) -> tuple[Account, str, Vault, dict] | Response:
+        found = await self.submitted(request)
+        if isinstance(found, Response) or found[2].account_id == found[0].id:
+            return found
+        return self.browser.app(
+            "Owner only", '<p class="muted">Only the owner of this vault can do that.</p>', status_code=403
+        )
 
     async def create(self, request: Request) -> Response:
         submitted = await self.browser.account_form(request)
         if isinstance(submitted, Response):
             return submitted
         account, csrf, form = submitted
-        name, preset = form.get("name", ""), form.get("preset", "")
-        if preset not in OFFERED:
-            return self.render_new(csrf, name, error="Pick one of the layouts.", status_code=400)
+        name, preset, kind = form.get("name", ""), form.get("preset", ""), form.get("kind", PERSONAL)
+        if kind not in KINDS:
+            return self.render_new(csrf, name, preset, "Pick personal or shared.", status_code=400)
+        if kind == PERSONAL and preset not in OFFERED:
+            return self.render_new(csrf, name, error="Pick one of the layouts.", status_code=400, kind=kind)
         try:
-            vault = self.store.create_vault(account.id, name)
+            vault = self.store.create_vault(account.id, name, kind=kind)
         except VaultNameError as exc:
-            return self.render_new(csrf, name, preset, str(exc), status_code=400)
+            return self.render_new(csrf, name, preset, str(exc), status_code=400, kind=kind)
         await anyio.to_thread.run_sync(self.provision, vault, preset)
         return RedirectResponse(self.vault_url(vault), status_code=303)
 
     def provision(self, vault: Vault, preset: str) -> None:
         backend, _ = self.sealed.for_vault(vault.id)
+        if vault.shared:
+            provision.initialize(backend, preset=SHARED_PRESET)
+            return
         provision.initialize(backend, preset=preset, welcome={"DAV_URL": self.vaults.dav_url})
 
     async def make_key(self, request: Request) -> Response:
@@ -372,8 +431,8 @@ path is replaced.</p>
         found = await self.submitted(request)
         if isinstance(found, Response):
             return found
-        _, _, vault, form = found
-        self.store.disconnect(vault.id, form.get("client", ""))
+        account, _, vault, form = found
+        self.store.disconnect(vault.id, form.get("client", ""), account.id)
         return RedirectResponse(self.vault_url(vault), status_code=303)
 
     async def export(self, request: Request) -> Response:
@@ -382,7 +441,7 @@ path is replaced.</p>
         if isinstance(session, Response):
             return session
         vault = self.store.own_vault(session[0].id, slug)
-        if vault is None or vault.slug != slug:
+        if vault is None or vault.slug != slug or vault.shared:
             return self.not_found()
         spool = tempfile.SpooledTemporaryFile(max_size=SPOOL_BYTES)  # noqa: SIM115
         try:
@@ -404,10 +463,13 @@ path is replaced.</p>
         return StreamingResponse(chunks(), media_type="application/zip", headers=headers)
 
     async def upload(self, request: Request) -> Response:
-        found = await self.submitted(request)
+        found = await self.owned(request)
         if isinstance(found, Response):
             return found
         account, csrf, vault, _ = found
+        if vault.shared:
+            notice = error_box("A shared vault takes notes through its connections, so each change is kept.")
+            return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, 409))
         upload = (await request.form()).get("archive")
         if not isinstance(upload, UploadFile):
             notice = error_box("Choose a zip file.")
@@ -425,7 +487,7 @@ path is replaced.</p>
             return import_files(self.vaults.for_subject(vault.id).backend, zip_source(archive))
 
     async def delete(self, request: Request) -> Response:
-        found = await self.submitted(request)
+        found = await self.owned(request)
         if isinstance(found, Response):
             return found
         account, csrf, vault, form = found
@@ -435,7 +497,9 @@ path is replaced.</p>
             notice = error_box(f"Type the vault's name, {vault.name}, to delete it.")
             return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, 400))
         await anyio.to_thread.run_sync(self.erase, vault)
-        notice = f'<div class="notice"><p>{esc(vault.name)} is deleted, with its notes, keys and connections.</p></div>'
+        whose = " for every member, with its history" if vault.shared else ""
+        gone = f"{vault.name} is deleted{whose}, with its notes, keys and connections."
+        notice = f'<div class="notice"><p>{esc(gone)}</p></div>'
         return await anyio.to_thread.run_sync(self.render_list, account, notice)
 
     def erase(self, vault: Vault) -> int:
@@ -458,4 +522,5 @@ path is replaced.</p>
             Route(base + "/export", endpoint=self.export, methods=["GET"]),
             Route(base + "/import", endpoint=upload, methods=["POST"]),
             Route(base + "/delete", endpoint=limited(self.delete), methods=["POST"]),
+            *self.shared.routes(base, limited),
         ]

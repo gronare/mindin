@@ -25,10 +25,26 @@ class SelfDeletion:
     def section(self, account: Account, csrf: str) -> str:
         target = esc(self.browser.local("/account/delete"))
         return (
-            '<div class="danger-zone"><h2>Delete account</h2><p class="small muted">Deletes every vault you own,'
-            " with its notes, keys and connections, and every way you sign in.</p>"
+            '<div class="danger-zone"><h2>Delete account</h2><p class="small muted">Deletes every vault you own.'
+            " A shared vault with other members has to be handed over or deleted first; the vaults you are a member"
+            " of keep your past changes under your email.</p>"
             f'<div><a class="btn danger" href="{target}">Delete account…</a></div></div>'
         )
+
+    def still_shared(self, account: Account) -> Response | None:
+        kept = self.browser.store.shared_with_others(account.id)
+        if not kept:
+            return None
+        links = "".join(
+            f'<li><a href="{esc(self.browser.local(f"/account/vaults/{vault.slug}"))}">{esc(vault.name)}</a></li>'
+            for vault in kept
+        )
+        body = (
+            f"<ul>{links}</ul><p>Hand each of them over to another member, or delete it for everyone, on its page."
+            " Then delete your account.</p>"
+        )
+        lead = "You own shared vaults that other members still use."
+        return page("Hand over first", lead, body, status_code=409)
 
     def destroyed(self, account: Account) -> str:
         vaults = "".join(
@@ -77,6 +93,9 @@ class SelfDeletion:
         account, csrf = session
         if not self.browser.recent(request):
             return self.sign_in_again(csrf)
+        refused = self.still_shared(account)
+        if refused is not None:
+            return refused
         return await anyio.to_thread.run_sync(self.confirm_page, account, csrf)
 
     async def again(self, request: Request) -> Response:
@@ -96,6 +115,9 @@ class SelfDeletion:
         account, csrf, form = submitted
         if not self.browser.recent(request):
             return self.sign_in_again(csrf, status_code=403)
+        refused = self.still_shared(account)
+        if refused is not None:
+            return refused
         if form.get("email", "").strip().lower() != account.email.lower():
             error = "The address you typed is not this account's."
             return await anyio.to_thread.run_sync(lambda: self.confirm_page(account, csrf, error, 400))

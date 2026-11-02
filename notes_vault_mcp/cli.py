@@ -14,7 +14,7 @@ from notes_vault_mcp.config import ConfigError, adopt_plugin_config, local_root,
 from notes_vault_mcp.embedding import keep_warm
 from notes_vault_mcp.extensions import installed
 from notes_vault_mcp.frontmatter import parse
-from notes_vault_mcp.presets import PRESETS
+from notes_vault_mcp.presets import PERSONAL_LAYOUTS, PRESETS
 from notes_vault_mcp.schema import CLAIM_KEY
 from notes_vault_mcp.search import render, search
 from notes_vault_mcp.server import run_http, run_stdio
@@ -195,6 +195,12 @@ def command_accounts(args: argparse.Namespace) -> int:
     from notes_vault_mcp.auth import hosted_store
 
     return hosted_store.command_accounts(args)
+
+
+def command_members(args: argparse.Namespace) -> int:
+    from notes_vault_mcp.auth import hosted_members
+
+    return hosted_members.command_members(args)
 
 
 def command_delete_account(args: argparse.Namespace) -> int:
@@ -382,9 +388,11 @@ def remote_status(url: str, probe: bool) -> dict:
     vault, entry = credentials.chosen(url)
     signed_in = entry is not None
     writable: bool | None = None
+    found: dict = {}
     if probe:
         try:
-            writable = bool(remote.whoami(url)["write"]) if signed_in else False
+            found = remote.whoami(url) if signed_in else {}
+            writable = bool(found["write"]) if signed_in else False
         except Exception:
             writable = False
     return {
@@ -395,7 +403,14 @@ def remote_status(url: str, probe: bool) -> dict:
         "server": url,
         "vault": vault,
         "signed_in": signed_in,
-    }
+    } | vault_kind(found)
+
+
+def vault_kind(found: dict) -> dict:
+    if not found.get("vault_kind"):
+        return {}
+    kind = {"vault_kind": found["vault_kind"]}
+    return kind | {"role": found.get("role")} if found["vault_kind"] == "shared" else kind
 
 
 def command_status(args: argparse.Namespace) -> int:
@@ -467,7 +482,7 @@ def command_whoami(args: argparse.Namespace) -> int:
         print(one_line(exc), file=sys.stderr)
         return 1
     answer = {"server": url, "email": found.get("email"), "vault": found.get("vault") or vault or None}
-    print(json.dumps(answer | {"key": entry.get("name"), "write": found.get("write")}))
+    print(json.dumps(answer | vault_kind(found) | {"key": entry.get("name"), "write": found.get("write")}))
     return 0
 
 
@@ -521,7 +536,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--force", action="store_true", help="overwrite files that already exist")
     init.add_argument(
         "--preset",
-        choices=tuple(PRESETS),
+        choices=PERSONAL_LAYOUTS,
         help=(
             "the layout to write; a new vault defaults to default, an existing one keeps its own. "
             "With --force it switches an existing vault's schema and views; notes are never moved or deleted"
@@ -574,8 +589,29 @@ def build_parser() -> argparse.ArgumentParser:
     adding.add_argument("account", help="the account's email or id")
     adding.add_argument("name", help="the vault's name; the address is made from it unless --slug names one")
     adding.add_argument("--slug", help="the vault's address, as in /v/<slug>/mcp")
-    adding.add_argument("--preset", choices=tuple(PRESETS), help="write this layout now (needs the master key)")
+    adding.add_argument("--preset", choices=PERSONAL_LAYOUTS, help="write this layout now (needs the master key)")
+    adding.add_argument(
+        "--shared", action="store_true", help="a shared vault: the account and the members it invites, current notes"
+    )
     adding.set_defaults(func=command_accounts)
+    members = accounts_sub.add_parser("members", help="list a shared vault's owner, members and open invitations")
+    members.add_argument("account", help="the owner's email or id")
+    members.add_argument("vault", help="the vault's slug")
+    members.set_defaults(func=command_members)
+    adding_member = accounts_sub.add_parser(
+        "add-member", help="invite an email to a shared vault; with SMTP set up, it gets a sign-in link"
+    )
+    adding_member.add_argument("account", help="the owner's email or id")
+    adding_member.add_argument("vault", help="the vault's slug")
+    adding_member.add_argument("email")
+    adding_member.set_defaults(func=command_members)
+    removing_member = accounts_sub.add_parser(
+        "remove-member", help="withdraw an invitation, or remove a member and revoke their keys to the vault"
+    )
+    removing_member.add_argument("account", help="the owner's email or id")
+    removing_member.add_argument("vault", help="the vault's slug")
+    removing_member.add_argument("email")
+    removing_member.set_defaults(func=command_members)
     renaming = accounts_sub.add_parser("rename-vault", help="change a vault's name or address")
     renaming.add_argument("account", help="the account's email or id")
     renaming.add_argument("vault", help="the vault's slug")

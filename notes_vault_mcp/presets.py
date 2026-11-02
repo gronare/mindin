@@ -8,6 +8,7 @@ import yaml
 
 DEFAULT_PRESET = "default"
 CUSTOM_PRESET = "custom"
+SHARED_PRESET = "shared"
 
 
 @dataclass(frozen=True)
@@ -83,9 +84,18 @@ PRESETS: dict[str, Preset] = {
             "presets/custom/",
             ("All notes.base",),
         ),
+        Preset(
+            SHARED_PRESET,
+            "Shared",
+            "Areas for system notes, Resources for how-tos, decisions, references and traps, and Archive.",
+            "presets/shared/",
+            ("Areas.base", "Resources.base"),
+            offered=False,
+        ),
     )
 }
 OFFERED = tuple(name for name, preset in PRESETS.items() if preset.offered)
+PERSONAL_LAYOUTS = tuple(name for name in PRESETS if name != SHARED_PRESET)
 
 
 def template(name: str) -> str:

@@ -192,7 +192,14 @@ def test_login_through_the_hosted_device_grant(served: Served):
 
 def test_whoami_and_logout(remote: Served, capsys):
     found = run_json(capsys, "whoami")
-    assert found == {"server": remote.url, "email": EMAIL, "vault": "ann", "key": "laptop", "write": True}
+    assert found == {
+        "server": remote.url,
+        "email": EMAIL,
+        "vault": "ann",
+        "vault_kind": "personal",
+        "key": "laptop",
+        "write": True,
+    }
     assert main(["logout"]) == 0
     assert "Forgot every key" in capsys.readouterr().out
     assert credentials.stored(remote.url) is None

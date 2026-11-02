@@ -214,7 +214,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
 
     def require_vault(self, account: Account, vault_id: str | None) -> Vault:
         vault = self.store.vault(vault_id or "")
-        if vault is None or vault.account_id != account.id:
+        if vault is None or not self.store.reaches(vault, account.id):
             raise TokenError("invalid_grant", "the vault is gone")
         return vault
 
@@ -273,7 +273,15 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
             if vault is not None and grant.vault.id != vault.id:
                 return Verdict(None, 403, "wrong_vault", "this key belongs to another vault")
             return self.verdict(
-                grant.account, grant.vault, token, f"key:{grant.key_id}", grant.scopes, None, grant.purpose, resource
+                grant.account,
+                grant.vault,
+                token,
+                f"key:{grant.key_id}",
+                grant.scopes,
+                None,
+                grant.purpose,
+                resource,
+                client=grant.name,
             )
         row = self.store.load_token(token, "access")
         if row is None or row["expires_at"] <= time.time():
@@ -284,7 +292,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
         if account is None:
             return Verdict(None, 401, "invalid_token", "the token's account is gone")
         bound = self.store.vault(row["vault_id"] or "")
-        if bound is None or bound.account_id != account.id or (vault is not None and bound.id != vault.id):
+        if bound is None or (vault is not None and bound.id != vault.id) or not self.store.reaches(bound, account.id):
             return Verdict(None, 401, "invalid_token", "the token's vault is gone")
         return self.verdict(
             account,
@@ -295,6 +303,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
             int(row["expires_at"]),
             None,
             row["resource"],
+            client=self.store.client_name(row["client_id"]),
         )
 
     def verdict(
@@ -307,6 +316,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
         expires_at: int | None,
         key_purpose: str | None = None,
         resource: str | None = None,
+        client: str = "",
     ) -> Verdict:
         if not account.active or not account.sub:
             return Verdict(None, 403, "account_suspended", "the account is not active")
@@ -325,6 +335,9 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
                 "account": account.id,
                 "vault": vault.slug,
                 "vault_name": vault.name,
+                "vault_kind": vault.kind,
+                "role": "owner" if vault.account_id == account.id else "member",
+                "client": client or client_id,
                 "key_purpose": key_purpose,
             },
         )
@@ -408,10 +421,18 @@ class HostedGuard:
         if account is None:
             return Verdict(None, 403, "no_account", "the forwarded identity has no account on this vault")
         vault = found.vault or self.provider.store.first_vault(account.id)
-        if vault is None or vault.account_id != account.id:
+        if vault is None or not self.provider.store.reaches(vault, account.id):
             return Verdict(None, 403, "wrong_vault", "this vault is not one of the account's")
         return self.provider.verdict(
-            account, vault, "", "forwarded", forwarded.scopes, forwarded.expires_at, None, found.resource
+            account,
+            vault,
+            "",
+            "forwarded",
+            forwarded.scopes,
+            forwarded.expires_at,
+            None,
+            found.resource,
+            client="company sign-in",
         )
 
     async def refuse(self, send: Send, verdict: Verdict, found: Target) -> None:
@@ -566,7 +587,7 @@ def build_hosted_app(
     credentials = ApiKeyCredentials(store, provider.allowed)
     support = SupportDesk(browser, SupportAccess(store, clock))
     deletion = SelfDeletion(browser, vaults, sealed)
-    pages = VaultPages(browser, vaults, sealed, deletion)
+    pages = VaultPages(browser, vaults, sealed, deletion, smtp_factory)
     extended = Server(auth, store, clock, browser, vaults, sealed, deletion, smtp_factory)
     for extension in extensions:
         extension.attach(extended)

@@ -27,7 +27,7 @@ from test_auth_hosted import authorize, consent, register
 from notes_vault_mcp.auth.hosted_access import SupportAccess
 from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
 from notes_vault_mcp.auth.hosted_store import SCHEMA, HostedStore, digest
-from notes_vault_mcp.auth.hosted_vaults import migrate
+from notes_vault_mcp.auth.hosted_vaults import SCHEMA_VERSION, migrate
 from notes_vault_mcp.auth.hosted_web import RECENT_SIGN_IN
 from notes_vault_mcp.backends import make_subject_backend
 from notes_vault_mcp.backends.local import LocalBackend
@@ -504,7 +504,7 @@ async def test_the_migration_keeps_an_existing_vault_where_it_is_and_readable(
     migrate(store.path)
     HostedStore(tmp_path / "auth")
     with sqlite3.connect(store.path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert connection.execute("SELECT name FROM sqlite_master WHERE name = 'vault_keys'").fetchone() is None
         assert connection.execute("SELECT COUNT(*) FROM vault_data_keys").fetchone()[0] == 1
     vault = store.first_vault(account_id)

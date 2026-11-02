@@ -17,13 +17,20 @@ from urllib.parse import urlsplit
 
 from notes_vault_mcp.auth import READ_SCOPE, WRITE_SCOPE, auth_dir
 from notes_vault_mcp.auth.hosted_vaults import (
+    MEMBER,
+    OWNER,
+    PERSONAL,
     RESERVED_SLUGS,
+    SHARED,
     Vault,
+    accept_invitations,
     add_first_vault,
     clean_name,
+    has_table,
     insert_vault,
     migrate,
     new_vault_id,
+    reaches,
     slug_taken,
     slugify,
     valid_slug,
@@ -32,6 +39,7 @@ from notes_vault_mcp.auth.hosted_vaults import (
 from notes_vault_mcp.auth.pages import stamp
 from notes_vault_mcp.config import private_dir
 from notes_vault_mcp.extensions import Extension, installed
+from notes_vault_mcp.shared import Actor
 
 AccountStatus = Literal["invited", "active", "suspended"]
 STATUSES: tuple[AccountStatus, ...] = ("invited", "active", "suspended")
@@ -159,9 +167,30 @@ class KeyGrant:
     scopes: list[str]
     purpose: str = "api"
 
+    @property
+    def role(self) -> str:
+        return OWNER if self.vault.account_id == self.account.id else MEMBER
+
 
 class VaultNameError(ValueError):
     pass
+
+
+class MembershipError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class Member:
+    email: str
+    role: str
+    account_id: str | None
+    since: int
+    last_change_at: int | None = None
+
+    @property
+    def invited(self) -> bool:
+        return self.account_id is None
 
 
 @dataclass(frozen=True)
@@ -279,11 +308,152 @@ class HostedStore:
         vault = self.vault_by_slug(ref) or self.vault(ref)
         return vault if vault is not None and vault.account_id == account_id else None
 
+    def reachable_vault(self, account_id: str, ref: str) -> Vault | None:
+        vault = self.vault_by_slug(ref) or self.vault(ref)
+        return vault if vault is not None and self.reaches(vault, account_id) else None
+
+    def reaches(self, vault: Vault, account_id: str) -> bool:
+        with self.connect() as connection:
+            return reaches(connection, vault, account_id)
+
+    def role(self, vault: Vault, account_id: str) -> str | None:
+        if vault.account_id == account_id:
+            return OWNER
+        return MEMBER if self.reaches(vault, account_id) else None
+
+    def shared_with(self, account_id: str) -> list[Vault]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT vaults.* FROM vault_members JOIN vaults ON vaults.id = vault_members.vault_id"
+                " WHERE vault_members.account_id = ? AND vaults.account_id != ? ORDER BY vault_members.joined_at,"
+                " vaults.rowid",
+                (account_id, account_id),
+            ).fetchall()
+        return [vault for vault in map(vault_of, rows) if vault is not None]
+
+    def reachable_vaults(self, account_id: str) -> list[Vault]:
+        return self.vaults(account_id) + self.shared_with(account_id)
+
+    def accept_invitations(self, account: Account) -> int:
+        with self.connect() as connection:
+            return accept_invitations(connection, account.id, (account.email.lower(),))
+
+    def members(self, vault: Vault) -> list[Member]:
+        with self.connect() as connection:
+            changed = {
+                row["author"]: row["at"]
+                for row in connection.execute(
+                    "SELECT author, MAX(at) AS at FROM vault_changes WHERE vault_id = ? GROUP BY author", (vault.id,)
+                )
+            }
+            owner = account_of(
+                connection.execute("SELECT * FROM accounts WHERE id = ?", (vault.account_id,)).fetchone()
+            )
+            rows = connection.execute(
+                "SELECT accounts.id, accounts.email, vault_members.joined_at FROM vault_members"
+                " JOIN accounts ON accounts.id = vault_members.account_id WHERE vault_members.vault_id = ?"
+                " AND vault_members.account_id != ? ORDER BY vault_members.joined_at, accounts.email",
+                (vault.id, vault.account_id),
+            ).fetchall()
+            pending = connection.execute(
+                "SELECT email, created_at FROM vault_invitations WHERE vault_id = ? ORDER BY created_at, email",
+                (vault.id,),
+            ).fetchall()
+        found = [Member(owner.email, OWNER, owner.id, vault.created_at, changed.get(owner.id))] if owner else []
+        found += [Member(row["email"], MEMBER, row["id"], row["joined_at"], changed.get(row["id"])) for row in rows]
+        found += [Member(row["email"], "invited", None, row["created_at"]) for row in pending]
+        return found
+
+    def others_in(self, vault: Vault) -> int:
+        with self.connect() as connection:
+            return int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM vault_members WHERE vault_id = ? AND account_id != ?",
+                    (vault.id, vault.account_id),
+                ).fetchone()[0]
+            )
+
+    def shared_with_others(self, account_id: str) -> list[Vault]:
+        return [vault for vault in self.vaults(account_id) if vault.shared and self.others_in(vault)]
+
+    def invite_member(self, vault: Vault, email: str, invited_by: str, link_hash: str | None = None) -> str:
+        address = " ".join(email.split()).lower()
+        if not vault.shared:
+            raise MembershipError("Only a shared vault takes members.")
+        if "@" not in address or len(address) > 254:
+            raise MembershipError("Enter an email address.")
+        with self.connect() as connection:
+            known = account_of(connection.execute("SELECT * FROM accounts WHERE email = ?", (address,)).fetchone())
+            if known is not None and reaches(connection, vault, known.id):
+                raise MembershipError(f"{address} is already in this vault.")
+            if connection.execute(
+                "SELECT 1 FROM vault_invitations WHERE vault_id = ? AND email = ?", (vault.id, address)
+            ).fetchone():
+                raise MembershipError(f"{address} is already invited.")
+            connection.execute(
+                "INSERT INTO vault_invitations(vault_id, email, invited_by, link_hash, created_at)"
+                " VALUES(?, ?, ?, ?, ?)",
+                (vault.id, address, invited_by, link_hash, now()),
+            )
+        return address
+
+    def withdraw(self, vault: Vault, email: str) -> bool:
+        with self.connect() as connection:
+            row = connection.execute(
+                "DELETE FROM vault_invitations WHERE vault_id = ? AND email = ? RETURNING link_hash",
+                (vault.id, email.strip().lower()),
+            ).fetchone()
+            if row is not None and row["link_hash"] and has_table(connection, "ceremonies"):
+                connection.execute("DELETE FROM ceremonies WHERE key_hash = ?", (row["link_hash"],))
+        return row is not None
+
+    def remove_member(self, vault: Vault, account_id: str) -> bool:
+        if account_id == vault.account_id:
+            raise MembershipError("The owner cannot be removed; hand the vault over first.")
+        moment = now()
+        with self.connect() as connection:
+            removed = connection.execute(
+                "DELETE FROM vault_members WHERE vault_id = ? AND account_id = ?", (vault.id, account_id)
+            ).rowcount
+            connection.execute(
+                "UPDATE api_keys SET revoked_at = ? WHERE vault_id = ? AND account_id = ? AND revoked_at IS NULL",
+                (moment, vault.id, account_id),
+            )
+            connection.execute(
+                "UPDATE tokens SET revoked = 1 WHERE vault_id = ? AND account_id = ? AND revoked = 0",
+                (vault.id, account_id),
+            )
+            connection.execute("DELETE FROM devices WHERE vault_id = ? AND account_id = ?", (vault.id, account_id))
+        return removed > 0
+
+    def hand_over(self, vault: Vault, account_id: str) -> Vault:
+        with self.connect() as connection:
+            if account_id == vault.account_id or not reaches(connection, vault, account_id):
+                raise MembershipError("Only a member of this vault can become its owner.")
+            moment = now()
+            connection.execute(
+                "DELETE FROM vault_members WHERE vault_id = ? AND account_id = ?", (vault.id, account_id)
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO vault_members(vault_id, account_id, joined_at) VALUES(?, ?, ?)",
+                (vault.id, vault.account_id, moment),
+            )
+            connection.execute("UPDATE vaults SET account_id = ? WHERE id = ?", (account_id, vault.id))
+            connection.execute("DELETE FROM vault_support_grants WHERE vault_id = ?", (vault.id,))
+        handed = self.vault(vault.id)
+        assert handed is not None
+        return handed
+
+    def client_name(self, client_id: str) -> str:
+        with self.connect() as connection:
+            row = connection.execute("SELECT client_name FROM clients WHERE client_id = ?", (client_id,)).fetchone()
+        return row["client_name"] if row else client_label(client_id)
+
     def first_vault(self, account_id: str) -> Vault | None:
         found = self.vaults(account_id)
         return found[0] if found else None
 
-    def create_vault(self, account_id: str, name: str, slug: str | None = None) -> Vault:
+    def create_vault(self, account_id: str, name: str, slug: str | None = None, kind: str = PERSONAL) -> Vault:
         cleaned = clean_name(name)
         address = slug if slug is not None else slugify(cleaned)
         if not cleaned:
@@ -293,7 +463,7 @@ class HostedStore:
         with self.connect() as connection:
             if slug_taken(connection, address):
                 raise VaultNameError(f"The address {address} is taken. Choose another name.")
-            insert_vault(connection, vault_id, account_id, cleaned, address, now())
+            insert_vault(connection, vault_id, account_id, cleaned, address, now(), kind)
         created = self.vault(vault_id)
         assert created is not None
         return created
@@ -325,7 +495,7 @@ class HostedStore:
         self, account_id: str, name: str, scopes: list[str], purpose: str = "api", vault_id: str | None = None
     ) -> str:
         vault = self.vault(vault_id) if vault_id else self.first_vault(account_id)
-        if vault is None or vault.account_id != account_id:
+        if vault is None or not self.reaches(vault, account_id):
             raise ValueError("a key belongs to one of the account's vaults")
         key_id = secrets.token_hex(KEY_ID_LENGTH // 2)
         key = f"{KEY_PREFIX}{key_id}{secrets.token_urlsafe(32)}"
@@ -361,8 +531,8 @@ class HostedStore:
                 connection.execute("SELECT * FROM accounts WHERE id = ?", (row["account_id"],)).fetchone()
             )
             vault = vault_of(connection.execute("SELECT * FROM vaults WHERE id = ?", (row["vault_id"],)).fetchone())
-        if account is None or vault is None or vault.account_id != account.id:
-            return None
+            if account is None or vault is None or not reaches(connection, vault, account.id):
+                return None
         return KeyGrant(
             account=account,
             vault=vault,
@@ -392,20 +562,22 @@ class HostedStore:
                 > 0
             )
 
-    def revoke_purpose(self, vault_id: str, purpose: str) -> None:
+    def revoke_purpose(self, vault_id: str, purpose: str, account_id: str) -> None:
         with self.connect() as connection:
             connection.execute(
-                "UPDATE api_keys SET revoked_at = ? WHERE vault_id = ? AND purpose = ? AND revoked_at IS NULL",
-                (now(), vault_id, purpose),
+                "UPDATE api_keys SET revoked_at = ? WHERE vault_id = ? AND purpose = ? AND account_id = ?"
+                " AND revoked_at IS NULL",
+                (now(), vault_id, purpose, account_id),
             )
 
-    def connections(self, vault_id: str) -> list[Connection]:
+    def connections(self, vault_id: str, account_id: str) -> list[Connection]:
         with self.connect() as connection:
             rows = connection.execute(
                 "SELECT tokens.client_id, tokens.kind, tokens.scopes, tokens.issued_at, tokens.expires_at,"
                 " clients.client_name FROM tokens LEFT JOIN clients ON clients.client_id = tokens.client_id"
-                " WHERE tokens.vault_id = ? AND tokens.revoked = 0 ORDER BY tokens.issued_at",
-                (vault_id,),
+                " WHERE tokens.vault_id = ? AND tokens.account_id = ? AND tokens.revoked = 0"
+                " ORDER BY tokens.issued_at",
+                (vault_id, account_id),
             ).fetchall()
         moment = now()
         found: dict[str, Connection] = {}
@@ -421,12 +593,13 @@ class HostedStore:
             )
         return sorted((item for item in found.values() if item.live), key=lambda item: item.last_used_at, reverse=True)
 
-    def disconnect(self, vault_id: str, client_id: str) -> bool:
+    def disconnect(self, vault_id: str, client_id: str, account_id: str) -> bool:
         with self.connect() as connection:
             return (
                 connection.execute(
-                    "UPDATE tokens SET revoked = 1 WHERE vault_id = ? AND client_id = ? AND revoked = 0",
-                    (vault_id, client_id),
+                    "UPDATE tokens SET revoked = 1 WHERE vault_id = ? AND client_id = ? AND account_id = ?"
+                    " AND revoked = 0",
+                    (vault_id, client_id, account_id),
                 ).rowcount
                 > 0
             )
@@ -611,12 +784,12 @@ class ApiKeyCredentials:
         self.store = store
         self.allowed = allowed or (lambda _account, scopes: scopes)
 
-    def issue(self, subject: str, label: str = "") -> str:
+    def issue(self, subject: str, label: str = "", account_id: str | None = None) -> str:
         vault = self.store.vault(subject)
-        account = self.store.account_by_id(vault.account_id) if vault else None
-        if vault is None or account is None or not account.active:
+        account = self.store.account_by_id(account_id or (vault.account_id if vault else ""))
+        if vault is None or account is None or not account.active or not self.store.reaches(vault, account.id):
             raise PermissionError("no active account for this vault")
-        self.store.revoke_purpose(vault.id, "webdav")
+        self.store.revoke_purpose(vault.id, "webdav", account.id)
         return self.store.create_key(
             account.id, WEBDAV_KEY_NAME, [READ_SCOPE, WRITE_SCOPE], purpose="webdav", vault_id=vault.id
         )
@@ -627,6 +800,10 @@ class ApiKeyCredentials:
             return None
         scopes = self.allowed(grant.account, grant.scopes)
         return (grant.vault.id, WRITE_SCOPE in scopes) if scopes else None
+
+    def actor(self, secret: str) -> Actor | None:
+        grant = self.store.key_grant(secret)
+        return Actor(grant.account.email, grant.account.id, grant.name) if grant else None
 
 
 def command_accounts(args: argparse.Namespace) -> int:
@@ -672,13 +849,16 @@ def command_vaults(store: HostedStore, args: argparse.Namespace) -> int:
     action = args.accounts_command
     try:
         if action == "add-vault":
-            vault = store.create_vault(account.id, args.name, args.slug)
+            if args.shared and args.preset:
+                print("notes-vault-mcp: a shared vault has its own fixed layout; leave out --preset", file=sys.stderr)
+                return 2
+            vault = store.create_vault(account.id, args.name, args.slug, SHARED if args.shared else PERSONAL)
             if args.preset:
                 from notes_vault_mcp import provision
 
                 backend, _ = sealed_vaults_from_env(store).for_vault(vault.id)
                 provision.initialize(backend, preset=args.preset)
-            print(f"notes-vault-mcp: {account.email} has the vault {vault.name} at /v/{vault.slug}/mcp")
+            print(f"notes-vault-mcp: {account.email} has the {vault.kind} vault {vault.name} at /v/{vault.slug}/mcp")
             return 0
         if action == "rename-vault":
             vault = store.own_vault(account.id, args.vault)
@@ -692,8 +872,9 @@ def command_vaults(store: HostedStore, args: argparse.Namespace) -> int:
         print(f"notes-vault-mcp: {exc}", file=sys.stderr)
         return 2
     sealed = sealed_vaults_from_env(store)
-    for vault in store.vaults(account.id):
+    for vault in store.reachable_vaults(account.id):
         facts = sealed.facts(vault.id)
         keys = len(store.keys(account.id, vault.id))
-        print(f"{vault.slug}  {vault.name}  {vault.id}  {facts.notes} notes  {facts.files} files  {keys} keys")
+        kind = f"shared, {store.role(vault, account.id)}" if vault.shared else vault.kind
+        print(f"{vault.slug}  {vault.name}  {kind}  {vault.id}  {facts.notes} notes  {facts.files} files  {keys} keys")
     return 0

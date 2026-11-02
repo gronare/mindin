@@ -18,12 +18,14 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from notes_vault_mcp.auth import DEFAULT_SUBJECT_PREFIX, auth_dir
+from notes_vault_mcp.auth.hosted_history import HISTORY_PREFIX, History, history_key
 from notes_vault_mcp.auth.hosted_store import Account, HostedStore
 from notes_vault_mcp.auth.hosted_vaults import DATA_KEY_TABLES, Vault, has_table
-from notes_vault_mcp.backends import Entry, VaultError, is_vault_key, make_subject_backend
+from notes_vault_mcp.backends import Entry, VaultBackend, VaultError, is_vault_key, make_subject_backend
 from notes_vault_mcp.backends.local import LocalBackend
 from notes_vault_mcp.backends.sealed import DATA_KEY_BYTES, NONCE_BYTES, SealedBackend, Storage, new_data_key
 from notes_vault_mcp.config import ConfigError, cache_dir, env
+from notes_vault_mcp.shared import SharedBackend, SharedRules
 
 MASTER_KEY_ENV = "VAULT_HOSTED_MASTER_KEY"
 PREVIOUS_KEYS_ENV = "VAULT_HOSTED_MASTER_KEY_PREVIOUS"
@@ -196,17 +198,29 @@ class SealedVaults:
         self.keys = keys
         self.prefix = prefix.strip("/")
 
-    def __call__(self, subject: str) -> tuple[SealedBackend, str]:
+    def __call__(self, subject: str) -> tuple[VaultBackend, str]:
         from notes_vault_mcp.vault import NoSubject
 
         vault = self.store.vault(subject)
         if vault is None:
             raise NoSubject("no vault for this subject")
-        return self.for_vault(vault.id)
+        backend, identifier = self.for_vault(vault.id)
+        if not vault.shared:
+            return backend, identifier
+        return SharedBackend(backend, SharedRules(vault.name), self.history(vault.id)), identifier
 
     def storage(self, vault_id: str) -> tuple[Storage, str]:
         inner, identifier = make_subject_backend(vault_id, self.prefix)
         return cast(Storage, inner), identifier
+
+    def history_storage(self, vault_id: str) -> Storage:
+        inner, _ = make_subject_backend(vault_id, "/".join(part for part in (self.prefix, HISTORY_PREFIX) if part))
+        return cast(Storage, inner)
+
+    def history(self, vault_id: str) -> History:
+        data_key = self.keys.data_key(vault_id)
+        blobs = SealedBackend(self.history_storage(vault_id), data_key)
+        return History(self.store, vault_id, blobs, history_key(data_key))
 
     def for_vault(self, vault_id: str) -> tuple[SealedBackend, str]:
         inner, identifier = self.storage(vault_id)
@@ -218,18 +232,33 @@ class SealedVaults:
         return facts_of(self.for_vault(vault_id)[0].list_all())
 
 
-VAULT_ROWS = ("api_keys", "tokens", "devices", "vault_support_grants")
+VAULT_ROWS = (
+    "api_keys",
+    "tokens",
+    "devices",
+    "vault_support_grants",
+    "vault_members",
+    "vault_invitations",
+    "vault_changes",
+)
 
 
-def delete_vault(sealed: SealedVaults, vault: Vault, cache: Path) -> int:
-    sealed.keys.shred(vault.id)
-    inner, identifier = sealed.storage(vault.id)
+def empty_storage(inner: VaultBackend) -> list[Entry]:
     entries = inner.list_all("")
     for entry in entries:
         if not entry.is_dir:
             inner.delete(entry.key)
     if isinstance(inner, LocalBackend):
         shutil.rmtree(inner.root, ignore_errors=True)
+    return entries
+
+
+def delete_vault(sealed: SealedVaults, vault: Vault, cache: Path) -> int:
+    sealed.keys.shred(vault.id)
+    inner, identifier = sealed.storage(vault.id)
+    entries = empty_storage(inner)
+    if vault.shared:
+        empty_storage(sealed.history_storage(vault.id))
     for path in cache.glob(f"{identifier}.sqlite*"):
         path.unlink(missing_ok=True)
     with sealed.store.connect() as connection:
@@ -240,7 +269,21 @@ def delete_vault(sealed: SealedVaults, vault: Vault, cache: Path) -> int:
     return sum(1 for entry in entries if not entry.is_dir)
 
 
+class StillShared(VaultError):
+    pass
+
+
+def handed_over_first(store: HostedStore, account: Account) -> None:
+    kept = store.shared_with_others(account.id)
+    if kept:
+        names = ", ".join(vault.name for vault in kept)
+        raise StillShared(
+            f"{account.email} owns shared vaults with other members ({names}): hand each over or delete it"
+        )
+
+
 def delete_account(sealed: SealedVaults, account: Account, cache: Path) -> int:
+    handed_over_first(sealed.store, account)
     deleted = sum(delete_vault(sealed, vault, cache) for vault in sealed.store.vaults(account.id))
     with sealed.store.connect() as connection:
         for table in account_tables(connection):
@@ -300,6 +343,10 @@ def command_delete_account(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    deleted = delete_account(sealed_vaults_from_env(store), account, cache_dir())
+    try:
+        deleted = delete_account(sealed_vaults_from_env(store), account, cache_dir())
+    except StillShared as exc:
+        print(f"notes-vault-mcp: {exc}", file=sys.stderr)
+        return 1
     print(f"notes-vault-mcp: deleted {account.email}: its vaults' data keys, {deleted} objects and their indexes")
     return 0

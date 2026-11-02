@@ -106,6 +106,8 @@ def _with_dates(frontmatter: dict) -> dict:
 
 
 def _require_valid(vault: Vault, frontmatter: dict, key: str, verdict: str) -> None:
+    if vault.rules is not None:
+        vault.rules.check_note(key, frontmatter)
     problems = validate(frontmatter, key, vault.schema)
     if problems:
         raise ValidationError("\n".join([f"{key} {verdict}:", *[f"- {p}" for p in problems]]))
@@ -453,10 +455,11 @@ class ContextBundle:
     repo: str | None = None
     stale_after_days: int = 30
     schema_problems: list[str] = field(default_factory=list)
+    notices: list[str] = field(default_factory=list)
 
     def render(self) -> str:
         now = time.time()
-        blocks = []
+        blocks = list(self.notices)
         if self.schema_problems:
             blocks.append("## schema\n" + "\n".join(self.schema_problems))
         if self.system:

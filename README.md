@@ -411,7 +411,11 @@ notes-vault-mcp accounts activate ann@example.com
 notes-vault-mcp accounts delete ann@example.com --yes
 notes-vault-mcp accounts vaults ann@example.com                      # slug, name, notes, files, keys
 notes-vault-mcp accounts add-vault ann@example.com "Workshop" [--slug workshop] [--preset para]
+notes-vault-mcp accounts add-vault ann@example.com "Orchard club" --shared
 notes-vault-mcp accounts rename-vault ann@example.com workshop --name "Shed" --slug shed
+notes-vault-mcp accounts members ann@example.com orchard-club              # owner, members, invitations
+notes-vault-mcp accounts add-member ann@example.com orchard-club bo@example.com
+notes-vault-mcp accounts remove-member ann@example.com orchard-club bo@example.com
 ```
 
 A new account starts with one vault, named Personal, at an address made from its email. Each person
@@ -430,13 +434,43 @@ slug that is unique on the server; its address is `VAULT_PUBLIC_URL/v/<slug>/mcp
 - **Delete this vault.** Typing its name, after a sign-in within the last ten minutes, destroys the
   vault's key, files, index, keys and connections. The account's other vaults stay as they are.
 
+### Shared vaults
+
+A vault is personal or shared, chosen when it is made. A personal vault is its owner's alone. A shared
+vault belongs to its owner and the members the owner invites, and holds only how things are now: system
+notes in `Areas/`, howto, decision, reference and trap notes in `Resources/`, and retired notes in
+`Archive/`. Its layout is fixed. The server refuses, with a message the agent can act on, a note in any
+other folder or of another kind, and `backlog_add`, `log_append`, `set_status`, `claim`, `release` and
+changelog writes; tasks, the backlog and logs stay in each member's personal vault. `context` in a shared
+vault says so instead of listing tasks, a backlog or a log.
+
+The owner invites an email on the vault's page, or with `accounts add-member`. With SMTP set up the
+address gets one email with a sign-in link; signing in through it, or any other way with that verified
+address, makes the person a member, and makes them an account when they have none, also under
+`VAULT_REGISTRATION=invite`. A pending invitation can be withdrawn. Members sign in with their own
+account and make their own keys and connections to the vault; it shows under Shared on their vaults
+page. Removing a member, or a member leaving, stops their keys, tokens and signed-in computers for that
+vault on their next request. The owner can make a member the owner instead, and deletes the vault for
+everyone. Support access to a shared vault is the owner's to grant.
+
+Every change to a shared vault applies at once and is kept: each write, move and delete through MCP or
+WebDAV records the path, what happened, the member's email, the key, computer or connector it came
+through and the time, and keeps the version before it, sealed with the vault's key. The vault's page
+shows the recent changes and the full history; each change opens as a diff, and "Restore previous"
+writes the version before it back as a new change. Files in dot-folders, such as `.obsidian/`, are not
+kept.
+
+An account that owns a shared vault with other members cannot be deleted until each such vault is
+handed over or deleted. A deleted member's past changes stay in the history under their email.
+
 The Account page shows who the person is, their ways in, and:
 
 - **Support access.** The person can let the server's staff open one vault for an hour, a day or a week,
   and end it early. Every access is logged with time, vault, operator and reason, and the log shows on
   the page.
 - **Deletion.** The account deletes itself after a sign-in within the last ten minutes and its email typed
-  out: every vault's key goes first, then their files, indexes, keys, connections and the ways in.
+  out: every vault's key goes first, then their files, indexes, keys, connections and the ways in. It is
+  refused while the account owns a shared vault that has other members.
 
 `accounts delete` does the same from the shell. `hosted.sqlite` under `VAULT_AUTH_DIR` holds the
 accounts, the ways in, the hashed keys and tokens, the registered clients and every vault's sealed key.
@@ -521,7 +555,7 @@ It prints a link and a code. Open the link on any device, sign in, check that th
 approve read and write. Without `--vault` the approval page asks which vault the machine gets. The machine gets its own key, named after its host name (`--name` picks another),
 stored in `~/.config/notes-vault-mcp/credentials.json` and readable only by you. Over ssh it works the
 same way, and `--no-browser` only prints the link. `notes-vault-mcp whoami` shows the account, the vault
-and whether the key may write; `notes-vault-mcp logout [--vault <slug>]` forgets the keys on this machine.
+and whether the key may write, and for a shared vault the account's role in it; `notes-vault-mcp logout [--vault <slug>]` forgets the keys on this machine.
 Revoke a key for good on its vault's page.
 
 Then set `VAULT_SERVER_URL` to the server. The stdio MCP server, the hooks and every command work through
@@ -689,7 +723,8 @@ On the server's own machine:
 ```sh
 notes-vault-mcp accounts list | invite <email> | suspend <account> | activate <account>
 notes-vault-mcp accounts delete <account> --yes
-notes-vault-mcp accounts vaults <account> | add-vault <account> <name> [--slug] [--preset] | rename-vault <account> <slug> [--name] [--slug]
+notes-vault-mcp accounts vaults <account> | add-vault <account> <name> [--slug] [--preset | --shared] | rename-vault <account> <slug> [--name] [--slug]
+notes-vault-mcp accounts members | add-member | remove-member <owner> <slug> [<email>]
 notes-vault-mcp accounts import <account> [--vault <slug>] --from-path <dir> | --from-s3-bucket <bucket> --operator <name> --reason <text>
 notes-vault-mcp support files | read <account> [<path>] [--vault <slug>] --operator <name> --reason <text>
 notes-vault-mcp master-key generate | status | rewrap

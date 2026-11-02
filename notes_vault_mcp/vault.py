@@ -17,6 +17,7 @@ from notes_vault_mcp.config import cache_dir, env
 from notes_vault_mcp.embedding import Embedder, configured_embedder
 from notes_vault_mcp.index import Index
 from notes_vault_mcp.schema import Schema, deep_merge, default_schema_data, load_schema
+from notes_vault_mcp.shared import SHARED_PRESET, SharedRules, shared_backend
 
 SUBJECT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@-]{0,63}")
 IDLE_SECONDS = 1800.0
@@ -42,6 +43,7 @@ class Vault:
         self.index_path = index_path
         self.embedder = embedder
         self.background = background
+        self.rules: SharedRules | None = None
         self._index = index
 
     @property
@@ -231,15 +233,20 @@ class SubjectVaults:
 
     def _open_vault(self, subject: str) -> Vault:
         backend, identifier = self.backend_factory(subject)
-        if provision.is_empty(backend):
+        shared = shared_backend(backend)
+        if shared is not None and provision.is_empty(backend):
+            provision.initialize(shared.inner, preset=SHARED_PRESET)
+        elif provision.is_empty(backend):
             provision.initialize(backend, schema_template=self.schema_template, welcome={"DAV_URL": self.dav_url})
-        return Vault(
+        vault = Vault(
             backend=backend,
             schema=load_schema(backend),
             index_path=self.cache / f"{identifier}.sqlite",
             embedder=self.embedder,
             background=self.background,
         )
+        vault.rules = shared.rules if shared is not None else None
+        return vault
 
     def discard(self, subject: str) -> None:
         with self._lock:

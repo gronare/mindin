@@ -142,7 +142,7 @@ class DeviceFlow:
         if account is None or not account.active:
             return oauth_error("access_denied", "the account is not active")
         vault = self.store.vault(row["vault_id"] or "")
-        if vault is None or vault.account_id != account.id:
+        if vault is None or not self.store.reaches(vault, account.id):
             return oauth_error("access_denied", "the vault is gone")
         scopes = row["granted"].split()
         key = self.store.create_key(account.id, row["name"], scopes, purpose=MACHINE_KEY_PURPOSE, vault_id=vault.id)
@@ -190,9 +190,9 @@ class DeviceFlow:
     def vault_choice(self, row: sqlite3.Row, account: Account) -> tuple[str, list[Vault]]:
         requested = row["requested_vault"]
         if requested:
-            vault = self.store.own_vault(account.id, requested)
+            vault = self.store.reachable_vault(account.id, requested)
             return (requested, [vault]) if vault is not None and vault.slug == requested else (requested, [])
-        return "", self.store.vaults(account.id)
+        return "", self.store.reachable_vaults(account.id)
 
     def vault_field(self, requested: str, vaults: list[Vault]) -> tuple[str, str]:
         if requested:

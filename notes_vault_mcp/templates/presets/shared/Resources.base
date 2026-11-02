@@ -1,0 +1,54 @@
+filters:
+  and:
+    - file.inFolder("Resources")
+    - file.ext == "md"
+properties:
+  file.name:
+    displayName: Note
+  note.summary:
+    displayName: Summary
+  note.kind:
+    displayName: Kind
+  note.area:
+    displayName: Area
+  note.updated:
+    displayName: Updated
+views:
+  - type: table
+    name: By kind
+    groupBy:
+      property: kind
+      direction: ASC
+    order:
+      - file.name
+      - summary
+      - area
+      - updated
+    sort:
+      - property: updated
+        direction: DESC
+  - type: table
+    name: By area
+    groupBy:
+      property: area
+      direction: ASC
+    order:
+      - file.name
+      - kind
+      - updated
+    sort:
+      - property: updated
+        direction: DESC
+  - type: table
+    name: Traps
+    filters:
+      and:
+        - kind == "trap"
+    order:
+      - file.name
+      - summary
+      - area
+      - updated
+    sort:
+      - property: updated
+        direction: DESC

@@ -78,7 +78,7 @@ class EmailSignIn:
     def known(self, email: str) -> bool:
         if self.login.config.registration == "open":
             return True
-        return self.login.identities.has_email(email)
+        return self.login.identities.has_email(email) or self.login.identities.invited(email)
 
     async def send(self, request: Request) -> Response:
         form = await request.form()

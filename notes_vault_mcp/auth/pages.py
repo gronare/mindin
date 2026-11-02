@@ -63,8 +63,9 @@ APP_PAGE = """<!doctype html>
 <style>
 :root {{ color-scheme: light; --bg: #f6f5f2; --panel: #fff; --line: #e2e0da; --line-strong: #cbc8c0;
   --ink: #1d1c1a; --muted: #56534d; --faint: #8a867e; --accent: #2f6f4f; --accent-soft: #e6f0ea;
-  --warn: #7a1f1f; --mono: ui-monospace, SFMono-Regular, Menlo, monospace; }}
+  --warn: #7a1f1f; --shared: #3d5a8a; --shared-soft: #e8edf6; --mono: ui-monospace, SFMono-Regular, Menlo, monospace; }}
 * {{ box-sizing: border-box; }}
+[hidden] {{ display: none !important; }}
 body {{ margin: 0; padding: 16px max(16px, env(safe-area-inset-right)) 48px max(16px, env(safe-area-inset-left));
   background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
 .app {{ max-width: 60rem; margin: 0 auto; background: var(--panel); border: 1px solid var(--line);
@@ -98,6 +99,21 @@ code {{ font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }}
 .chip {{ display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; line-height: 1.6;
   background: var(--accent-soft); color: var(--accent); border: 1px solid #c9ddd0; white-space: nowrap;
   font-weight: 400; }}
+.chip.shared {{ background: var(--shared-soft); color: var(--shared); border-color: #c8d3e6; }}
+.chip.role {{ background: var(--bg); color: var(--muted); border-color: var(--line); }}
+.belongs {{ background: var(--shared-soft); border-color: #c8d3e6; }}
+.history li {{ display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 10px 0;
+  border-top: 1px solid var(--line); min-width: 0; }}
+.history li:first-child {{ border-top: 0; padding-top: 0; }}
+.history .what {{ font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; min-width: 0; }}
+.history .who {{ grid-column: 1 / -1; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; min-width: 0; }}
+.history .when {{ grid-row: 1; grid-column: 2; color: var(--faint); font-size: 13px; white-space: nowrap; }}
+pre.diff {{ margin: 0; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  font-family: var(--mono); font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+  min-width: 0; }}
+pre.diff .add {{ display: block; background: #e6f4ea; color: #1d4d2c; }}
+pre.diff .del {{ display: block; background: #fbeceb; color: var(--warn); }}
+pre.diff .hunk {{ display: block; color: var(--faint); }}
 .group-label {{ font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint);
   margin-bottom: 8px; }}
 .vaults {{ display: grid; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }}
@@ -147,6 +163,9 @@ ul.plain {{ list-style: none; margin: 0; padding: 0; }}
 .danger-zone {{ border: 1px solid #efd3d0; border-radius: 8px; padding: 14px 16px; display: grid; gap: 10px;
   align-content: start; min-width: 0; }}
 details > summary {{ list-style: none; }}
+input[type=file] {{ width: 100%; min-width: 0; max-width: 100%; font: inherit; font-size: 13px; }}
+summary.btn {{ white-space: normal; max-width: 100%; overflow-wrap: anywhere; }}
+.history .who a {{ white-space: nowrap; }}
 details > summary::-webkit-details-marker {{ display: none; }}
 details[open] > summary {{ margin-bottom: 10px; }}
 .kv {{ display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 14px; }}
@@ -199,6 +218,15 @@ APP_SCRIPT = """document.querySelectorAll("[data-copy]").forEach(function (butto
     var text = document.getElementById(button.dataset.copy).textContent;
     navigator.clipboard.writeText(text).then(function () { button.textContent = "Copied"; }, function () {});
   });
+});
+document.querySelectorAll("[data-layout-for-kind]").forEach(function (layout) {
+  var radios = document.querySelectorAll('input[name="kind"]');
+  function show() {
+    var chosen = document.querySelector('input[name="kind"]:checked');
+    layout.hidden = !!chosen && chosen.value !== layout.dataset.layoutForKind;
+  }
+  radios.forEach(function (radio) { radio.addEventListener("change", show); });
+  show();
 });
 document.querySelectorAll("[data-slug-from]").forEach(function (target) {
   var field = document.getElementById(target.dataset.slugFrom);

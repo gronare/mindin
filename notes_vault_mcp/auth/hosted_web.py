@@ -235,9 +235,11 @@ class Browser:
             else ""
         )
         bound = self.store.vault(pending["vault_id"]) if pending.get("vault_id") else None
-        if bound is not None and bound.account_id != account.id:
-            return page("Not your vault", "The client asks for a vault this account does not own.", status_code=403)
-        vaults = [bound] if bound else self.store.vaults(account.id)
+        if bound is not None and not self.store.reaches(bound, account.id):
+            return page(
+                "Not your vault", "The client asks for a vault this account does not own or belong to.", status_code=403
+            )
+        vaults = [bound] if bound else self.store.reachable_vaults(account.id)
         if not vaults:
             return page("No vault yet", "Make a vault on your account page first, then connect again.", status_code=400)
         if bound:
@@ -280,7 +282,7 @@ class Browser:
         if session is None or not session[0].active or not self.csrf_ok(form.get("csrf"), session[1]):
             return page("Not signed in", "Open the link from the client again.", status_code=403)
         account, _ = session
-        vault = self.store.own_vault(account.id, str(form.get("vault") or ""))
+        vault = self.store.reachable_vault(account.id, str(form.get("vault") or ""))
         if form.get("decision") == "approve" and (vault is None or pending.get("vault_id") not in (None, vault.id)):
             return self.render_consent(request_id, pending, account, session[1], "Choose one of your vaults.")
         self.store.drop_request(request_id)

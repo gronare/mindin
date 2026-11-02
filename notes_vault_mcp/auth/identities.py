@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from notes_vault_mcp.auth import Registration
 from notes_vault_mcp.auth.hosted_store import Account, HostedStore, account_of, digest, now
-from notes_vault_mcp.auth.hosted_vaults import add_first_vault
+from notes_vault_mcp.auth.hosted_vaults import accept_invitations, add_first_vault, invited
 
 Method = Literal["passkey", "email", "github", "oidc", "forwarded"]
 Refusal = Literal["", "unverified", "uninvited"]
@@ -111,12 +111,15 @@ class Identities:
                     "UPDATE identities SET last_used_at = ? WHERE method = ? AND subject = ?",
                     (now(), proof.method, proof.subject),
                 )
-                return Outcome(self._signed_in(connection, row["account_id"], proof.name))
+                returning = self._signed_in(connection, row["account_id"], proof.name)
+                if returning is not None and returning.active:
+                    accept_invitations(connection, returning.id, (returning.email.lower(),))
+                return Outcome(returning)
             if not emails:
                 return Outcome(None, "unverified")
             account = self._by_email(connection, emails)
             if account is None:
-                if registration != "open":
+                if registration != "open" and not invited(connection, emails):
                     return Outcome(None, "uninvited")
                 account = self._create(connection, emails[0])
             if account.status == "suspended":
@@ -128,6 +131,7 @@ class Identities:
                     " WHERE id = ?",
                     (now(), account.id),
                 )
+            accept_invitations(connection, account.id, tuple(dict.fromkeys((*emails, account.email.lower()))))
             return Outcome(self._signed_in(connection, account.id, proof.name))
 
     def account_for(self, method: str, subject: str) -> Account | None:
@@ -142,6 +146,10 @@ class Identities:
     def has_email(self, email: str) -> bool:
         with self.store.connect() as connection:
             return self._by_email(connection, addresses((email,))) is not None
+
+    def invited(self, email: str) -> bool:
+        with self.store.connect() as connection:
+            return invited(connection, addresses((email,)))
 
     def link(self, account_id: str, proof: Proof) -> bool:
         with self.store.connect() as connection:

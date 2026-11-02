@@ -15,7 +15,7 @@ from notes_vault_mcp.auth.scopes import ScopeError, require_write
 from notes_vault_mcp.backends import VaultError
 from notes_vault_mcp.dav import DavCredentials
 from notes_vault_mcp.frontmatter import FrontmatterError
-from notes_vault_mcp.presets import PRESETS
+from notes_vault_mcp.presets import PERSONAL_LAYOUTS
 from notes_vault_mcp.schema import CLAIM_KEY, NoHome, instructions
 from notes_vault_mcp.search import QueryError, render, search
 from notes_vault_mcp.snapshot import build_snapshot
@@ -77,11 +77,14 @@ def build_server(
         force: bool = False,
         write: bool = False,
         expected: tuple[type[Exception], ...] = EXPECTED_FAILURES,
+        shared_refuses: str | None = None,
     ) -> str:
         try:
             if write:
                 require_write()
             with resolver.using() as vault:
+                if shared_refuses is not None and vault.rules is not None:
+                    raise vault.rules.refuse_tool(shared_refuses)
                 vault.sync(force=force)
                 return action(vault)
         except expected as exc:
@@ -186,7 +189,11 @@ def build_server(
         ),
     )
     def set_status_tool(path: str, status: str, priority: str | None = None, source: str | None = None) -> str:
-        return run(lambda vault: notes.set_status(vault, path, status, priority=priority, source=source), write=True)
+        return run(
+            lambda vault: notes.set_status(vault, path, status, priority=priority, source=source),
+            write=True,
+            shared_refuses="set_status",
+        )
 
     @server.tool(
         name="close",
@@ -214,6 +221,7 @@ def build_server(
         return run(
             lambda vault: f"Filed: {notes.backlog_add(vault, title, area, line, priority=priority, source=source)}",
             write=True,
+            shared_refuses="backlog_add",
         )
 
     @server.tool(
@@ -225,7 +233,8 @@ def build_server(
     )
     def backlog_tool(area: str | None = None, priority: str | None = None, limit: int = 50) -> str:
         return run(
-            lambda vault: notes.render_backlog(notes.backlog(vault, area=area, priority=priority)[:limit], vault)
+            lambda vault: notes.render_backlog(notes.backlog(vault, area=area, priority=priority)[:limit], vault),
+            shared_refuses="backlog",
         )
 
     @server.tool(
@@ -243,6 +252,7 @@ def build_server(
         return run(
             lambda vault: notes.log_append(vault, repo, line, commits=tuple(commits or ()), area=area, branch=branch),
             write=True,
+            shared_refuses="log_append",
         )
 
     @server.tool(
@@ -263,6 +273,8 @@ def build_server(
     ) -> str:
         def answer(vault: Vault) -> str:
             bundle = notes.context(vault, path=path, repo=repo, query=query, limit=limit)
+            if vault.rules is not None:
+                bundle.notices.append(vault.rules.context_line)
             return json.dumps(bundle.as_dict(), ensure_ascii=False) if format == "json" else bundle.render()
 
         return run(answer)
@@ -277,7 +289,12 @@ def build_server(
             ),
         )
         def lint_and_park_tool(write: str | None = None, park: bool = False) -> str:
-            return run(lambda vault: notes.lint_and_park(vault, write=write, park=park), force=True, write=True)
+            return run(
+                lambda vault: notes.lint_and_park(vault, write=write, park=park),
+                force=True,
+                write=True,
+                shared_refuses="lint_and_park",
+            )
 
         @server.tool(
             name="claim",
@@ -292,6 +309,7 @@ def build_server(
                 lambda vault: json.dumps(tasks.claim_note(vault, path, machine, task, repo=repo, force=force)),
                 write=True,
                 expected=(*EXPECTED_FAILURES, ValueError),
+                shared_refuses="claim",
             )
 
         @server.tool(
@@ -308,7 +326,7 @@ def build_server(
                     return json.dumps(tasks.release_claims_of(vault, machine or "", task or ""))
                 return json.dumps(tasks.release_note(vault, path, machine=machine))
 
-            return run(answer, write=True, expected=(*EXPECTED_FAILURES, ValueError))
+            return run(answer, write=True, expected=(*EXPECTED_FAILURES, ValueError), shared_refuses="release")
 
         @server.tool(
             name="snapshot",
@@ -340,7 +358,12 @@ def build_server(
                 changed = changelog.write_page(vault, repo, period, commits=commits)
                 return ("wrote " if changed else "unchanged ") + vault.schema.period_key(repo, period)
 
-            return run(answer, write=write, expected=(*EXPECTED_FAILURES, ValueError))
+            return run(
+                answer,
+                write=write,
+                expected=(*EXPECTED_FAILURES, ValueError),
+                shared_refuses="changelog" if write else None,
+            )
 
     @server.tool(
         name="whoami",
@@ -351,14 +374,16 @@ def build_server(
         if token is None:
             return json.dumps({"email": None, "write": True})
         claims = token.claims or {}
-        return json.dumps(
-            {
-                "email": claims.get("email"),
-                "vault": claims.get("vault"),
-                "vault_name": claims.get("vault_name"),
-                "write": WRITE_SCOPE in token.scopes,
-            }
-        )
+        answer = {
+            "email": claims.get("email"),
+            "vault": claims.get("vault"),
+            "vault_name": claims.get("vault_name"),
+            "vault_kind": claims.get("vault_kind"),
+            "write": WRITE_SCOPE in token.scopes,
+        }
+        if claims.get("vault_kind") == "shared":
+            answer["role"] = claims.get("role")
+        return json.dumps(answer)
 
     @server.tool(
         name="lint",
@@ -376,13 +401,13 @@ def build_server(
         description=(
             "WRITE — sets a vault up: writes `.vault/schema.yml` and the Obsidian Bases views into the vault "
             "root. Run once per vault, right after installing. preset picks the layout of a vault without a "
-            f"schema: {', '.join(PRESETS)}; without it, the vault gets default. On a vault that has a schema, it "
-            "only writes the views that are missing and keeps the rest; a layout is switched with the CLI "
+            f"schema: {', '.join(PERSONAL_LAYOUTS)}; without it, the vault gets default. On a vault that has a "
+            "schema, it only writes the views that are missing and keeps the rest; a layout is switched with the CLI "
             "(`init --preset <name> --force`) or on the account page, never through this tool."
         ),
     )
     def init_tool(force: bool = False, preset: str | None = None) -> str:
-        return run(lambda vault: _init(vault, force, preset), write=True)
+        return run(lambda vault: _init(vault, force, preset), write=True, shared_refuses="init")
 
     if personal_tokens is not None:
 
@@ -401,8 +426,8 @@ def build_server(
 
 
 def _init(vault: Vault, force: bool, preset: str | None) -> str:
-    if preset is not None and preset not in PRESETS:
-        raise notes.ValidationError(f"no preset named {preset!r}; the presets are: {', '.join(PRESETS)}")
+    if preset is not None and preset not in PERSONAL_LAYOUTS:
+        raise notes.ValidationError(f"no preset named {preset!r}; the presets are: {', '.join(PERSONAL_LAYOUTS)}")
     current = provision.current_preset(vault.backend)
     if current is not None and (force or preset not in (None, current)):
         raise notes.ValidationError(
@@ -424,7 +449,8 @@ def _obsidian_access(tokens: DavCredentials, dav_url: str) -> str:
     if token is None or not token.subject:
         raise ScopeError("no authenticated subject on this request")
     email = str((token.claims or {}).get("email") or token.subject)
-    secret = tokens.issue(token.subject, label=email)
+    account = (token.claims or {}).get("account")
+    secret = tokens.issue(token.subject, label=email, account_id=account)
     return (
         "Remotely Save → WebDAV\n"
         f"Server address: {dav_url}\n"

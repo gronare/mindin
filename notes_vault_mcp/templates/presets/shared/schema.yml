@@ -1,0 +1,35 @@
+version: 1
+preset: shared
+language: en
+other_languages: []
+folders:
+  Areas:     { kind: system,    weight: 3.0, description: "One living note per system or subsystem. Current state only. Hub of the graph." }
+  Resources: { kind: reference, weight: 2.0, description: "How-tos, decisions with their reasons, references and traps. Valid until superseded_by." }
+  Archive:   { kind: archive,   weight: 0.3, searched: false, description: "Retired notes, kept as they were. Searched only on request." }
+frontmatter:
+  required: [title, date, updated, tags, status]
+  optional: [kind, area, summary, path, superseded_by, source]
+  area_required_in: [Resources]
+  status_values: [draft, active, complete, superseded]
+  kind_values: [system, howto, decision, reference, trap]
+  priority_values: []
+kinds:
+  system: "one living note per system or subsystem; current state only, never history"
+  trap: "a gotcha that bit once and will bite again; nothing to do, nothing was chosen"
+  decision: "a choice and its reasons; something was chosen, alternatives were dropped"
+  howto: "steps that are known to work; nothing chosen, nothing open"
+  reference: "a pointer to something outside the vault: a URL, a dashboard, a ticket"
+tags:
+  strict: false
+  vocabulary: []
+synonyms: []
+stale_after_days: 30
+search:
+  default_limit: 15
+  recency_half_life_days: 90
+  title_weight: 10.0
+  summary_weight: 5.0
+  tags_weight: 3.0
+  body_weight: 1.0
+  stem_weight: 20.0
+  stemmed_weight: 0.5

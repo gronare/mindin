@@ -652,7 +652,7 @@ claude mcp add vault -s user \
 ```
 
 A server run from the container image uses the `-semantic` tag, which carries the extra, with
-`VAULT_SEMANTIC=on`: `ghcr.io/gronare/notes-vault-mcp:v0.10.3-semantic`. The plain tag leaves it out, and
+`VAULT_SEMANTIC=on`: `ghcr.io/gronare/notes-vault-mcp:v0.11.0-semantic`. The plain tag leaves it out, and
 every client of one server shares its model and index.
 
 It runs on your machine. The model, `paraphrase-multilingual-mpnet-base-v2` run through fastembed and
@@ -767,9 +767,9 @@ notes-vault-mcp log path --repo myapp --repo docs            # {"myapp": "Log/my
 notes-vault-mcp snapshot --json [--since ETAG]               # the board's notes and logs in one answer, see below
 notes-vault-mcp read Projects/myapp-idea.md [--body]          # the note as stored, or only its text after the frontmatter
 notes-vault-mcp status
-# {"configured": true, "version": "0.10.3", "backend": "s3", "writable": null}
+# {"configured": true, "version": "0.11.0", "backend": "s3", "writable": null}
 notes-vault-mcp status --probe
-# {"configured": true, "version": "0.10.3", "backend": "s3", "writable": true}
+# {"configured": true, "version": "0.11.0", "backend": "s3", "writable": true}
 ```
 
 The repo is the main checkout's name, also from a worktree, and the area is the system note the

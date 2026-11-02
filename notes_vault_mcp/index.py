@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -200,6 +201,7 @@ class Index:
         languages: tuple[str, ...] = (),
         embedder: Embedder | None = None,
         background: bool = False,
+        on_settled: Callable[[], None] | None = None,
     ) -> None:
         self.path = Path(path)
         self.backend = backend
@@ -210,7 +212,9 @@ class Index:
         if embedder is not None:
             from notes_vault_mcp.vectors import Vectors
 
-            self.vectors = Vectors(embedder, lambda: self.db, self._transaction, background=background)
+            self.vectors = Vectors(
+                embedder, lambda: self.db, self._transaction, background=background, on_settled=on_settled
+            )
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self._local = threading.local()
         self._connections: list[sqlite3.Connection] = []
@@ -463,6 +467,32 @@ class Index:
         return self.sync(force=True)
 
 
+def copy_index(source: Path, target: Path) -> None:
+    from notes_vault_mcp.vectors import LEASE_META
+
+    with (
+        closing(sqlite3.connect(source, timeout=BUSY_TIMEOUT_MS / 1000)) as origin,
+        closing(sqlite3.connect(target)) as copy,
+    ):
+        origin.backup(copy)
+        copy.execute("DELETE FROM meta WHERE k IN ('last_sync', ?)", (LEASE_META,))
+        copy.commit()
+
+
 def remove_index(cache: Path, identifier: str) -> None:
     for path in cache.glob(f"{identifier}.sqlite*"):
         path.unlink(missing_ok=True)
+
+
+def index_fingerprint(path: Path) -> str:
+    digest = hashlib.sha256()
+    with closing(sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=BUSY_TIMEOUT_MS / 1000)) as db:
+        for table in ("notes", "embedded"):
+            try:
+                rows = db.execute(f"SELECT key, version FROM {table} ORDER BY key").fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+            digest.update(f"{table}\0".encode())
+            for key, version in rows:
+                digest.update(f"{key}\0{version}\0".encode())
+    return digest.hexdigest()

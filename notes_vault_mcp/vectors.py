@@ -81,8 +81,10 @@ class Vectors:
         db: Callable[[], sqlite3.Connection],
         transaction: Callable[[], AbstractContextManager[sqlite3.Connection]],
         background: bool = False,
+        on_settled: Callable[[], None] | None = None,
     ) -> None:
         self.embedder = embedder
+        self.on_settled = on_settled
         self._db = db
         self._transaction = transaction
         self.background = background
@@ -157,6 +159,8 @@ class Vectors:
                 done += len(batch)
         finally:
             self._release_lease()
+        if done and not self.closed and self.on_settled is not None:
+            self.on_settled()
         return done
 
     def _take_lease(self) -> bool:

@@ -78,6 +78,8 @@ class AuthConfig:
     registration: Registration = "invite"
     passkeys: bool = True
     stateless_http: bool = False
+    index_snapshots: bool = False
+    snapshot_minutes: float = 10.0
     smtp: SmtpConfig | None = None
     github: GithubConfig | None = None
     oidc: OidcConfig | None = None
@@ -150,6 +152,17 @@ def _needs(name: str, because: str) -> str:
     return value
 
 
+def _minutes(name: str, default: float) -> float:
+    raw = _text(name)
+    try:
+        value = float(raw) if raw else default
+    except ValueError:
+        value = -1.0
+    if value < 0:
+        raise ConfigError(f"notes-vault-mcp: {name} must be a number of minutes, 0 or more")
+    return value
+
+
 def _choice(name: str, choices: tuple[str, ...], default: str) -> str:
     value = _text(name).lower() or default
     if value not in choices:
@@ -170,6 +183,8 @@ def auth_config() -> AuthConfig:
         registration="open" if _choice("VAULT_REGISTRATION", ("invite", "open"), "invite") == "open" else "invite",
         passkeys=_choice("VAULT_PASSKEYS", ("on", "off"), "on") == "on",
         stateless_http=_choice("VAULT_HTTP_STATELESS", ("on", "off"), "off") == "on",
+        index_snapshots=_choice("VAULT_INDEX_SNAPSHOTS", ("on", "off"), "off") == "on",
+        snapshot_minutes=_minutes("VAULT_INDEX_SNAPSHOT_MINUTES", 10.0),
         smtp=smtp_config(),
         github=github_config(),
         oidc=oidc_config(),

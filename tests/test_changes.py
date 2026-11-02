@@ -58,6 +58,7 @@ def test_a_write_on_one_server_is_found_by_a_search_on_the_other_at_once(
     first, second = pair
     assert found(second.for_subject(vault_id), "quince") == []
     first.for_subject(vault_id).backend.put("Areas/quince.md", QUINCE)
+    first.drain()
     assert found(second.for_subject(vault_id), "quince") == ["Areas/quince.md"]
 
 
@@ -73,6 +74,7 @@ def test_a_deleted_vault_leaves_no_index_on_the_other_server(
     first.discard(vault_id)
     delete_vault(sealed, vault, first.cache)
     first.publish(vault_id, "gone")
+    first.drain()
     assert vault_id not in second.open_subjects
     assert list((tmp_path / "cache-b").glob(f"{sealed.identifier(vault_id)}.sqlite*")) == []
 
@@ -95,6 +97,7 @@ def test_a_server_ignores_the_changes_it_published_itself(sealed: SealedVaults, 
     found(vaults.for_subject(vault_id), "quince")
     sealed.for_vault(vault_id)[0].put("Areas/quince.md", QUINCE)
     vaults.publish(vault_id, "write")
+    vaults.drain()
     assert heard == [Change(vault_id, "write", vaults.origin)]
     assert found(vaults.for_subject(vault_id), "quince") == []
     vaults.close()
@@ -120,4 +123,5 @@ def test_a_new_layout_on_one_server_is_the_layout_on_the_other(
     schema, _ = storage.get(SCHEMA_KEY)
     storage.put(SCHEMA_KEY, schema + "\nlog:\n  file_format: '{repo}-journal.md'\n")
     first.publish(vault_id, "schema")
+    first.drain()
     assert second.for_subject(vault_id).schema.log_key("orchard").endswith("orchard-journal.md")

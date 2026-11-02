@@ -30,6 +30,7 @@ from notes_vault_mcp.shared import SharedBackend, SharedRules
 
 MASTER_KEY_ENV = "VAULT_HOSTED_MASTER_KEY"
 PREVIOUS_KEYS_ENV = "VAULT_HOSTED_MASTER_KEY_PREVIOUS"
+SNAPSHOT_PREFIX = "indexes"
 NO_MASTER_KEY = (
     f"notes-vault-mcp: an HTTP server needs {MASTER_KEY_ENV}, the base64 master key that wraps every vault's "
     "data key (`notes-vault-mcp master-key generate` makes one). Keep it outside the bucket: losing it loses "
@@ -135,6 +136,13 @@ class VaultKeys:
                 ).fetchone()
         return self.keyring.unwrap(vault_id, row["key_id"], bytes(row["wrapped"]))
 
+    def existing_key(self, vault_id: str) -> bytes | None:
+        with self.store.connect() as connection:
+            row = connection.execute(
+                "SELECT key_id, wrapped FROM vault_data_keys WHERE vault_id = ?", (vault_id,)
+            ).fetchone()
+        return None if row is None else self.keyring.unwrap(vault_id, row["key_id"], bytes(row["wrapped"]))
+
     def has_key(self, vault_id: str) -> bool:
         with self.store.connect() as connection:
             row = connection.execute("SELECT 1 FROM vault_data_keys WHERE vault_id = ?", (vault_id,)).fetchone()
@@ -217,8 +225,19 @@ class SealedVaults:
     def identifier(self, vault_id: str) -> str:
         return self.storage(vault_id)[1]
 
+    def live_identifiers(self) -> set[str]:
+        with self.store.connect() as connection:
+            rows = connection.execute(
+                "SELECT vaults.id AS id FROM vaults JOIN vault_data_keys ON vault_data_keys.vault_id = vaults.id"
+            ).fetchall()
+        return {self.identifier(row["id"]) for row in rows}
+
     def history_storage(self, vault_id: str) -> Storage:
         inner, _ = make_subject_backend(vault_id, "/".join(part for part in (self.prefix, HISTORY_PREFIX) if part))
+        return cast(Storage, inner)
+
+    def snapshot_storage(self, vault_id: str) -> Storage:
+        inner, _ = make_subject_backend(vault_id, "/".join(part for part in (self.prefix, SNAPSHOT_PREFIX) if part))
         return cast(Storage, inner)
 
     def history(self, vault_id: str) -> History:
@@ -263,6 +282,7 @@ def delete_vault(sealed: SealedVaults, vault: Vault, cache: Path) -> int:
     entries = empty_storage(inner)
     if vault.shared:
         empty_storage(sealed.history_storage(vault.id))
+    empty_storage(sealed.snapshot_storage(vault.id))
     remove_index(cache, identifier)
     with sealed.store.connect() as connection:
         present = sealed.store.database.tables(connection)

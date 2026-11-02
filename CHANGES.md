@@ -8,6 +8,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 - The documentation lives in `docs/`, sorted into install guides, how-tos, reference and explanation, with a page listing every environment variable.
 - `deploy/docker/` holds the Docker Compose setup, and each GitHub release carries its `compose.yml`, `Caddyfile` and `example.env`, so a server installs with two `curl` lines. Its `.env` keeps the vaults in the container's volume unless you set a bucket.
 - `VAULT_HTTP_STATELESS=on` serves MCP without sessions, so a server restart drops no session a client holds.
+- `VAULT_INDEX_SNAPSHOTS=on` keeps a sealed copy of each vault's search index in storage, so a restarted or moved server restores a vault's index instead of indexing and embedding every note again. A busy vault's copy is written at most once per `VAULT_INDEX_SNAPSHOT_MINUTES` (default 10) and only when the index changed, plus once when it goes idle and once when the server stops.
 
 ### Fixed
 - Two writes to one note at the same moment both land: `append_file`, `set_status`, `close`, `log_append`, `write_file` and the monthly log pages write over the version they read and read again when the note changed meanwhile, two `backlog_add` calls with one title get two notes, and a new vault's first files never overwrite a file already there.

@@ -55,6 +55,7 @@ from notes_vault_mcp.auth.device import DEVICE_GRANT, DeviceFlow
 from notes_vault_mcp.auth.hosted_access import SupportAccess, SupportDesk
 from notes_vault_mcp.auth.hosted_deletion import SelfDeletion
 from notes_vault_mcp.auth.hosted_keys import Keyring, SealedVaults, VaultKeys
+from notes_vault_mcp.auth.hosted_snapshots import IndexSnapshots
 from notes_vault_mcp.auth.hosted_store import Account, ApiKeyCredentials, HostedStore
 from notes_vault_mcp.auth.hosted_vault_pages import VaultPages
 from notes_vault_mcp.auth.hosted_vaults import Vault
@@ -579,6 +580,9 @@ def build_hosted_app(
     keys.verify()
     sealed = SealedVaults(store, keys, vaults.prefix)
     vaults.use_backends(sealed, identify=sealed.identifier)
+    if auth.index_snapshots:
+        vaults.use_snapshots(IndexSnapshots(sealed), auth.snapshot_minutes * 60.0)
+    vaults.use_sweep(sealed.live_identifiers)
     provider = HostedProvider(auth, store, ClientMetadataFetcher(metadata_transport, resolver), clock, extensions)
     limits = Limits()
     browser = Browser(auth, store, limits, clock)
@@ -693,4 +697,4 @@ def build_hosted_app(
         metadata_url=str(build_resource_metadata_url(URL.validate_python(auth.resource_url))),
         forwarded=forwarded,
     )
-    return Starlette(routes=routes, middleware=[guard], lifespan=inner_lifespan(mcp_app))
+    return Starlette(routes=routes, middleware=[guard], lifespan=inner_lifespan(mcp_app, vaults.close))

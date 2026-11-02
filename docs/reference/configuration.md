@@ -43,6 +43,8 @@ These apply to `serve --transport http`. `--host` defaults to `127.0.0.1` and `-
 | `VAULT_REGISTRATION` | no | `invite` | `invite`: only invited addresses get an account. `open`: any verified email does. |
 | `VAULT_PASSKEYS` | no | `on` | `on` or `off`. |
 | `VAULT_HTTP_STATELESS` | no | `off` | `on` keeps no MCP session on the server between requests, so a restart drops no session a client holds. Each request then stands alone: the server sends nothing to a client outside the answer to a request. |
+| `VAULT_INDEX_SNAPSHOTS` | no | `off` | `on` keeps a sealed copy of each vault's search index beside the vault in the folder or bucket, written when the vault goes idle, when the server shuts down, and at most once per `VAULT_INDEX_SNAPSHOT_MINUTES` while new notes are embedded, and only when the index changed since the last copy. A server whose `VAULT_CACHE_DIR` lacks a vault's index starts from that copy and indexes or embeds only the notes that changed since. Deleting the vault deletes the copy. |
+| `VAULT_INDEX_SNAPSHOT_MINUTES` | no | `10` | The least time between two copies of one vault's index while it is in use. |
 | `VAULT_ALLOWED_HOSTS` | no | | Extra `Host` header values the MCP endpoint answers, space or comma separated. See [Behind a reverse proxy](../how-to/reverse-proxy.md). |
 | `VAULT_AUTH_DIR` | no | `VAULT_CACHE_DIR/auth`; `/data/auth` in the image | Where `hosted.sqlite` lives. |
 | `VAULT_SUBJECT_PREFIX` | no | `users` | Where the vaults live in the folder or bucket: `<prefix>/<vault id>/`, or `<prefix>/<account id>/` for an account's original vault. |

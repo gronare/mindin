@@ -127,9 +127,12 @@ class SelfDeletion:
         return response
 
     def erase(self, account: Account) -> None:
-        for vault in self.browser.store.vaults(account.id):
+        owned = self.browser.store.vaults(account.id)
+        for vault in owned:
             self.vaults.discard(vault.id)
         delete_account(self.sealed, account, self.vaults.cache)
+        for vault in owned:
+            self.vaults.publish(vault.id, "gone")
 
     def routes(self, prefix: str, limited: Callable) -> list[Route]:
         return [

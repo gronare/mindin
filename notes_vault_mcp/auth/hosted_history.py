@@ -12,9 +12,9 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from notes_vault_mcp.auth.hosted_store import HostedStore
-from notes_vault_mcp.backends import MUST_NOT_EXIST, NotFound, VersionConflict
+from notes_vault_mcp.backends import MUST_NOT_EXIST, NotFound, VaultBackend, VersionConflict
 from notes_vault_mcp.backends.sealed import SealedBackend
-from notes_vault_mcp.shared import Actor, SharedBackend, acting_as
+from notes_vault_mcp.shared import Actor, acting_as
 
 HISTORY_PREFIX = "history"
 BLOB_FOLDER = "blobs/"
@@ -151,11 +151,11 @@ class History:
             )
         )
 
-    def restore(self, change: Change, actor: Actor, backend: SharedBackend) -> bool:
+    def restore(self, change: Change, actor: Actor, backend: VaultBackend) -> bool:
         data = self.content(change.before) if change.restorable else None
         if data is None:
             raise NotFound(f"no previous version of {change.path}")
-        if backend.previous(change.path) == data:
+        if stored_bytes(backend, change.path) == data:
             return False
         with acting_as(actor):
             backend.put_bytes(change.path, data)
@@ -175,3 +175,10 @@ def text_of(data: bytes | None) -> str:
         return data.decode("utf-8")
     except UnicodeDecodeError:
         return f"(a binary file of {len(data)} bytes)"
+
+
+def stored_bytes(backend: VaultBackend, key: str) -> bytes | None:
+    try:
+        return backend.get_bytes(key)[0]
+    except NotFound:
+        return None

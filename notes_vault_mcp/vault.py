@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import secrets
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -13,9 +14,10 @@ import yaml
 
 from notes_vault_mcp import provision
 from notes_vault_mcp.backends import VaultBackend, VaultError, make_backend, make_subject_backend
+from notes_vault_mcp.changes import NULL_BUS, Announcing, Change, ChangeBus, Kind, forget_listing
 from notes_vault_mcp.config import cache_dir, env
 from notes_vault_mcp.embedding import Embedder, configured_embedder
-from notes_vault_mcp.index import Index
+from notes_vault_mcp.index import Index, remove_index
 from notes_vault_mcp.schema import Schema, deep_merge, default_schema_data, load_schema
 from notes_vault_mcp.shared import SHARED_PRESET, SharedRules, shared_backend
 
@@ -45,6 +47,7 @@ class Vault:
         self.background = background
         self.rules: SharedRules | None = None
         self._index = index
+        self._stale = False
 
     @property
     def index(self) -> Index:
@@ -68,7 +71,12 @@ class Vault:
             self.close()
             self.index.rebuild()
 
+    def mark_stale(self) -> None:
+        forget_listing(self.backend)
+        self._stale = True
+
     def sync(self, force: bool = False) -> int:
+        force, self._stale = force or self._stale, False
         count = self.index.sync(force=force)
         seen = self.index.schema_version
         if seen is not None and seen != self.schema_version:
@@ -172,15 +180,48 @@ class SubjectVaults:
         self._lock = threading.Lock()
         self._instruction_schema: Schema | None = None
         self.backend_factory: BackendFactory = self.plain_backend
+        self.identify: Callable[[str], str] = lambda subject: self.plain_backend(subject)[1]
+        self.origin = secrets.token_hex(8)
+        self.bus: ChangeBus = NULL_BUS
 
     def plain_backend(self, subject: str) -> tuple[VaultBackend, str]:
         return make_subject_backend(subject_key(subject), self.prefix)
 
-    def use_backends(self, factory: BackendFactory) -> None:
+    def use_backends(self, factory: BackendFactory, identify: Callable[[str], str] | None = None) -> None:
         with self._lock:
             if self._open or self.backend_factory != self.plain_backend:
                 raise VaultError("the storage of subject vaults is chosen once, before any vault opens")
             self.backend_factory = factory
+            if identify is not None:
+                self.identify = identify
+
+    def use_bus(self, bus: ChangeBus) -> None:
+        self.bus = bus
+        bus.listen(self.apply)
+
+    def publish(self, subject: str, kind: Kind) -> None:
+        self.bus.publish(Change(subject, kind, self.origin))
+
+    def apply(self, change: Change) -> None:
+        if change.origin == self.origin:
+            return
+        if change.kind == "all":
+            with self._lock:
+                opened = [vault for vault, _ in self._open.values()]
+            for vault in opened:
+                vault.mark_stale()
+            return
+        if change.kind == "gone":
+            self.discard(change.vault_id)
+            remove_index(self.cache, self.identify(change.vault_id))
+            return
+        with self._lock:
+            found = self._open.get(subject_key(change.vault_id))
+        if found is None:
+            return
+        found[0].mark_stale()
+        if change.kind == "schema":
+            found[0].reload_schema()
 
     def _current_subject(self) -> str:
         from mcp.server.auth.middleware.auth_context import get_access_token
@@ -238,8 +279,9 @@ class SubjectVaults:
             provision.initialize(shared.inner, preset=SHARED_PRESET)
         elif provision.is_empty(backend):
             provision.initialize(backend, schema_template=self.schema_template, welcome={"DAV_URL": self.dav_url})
+        announced = backend if self.bus is NULL_BUS else Announcing(backend, lambda: self.publish(subject, "write"))
         vault = Vault(
-            backend=backend,
+            backend=announced,
             schema=load_schema(backend),
             index_path=self.cache / f"{identifier}.sqlite",
             embedder=self.embedder,
@@ -281,3 +323,4 @@ class SubjectVaults:
             for vault, _ in self._open.values():
                 vault.close()
             self._open.clear()
+        self.bus.close()

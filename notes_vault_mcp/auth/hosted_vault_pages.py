@@ -294,6 +294,7 @@ decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url
         welcome = {"DAV_URL": self.vaults.dav_url} if current is None else None
         result = provision.initialize(backend, force=current is not None, preset=preset, welcome=welcome)
         self.vaults.refresh(vault.id)
+        self.vaults.publish(vault.id, "schema")
         moved = " No note was moved or deleted." if current is not None else ""
         title = esc(PRESETS[result.preset].title)
         return f'<div class="notice"><p>This vault now uses {title}.{moved}</p></div>', 200
@@ -504,7 +505,9 @@ references. Every change is kept with who made it.</span></label>
 
     def erase(self, vault: Vault) -> int:
         self.vaults.discard(vault.id)
-        return delete_vault(self.sealed, vault, self.vaults.cache)
+        deleted = delete_vault(self.sealed, vault, self.vaults.cache)
+        self.vaults.publish(vault.id, "gone")
+        return deleted
 
     def routes(self, prefix: str, limited: Callable) -> list[Route]:
         upload: ASGIApp = RequestBodyLimitMiddleware(request_response(self.upload), MAX_UPLOAD_BYTES)

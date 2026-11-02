@@ -25,6 +25,7 @@ from notes_vault_mcp.backends import Entry, VaultBackend, VaultError, is_vault_k
 from notes_vault_mcp.backends.local import LocalBackend
 from notes_vault_mcp.backends.sealed import DATA_KEY_BYTES, NONCE_BYTES, SealedBackend, Storage, new_data_key
 from notes_vault_mcp.config import ConfigError, cache_dir, env
+from notes_vault_mcp.index import remove_index
 from notes_vault_mcp.shared import SharedBackend, SharedRules
 
 MASTER_KEY_ENV = "VAULT_HOSTED_MASTER_KEY"
@@ -213,6 +214,9 @@ class SealedVaults:
         inner, identifier = make_subject_backend(vault_id, self.prefix)
         return cast(Storage, inner), identifier
 
+    def identifier(self, vault_id: str) -> str:
+        return self.storage(vault_id)[1]
+
     def history_storage(self, vault_id: str) -> Storage:
         inner, _ = make_subject_backend(vault_id, "/".join(part for part in (self.prefix, HISTORY_PREFIX) if part))
         return cast(Storage, inner)
@@ -259,8 +263,7 @@ def delete_vault(sealed: SealedVaults, vault: Vault, cache: Path) -> int:
     entries = empty_storage(inner)
     if vault.shared:
         empty_storage(sealed.history_storage(vault.id))
-    for path in cache.glob(f"{identifier}.sqlite*"):
-        path.unlink(missing_ok=True)
+    remove_index(cache, identifier)
     with sealed.store.connect() as connection:
         present = sealed.store.database.tables(connection)
         for table in VAULT_ROWS:

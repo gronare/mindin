@@ -461,3 +461,8 @@ class Index:
             if self.vectors is not None:
                 self.vectors.forget(db)
         return self.sync(force=True)
+
+
+def remove_index(cache: Path, identifier: str) -> None:
+    for path in cache.glob(f"{identifier}.sqlite*"):
+        path.unlink(missing_ok=True)

@@ -94,7 +94,7 @@ class SealedBackend:
     def list_all(self, prefix: str = "") -> list[Entry]:
         return [entry for entry in self._entries() if entry.key.startswith(prefix)]
 
-    # Writes from another process show here only after LISTING_TTL: serve each bucket from one replica.
+    # Writes from another process show here only after LISTING_TTL, or at once when a change bus calls forget_listing.
     def _entries(self) -> list[Entry]:
         with self._lock:
             if self._listing is not None and self.clock() - self._listing[0] < LISTING_TTL:
@@ -106,6 +106,9 @@ class SealedBackend:
             if generation == self._generation:
                 self._listing = (moment, entries)
         return entries
+
+    def forget_listing(self) -> None:
+        self._changed()
 
     def _changed(self) -> None:
         with self._lock:

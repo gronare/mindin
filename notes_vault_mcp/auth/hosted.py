@@ -66,8 +66,9 @@ from notes_vault_mcp.auth.login_github import GithubSignIn
 from notes_vault_mcp.auth.login_oidc import OidcSignIn
 from notes_vault_mcp.auth.login_passkey import PasskeySignIn
 from notes_vault_mcp.auth.prefix import URL, inner_lifespan
+from notes_vault_mcp.changes import NULL_BUS
 from notes_vault_mcp.config import ConfigError
-from notes_vault_mcp.extensions import Extension, Server, installed, narrowed
+from notes_vault_mcp.extensions import Extension, Server, installed, narrowed, supplied_bus
 from notes_vault_mcp.extensions import access as extended_access
 
 logger = logging.getLogger(__name__)
@@ -577,7 +578,7 @@ def build_hosted_app(
     keys = VaultKeys(store, keyring or Keyring.from_env())
     keys.verify()
     sealed = SealedVaults(store, keys, vaults.prefix)
-    vaults.use_backends(sealed)
+    vaults.use_backends(sealed, identify=sealed.identifier)
     provider = HostedProvider(auth, store, ClientMetadataFetcher(metadata_transport, resolver), clock, extensions)
     limits = Limits()
     browser = Browser(auth, store, limits, clock)
@@ -591,6 +592,7 @@ def build_hosted_app(
     extended = Server(auth, store, clock, browser, vaults, sealed, deletion, smtp_factory)
     for extension in extensions:
         extension.attach(extended)
+    vaults.use_bus(supplied_bus(extensions, extended) or NULL_BUS)
     pages.sections += extended.vault_sections
 
     def extended_and_support(account: Account, csrf: str) -> str:

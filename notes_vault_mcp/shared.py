@@ -142,6 +142,9 @@ class SharedBackend:
     def mkdir(self, key: str) -> None:
         self.inner.mkdir(key)
 
+    def forget_listing(self) -> None:
+        self.inner.forget_listing()
+
     def previous(self, key: str) -> bytes | None:
         try:
             return self.inner.get_bytes(key)[0]

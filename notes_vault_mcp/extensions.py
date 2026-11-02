@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from notes_vault_mcp.auth.database import Connection, Database
     from notes_vault_mcp.auth.hosted_store import Account, HostedStore
     from notes_vault_mcp.auth.hosted_vaults import Vault
+    from notes_vault_mcp.changes import ChangeBus
 
 GROUP = "notes_vault_mcp.extensions"
 Access = Literal["full", "read", "none"]
@@ -59,6 +60,10 @@ class Extension:
     def attach(self, server: Server) -> None:
         """Add routes and sections on the account and vault pages to a hosted server."""
 
+    def bus(self, server: Server) -> ChangeBus | None:
+        """The change bus that carries changes made outside this server to it, and this server's changes out."""
+        return None
+
     def access(self, account: Account) -> Access:
         """How much of its vaults an active account may use right now."""
         return "full"
@@ -75,6 +80,10 @@ def access(extensions: Iterable[Extension], account: Account) -> Access:
 
 def supplied_database(extensions: Iterable[Extension], directory: Path) -> Database | None:
     return next((found for extension in extensions if (found := extension.database(directory)) is not None), None)
+
+
+def supplied_bus(extensions: Iterable[Extension], server: Server) -> ChangeBus | None:
+    return next((found for extension in extensions if (found := extension.bus(server)) is not None), None)
 
 
 def narrowed(granted: Access, scopes: list[str]) -> list[str]:

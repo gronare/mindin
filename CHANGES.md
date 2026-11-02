@@ -5,6 +5,8 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 ## Unreleased
 
 ### What's new
+- The documentation lives in `docs/`, sorted into install guides, how-tos, reference and explanation, with a page listing every environment variable.
+- `deploy/docker/` holds the Docker Compose setup, and each GitHub release carries its `compose.yml`, `Caddyfile` and `example.env`, so a server installs with two `curl` lines. Its `.env` keeps the vaults in the container's volume unless you set a bucket.
 
 ### Fixed
 - A vault server's root address opens the account page instead of answering not found.

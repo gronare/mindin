@@ -5,8 +5,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      VAULT_AUTH_DIR: /data/auth
-      VAULT_CACHE_DIR: /data/cache
+      VAULT_PUBLIC_URL: https://${VAULT_HOST:?set VAULT_HOST in .env}
     volumes:
       - vault-data:/data
     expose:
@@ -15,7 +14,8 @@ services:
   caddy:
     image: caddy:2
     restart: unless-stopped
-    env_file: .env
+    environment:
+      VAULT_HOST: ${VAULT_HOST:?set VAULT_HOST in .env}
     ports:
       - "80:80"
       - "443:443"

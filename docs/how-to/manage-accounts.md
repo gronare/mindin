@@ -1,0 +1,45 @@
+# Manage accounts and vaults
+
+Run these on the server's machine, with the server's environment: in Docker, prefix each with `docker compose exec vault`; on Kubernetes, with `kubectl exec deploy/notes-vault-mcp --`. [Accounts and vaults](../explanation/accounts-and-vaults.md) explains what they act on.
+
+## Let people in
+
+New accounts are by invitation. `accounts invite` lets an address in the first time it signs in with a verified email:
+
+```sh
+notes-vault-mcp accounts invite ann@example.com
+```
+
+`VAULT_REGISTRATION=open` lets anyone with a verified email create an account.
+
+## Suspend, activate, delete
+
+```sh
+notes-vault-mcp accounts list
+notes-vault-mcp accounts suspend ann@example.com     # every key and token stops at once
+notes-vault-mcp accounts activate ann@example.com
+notes-vault-mcp accounts delete ann@example.com --yes
+```
+
+`accounts delete` destroys every vault's key first, then their files, indexes, keys, connections and the account's ways in. It is refused while the account owns a [shared vault](../explanation/shared-vaults.md) that has other members; hand each one over or delete it first. People can also delete their own account on the account page.
+
+## Give an account more vaults
+
+```sh
+notes-vault-mcp accounts vaults ann@example.com                      # slug, name, notes, files, keys
+notes-vault-mcp accounts add-vault ann@example.com "Workshop" --slug workshop --preset para
+notes-vault-mcp accounts rename-vault ann@example.com workshop --name "Shed" --slug shed
+```
+
+`--preset` picks the vault's [layout](../explanation/notes-and-layouts.md#layouts). People make their own vaults on the account page too.
+
+## Share a vault
+
+```sh
+notes-vault-mcp accounts add-vault ann@example.com "Orchard club" --shared
+notes-vault-mcp accounts add-member ann@example.com orchard-club bo@example.com
+notes-vault-mcp accounts members ann@example.com orchard-club              # owner, members, invitations
+notes-vault-mcp accounts remove-member ann@example.com orchard-club bo@example.com
+```
+
+With SMTP set up, `add-member` sends the address one email with a sign-in link. `remove-member` withdraws an invitation, or removes a member and revokes their keys to the vault. The owner does the same on the vault's page. See [Shared vaults](../explanation/shared-vaults.md).

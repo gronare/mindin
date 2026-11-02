@@ -17,7 +17,10 @@ IN_AUTH = re.compile(r"\bcheckout\b|\bportal\b|\.plans\b|\bplan_\w+|>plan<", re.
 
 def scanned() -> list[Path]:
     files = [path for path in PACKAGE.rglob("*") if path.is_file() and "__pycache__" not in path.parts]
-    return [*files, ROOT / "README.md", ROOT / "CHANGES.md", ROOT / "server.json", ROOT / "pyproject.toml"]
+    docs = sorted((ROOT / "docs").rglob("*.md"))
+    deploy = sorted(path for path in (ROOT / "deploy").rglob("*") if path.is_file())
+    top = [ROOT / name for name in ("README.md", "CHANGES.md", "server.json", "pyproject.toml")]
+    return [*files, *docs, *deploy, *top]
 
 
 @pytest.mark.parametrize("path", scanned(), ids=lambda path: str(path.relative_to(ROOT)))

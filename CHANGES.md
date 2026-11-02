@@ -7,6 +7,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 ### What's new
 
 ### Fixed
+- The session-start hook's repo log shows only log lines, never the log note's frontmatter.
 
 ## 0.11.0
 

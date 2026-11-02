@@ -239,6 +239,11 @@ def test_context_ends_with_the_log_tail(vault: Vault):
     assert "Release-grinden mäter A/B" in text
 
 
+def test_the_log_tail_holds_log_lines_only(vault: Vault):
+    tail = notes.context(vault, path=ORCHARD, repo="orchard").log_tail
+    assert tail and all(line.startswith("- [") for line in tail), tail
+
+
 def test_context_says_so_when_nothing_matches(vault: Vault):
     assert notes.context(vault, path="/opt/annat", repo="annat").render() == "No vault context for this path or repo."
 

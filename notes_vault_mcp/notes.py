@@ -10,7 +10,15 @@ from datetime import date
 from pathlib import Path
 
 from notes_vault_mcp.backends import SCHEMA_KEY, NotFound
-from notes_vault_mcp.frontmatter import CLAIM_KEY, FrontmatterError, claim_fields, dump, parse, validate
+from notes_vault_mcp.frontmatter import (
+    CLAIM_KEY,
+    FRONTMATTER_RE,
+    FrontmatterError,
+    claim_fields,
+    dump,
+    parse,
+    validate,
+)
 from notes_vault_mcp.index import Note, expand_home, stem_of
 from notes_vault_mcp.schema import CLAIM_STALE_DAYS, broken_schema_lines
 from notes_vault_mcp.search import age_days, humanize_age
@@ -559,7 +567,7 @@ def _log_tail(vault: Vault, repo: str | None) -> list[str]:
         text, _ = _read(vault, note_key(vault.schema.log_key(repo)))
     except Exception:
         return []
-    lines = [line for line in text.splitlines() if line.strip()]
+    lines = [line for line in FRONTMATTER_RE.sub("", text, count=1).splitlines() if line.strip()]
     return lines[-LOG_TAIL_LINES:]
 
 

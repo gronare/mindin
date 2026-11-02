@@ -24,6 +24,14 @@ VAULT_HINT = (
     "filesystem: a wikilink [[stem]] is `search` on the stem, not a path."
 )
 
+SHARED_VAULT_HINT = (
+    "## how to read the vault\n"
+    "The notes above live in a shared vault, not on disk. Read a note with the vault MCP tool `read_file(path)`, "
+    "find others with `search`, and never look for the vault's files in the filesystem: a wikilink [[stem]] is "
+    "`search` on the stem, not a path. It holds only how things are now; tasks, the backlog and logs go in the "
+    "user's personal vault."
+)
+
 __all__ = ["git", "repo_name", "repo_root"]
 
 
@@ -64,7 +72,8 @@ def commit_blocks(cwd: str, system: list[dict]) -> list[str]:
 
 
 def render_session_start(bundle: dict, cwd: str) -> str:
-    return "\n\n".join([bundle["text"], *commit_blocks(cwd, bundle["system"]), VAULT_HINT])
+    hint = SHARED_VAULT_HINT if bundle.get("shared") else VAULT_HINT
+    return "\n\n".join([bundle["text"], *commit_blocks(cwd, bundle["system"]), hint])
 
 
 def session_start_text(vault: Vault, cwd: str) -> str:

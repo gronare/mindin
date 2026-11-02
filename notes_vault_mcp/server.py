@@ -16,7 +16,7 @@ from notes_vault_mcp.backends import VaultError
 from notes_vault_mcp.dav import DavCredentials
 from notes_vault_mcp.frontmatter import FrontmatterError
 from notes_vault_mcp.presets import PERSONAL_LAYOUTS
-from notes_vault_mcp.schema import CLAIM_KEY, NoHome, instructions
+from notes_vault_mcp.schema import CLAIM_KEY, NoHome, instructions, shared_instructions
 from notes_vault_mcp.search import QueryError, render, search
 from notes_vault_mcp.snapshot import build_snapshot
 from notes_vault_mcp.vault import SingleVault, SubjectVaults, Vault, VaultResolver, open_vault
@@ -63,6 +63,11 @@ class VaultServer(MCPServer):
         return await super().call_tool(name, arguments, context)
 
 
+def answer_instructions_per_vault(server: MCPServer, answer: Callable[[], str]) -> None:
+    low = server._lowlevel_server
+    low.__class__ = type("PerVaultServer", (type(low),), {"instructions": property(lambda _: answer())})
+
+
 def build_server(
     vaults: Vault | VaultResolver,
     personal_tokens: DavCredentials | None = None,
@@ -70,7 +75,17 @@ def build_server(
     machine_tools: bool = False,
 ) -> MCPServer:
     resolver: VaultResolver = SingleVault(vaults) if isinstance(vaults, Vault) else vaults
-    server = VaultServer("vault", instructions=instructions(resolver.instruction_schema), version=VERSION)
+    general = instructions(resolver.instruction_schema)
+    server = VaultServer("vault", instructions=general, version=VERSION)
+
+    def instructions_now() -> str:
+        try:
+            vault = resolver.current()
+        except VaultError:
+            return general
+        return shared_instructions(vault.schema, vault.rules.name) if vault.rules is not None else general
+
+    answer_instructions_per_vault(server, instructions_now)
 
     def run(
         action: Callable[[Vault], str],
@@ -275,6 +290,7 @@ def build_server(
             bundle = notes.context(vault, path=path, repo=repo, query=query, limit=limit)
             if vault.rules is not None:
                 bundle.notices.append(vault.rules.context_line)
+                bundle.shared = True
             return json.dumps(bundle.as_dict(), ensure_ascii=False) if format == "json" else bundle.render()
 
         return run(answer)

@@ -554,3 +554,45 @@ Workflow:
 A wikilink [[stem]] is a search on the stem: that note comes first, even from the archive.
 {language}
 """
+
+
+def shared_instructions(schema: Schema, name: str) -> str:
+    area_folders = ", ".join(schema.area_required_in)
+    area_line = (
+        f"\n- area is a wikilink to the system note, shaped [[stem]], and is required in: {area_folders}"
+        if area_folders
+        else ""
+    )
+    tags = ", ".join(schema.tag_vocabulary)
+    vocabulary = f"Tags come from this vocabulary: {tags}." if tags else "Tags are free-form."
+    return f"""\
+This is {name}, a shared vault. Its owner and the members they invite read and write it, every change
+applies at once, and each one is kept with who made it, so it can be shown and restored.
+
+It holds only how things are now. Tasks, plans, the backlog, session logs and personal reasoning do not
+belong here: they go in the user's personal vault, through its own connection. This server refuses them,
+and refuses backlog_add, log_append, set_status, claim and release.
+
+Folders and what each is for:
+{chr(10).join(_folder_lines(schema))}
+
+Frontmatter contract for every note:
+- required: {", ".join(schema.required_fields)}
+- optional: {", ".join(schema.optional_fields)}
+- status is one of: {", ".join(schema.status_values)}
+- kind is one of:{_kind_lines(schema)}{area_line}
+{vocabulary}
+
+Workflow:
+1. Search with `search` before writing, and read the note you are about to change: other people keep
+   it too. `context` (path, repo) returns the system notes for the code you are about to touch.
+2. Correct a system note in place when the code or the facts change; it describes the present, never
+   the history, which the server keeps.
+3. Write a howto, decision, reference or trap in Resources/ when something is learned that others need.
+4. When a note no longer holds, `close` it with merged_into the note that replaces it; it moves to the
+   archive.
+
+`search` excludes the archive and superseded notes unless you ask for them, and says how many it hid.
+A wikilink [[stem]] is a search on the stem: that note comes first, even from the archive.
+{_language_line(schema)}
+"""

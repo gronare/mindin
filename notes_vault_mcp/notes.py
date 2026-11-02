@@ -456,6 +456,7 @@ class ContextBundle:
     stale_after_days: int = 30
     schema_problems: list[str] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
+    shared: bool = False
 
     def render(self) -> str:
         now = time.time()
@@ -502,6 +503,7 @@ class ContextBundle:
                 for note, _ in self.system
             ],
             "triage": [{"key": note.key, "age": humanize_age(age_days(note, now))} for note in self.triage],
+            "shared": self.shared,
         }
 
 

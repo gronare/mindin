@@ -7,7 +7,6 @@ import hashlib
 import hmac
 import os
 import shutil
-import sqlite3
 import sys
 import time
 from dataclasses import dataclass, field
@@ -18,9 +17,10 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from notes_vault_mcp.auth import DEFAULT_SUBJECT_PREFIX, auth_dir
+from notes_vault_mcp.auth.database import account_tables, has_table
 from notes_vault_mcp.auth.hosted_history import HISTORY_PREFIX, History, history_key
 from notes_vault_mcp.auth.hosted_store import Account, HostedStore
-from notes_vault_mcp.auth.hosted_vaults import DATA_KEY_TABLES, Vault, has_table
+from notes_vault_mcp.auth.hosted_vaults import DATA_KEY_TABLES, Vault
 from notes_vault_mcp.backends import Entry, VaultBackend, VaultError, is_vault_key, make_subject_backend
 from notes_vault_mcp.backends.local import LocalBackend
 from notes_vault_mcp.backends.sealed import DATA_KEY_BYTES, NONCE_BYTES, SealedBackend, Storage, new_data_key
@@ -126,7 +126,8 @@ class VaultKeys:
             if row is None:
                 key_id, wrapped = self.keyring.wrap(vault_id, new_data_key())
                 connection.execute(
-                    "INSERT OR IGNORE INTO vault_data_keys(vault_id, key_id, wrapped, created_at) VALUES(?, ?, ?, ?)",
+                    "INSERT INTO vault_data_keys(vault_id, key_id, wrapped, created_at) VALUES(?, ?, ?, ?)"
+                    " ON CONFLICT (vault_id) DO NOTHING",
                     (vault_id, key_id, wrapped, int(time.time())),
                 )
                 row = connection.execute(
@@ -290,15 +291,6 @@ def delete_account(sealed: SealedVaults, account: Account, cache: Path) -> int:
             connection.execute(f'DELETE FROM "{table}" WHERE account_id = ?', (account.id,))
         connection.execute("DELETE FROM accounts WHERE id = ?", (account.id,))
     return deleted
-
-
-def account_tables(connection: sqlite3.Connection) -> list[str]:
-    tables = [row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
-    return [
-        table
-        for table in tables
-        if any(column["name"] == "account_id" for column in connection.execute(f'PRAGMA table_info("{table}")'))
-    ]
 
 
 def sealed_vaults_from_env(store: HostedStore | None = None) -> SealedVaults:

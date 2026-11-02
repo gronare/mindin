@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from notes_vault_mcp.auth import Registration
+from notes_vault_mcp.auth.database import has_table
 from notes_vault_mcp.auth.hosted_store import Account, HostedStore, account_of, digest, now
 from notes_vault_mcp.auth.hosted_vaults import accept_invitations, add_first_vault, invited
 
@@ -45,8 +46,9 @@ CREATE TABLE IF NOT EXISTS ceremonies (
 );
 """
 BACKFILL = (
-    "INSERT OR IGNORE INTO identities(method, subject, account_id, email, label, created_at)"
+    "INSERT INTO identities(method, subject, account_id, email, label, created_at)"
     " SELECT 'oidc', sub, id, email, email, created_at FROM accounts WHERE sub IS NOT NULL"
+    " ON CONFLICT (method, subject) DO NOTHING"
 )
 
 
@@ -94,7 +96,7 @@ class Identities:
     def __init__(self, store: HostedStore) -> None:
         self.store = store
         with store.connect() as connection:
-            fresh = connection.execute("SELECT 1 FROM sqlite_master WHERE name = 'identities'").fetchone() is None
+            fresh = not has_table(connection, "identities")
             connection.executescript(SCHEMA)
             if fresh:
                 connection.execute(BACKFILL)

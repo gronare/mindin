@@ -8,6 +8,8 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
+from notes_vault_mcp.auth.database import add_column, has_table
+
 VAULT_ID_PREFIX = "vlt_"
 SLUG_MAX = 40
 SLUG_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?")
@@ -181,19 +183,6 @@ def add_first_vault(connection: sqlite3.Connection, account_id: str, email: str,
     insert_vault(connection, new_vault_id(), account_id, FIRST_VAULT_NAME, slug, created_at)
 
 
-def has_table(connection: sqlite3.Connection, table: str) -> bool:
-    found = connection.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone()
-    return found is not None
-
-
-def add_column(connection: sqlite3.Connection, table: str, column: str, declaration: str) -> None:
-    if not has_table(connection, table):
-        return
-    present = {row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')}
-    if column not in present:
-        connection.execute(f'ALTER TABLE "{table}" ADD COLUMN {column} {declaration}')
-
-
 def count(connection: sqlite3.Connection, sql: str) -> int:
     return int(connection.execute(sql).fetchone()[0])
 
@@ -241,9 +230,12 @@ def to_vaults(connection: sqlite3.Connection) -> None:
     if has_table(connection, "support_grants"):
         for statement in SUPPORT_TABLES[:1]:
             connection.execute(statement)
+        # SQLite cannot parse ON CONFLICT after a SELECT without a WHERE, hence WHERE true.
         connection.execute(
-            "INSERT OR REPLACE INTO vault_support_grants(vault_id, account_id, granted_at, expires_at)"
-            " SELECT account_id, account_id, granted_at, expires_at FROM support_grants"
+            "INSERT INTO vault_support_grants(vault_id, account_id, granted_at, expires_at)"
+            " SELECT account_id, account_id, granted_at, expires_at FROM support_grants WHERE true"
+            " ON CONFLICT (vault_id) DO UPDATE SET account_id = excluded.account_id,"
+            " granted_at = excluded.granted_at, expires_at = excluded.expires_at"
         )
         connection.execute("DROP TABLE support_grants")
     if has_table(connection, "vault_access"):
@@ -254,9 +246,11 @@ def to_vaults(connection: sqlite3.Connection) -> None:
 def move_data_keys(connection: sqlite3.Connection) -> None:
     for statement in DATA_KEY_TABLES:
         connection.execute(statement)
+    # SQLite cannot parse ON CONFLICT after a SELECT without a WHERE, hence WHERE true.
     connection.execute(
-        "INSERT OR IGNORE INTO vault_data_keys(vault_id, key_id, wrapped, created_at, rewrapped_at)"
-        " SELECT account_id, key_id, wrapped, created_at, rewrapped_at FROM vault_keys"
+        "INSERT INTO vault_data_keys(vault_id, key_id, wrapped, created_at, rewrapped_at)"
+        " SELECT account_id, key_id, wrapped, created_at, rewrapped_at FROM vault_keys WHERE true"
+        " ON CONFLICT (vault_id) DO NOTHING"
     )
     before = count(connection, "SELECT COUNT(*) FROM vault_keys")
     moved = count(
@@ -299,7 +293,8 @@ def accept_invitations(connection: sqlite3.Connection, account_id: str, emails: 
     moment = int(time.time())
     for row in rows:
         connection.execute(
-            "INSERT OR IGNORE INTO vault_members(vault_id, account_id, joined_at) VALUES(?, ?, ?)",
+            "INSERT INTO vault_members(vault_id, account_id, joined_at) VALUES(?, ?, ?)"
+            " ON CONFLICT (vault_id, account_id) DO NOTHING",
             (row["vault_id"], account_id, moment),
         )
     connection.execute(f"DELETE FROM vault_invitations WHERE email IN ({marks})", emails)

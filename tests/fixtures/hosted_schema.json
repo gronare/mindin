@@ -1,0 +1,540 @@
+{
+ "fresh": {
+  "user_version": 2,
+  "objects": [
+   [
+    "index",
+    "api_keys_account",
+    "api_keys",
+    "CREATE INDEX api_keys_account ON api_keys(account_id)"
+   ],
+   [
+    "index",
+    "identities_account",
+    "identities",
+    "CREATE INDEX identities_account ON identities(account_id)"
+   ],
+   [
+    "index",
+    "identities_email",
+    "identities",
+    "CREATE INDEX identities_email ON identities(email)"
+   ],
+   [
+    "index",
+    "sqlite_autoindex_accounts_1",
+    "accounts",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_accounts_2",
+    "accounts",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_accounts_3",
+    "accounts",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_api_keys_1",
+    "api_keys",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_ceremonies_1",
+    "ceremonies",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_clients_1",
+    "clients",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_codes_1",
+    "codes",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_devices_1",
+    "devices",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_devices_2",
+    "devices",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_identities_1",
+    "identities",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_requests_1",
+    "requests",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_sessions_1",
+    "sessions",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_tokens_1",
+    "tokens",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vault_data_keys_1",
+    "vault_data_keys",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vault_invitations_1",
+    "vault_invitations",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vault_members_1",
+    "vault_members",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vault_support_grants_1",
+    "vault_support_grants",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vaults_1",
+    "vaults",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vaults_2",
+    "vaults",
+    null
+   ],
+   [
+    "index",
+    "vault_access_account",
+    "vault_access",
+    "CREATE INDEX vault_access_account ON vault_access(account_id, at)"
+   ],
+   [
+    "index",
+    "vault_changes_vault",
+    "vault_changes",
+    "CREATE INDEX vault_changes_vault ON vault_changes(vault_id, id)"
+   ],
+   [
+    "index",
+    "vault_members_account",
+    "vault_members",
+    "CREATE INDEX vault_members_account ON vault_members(account_id)"
+   ],
+   [
+    "index",
+    "vaults_account",
+    "vaults",
+    "CREATE INDEX vaults_account ON vaults(account_id)"
+   ],
+   [
+    "table",
+    "accounts",
+    "accounts",
+    "CREATE TABLE accounts (\n    id TEXT PRIMARY KEY,\n    email TEXT NOT NULL UNIQUE COLLATE NOCASE,\n    sub TEXT UNIQUE,\n    name TEXT NOT NULL DEFAULT '',\n    status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'suspended')),\n    status_source TEXT NOT NULL DEFAULT 'operator',\n    status_changed_at INTEGER NOT NULL,\n    created_at INTEGER NOT NULL,\n    last_login_at INTEGER\n)"
+   ],
+   [
+    "table",
+    "api_keys",
+    "api_keys",
+    "CREATE TABLE api_keys (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    key_hash TEXT NOT NULL,\n    scopes TEXT NOT NULL,\n    purpose TEXT NOT NULL DEFAULT 'api',\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    revoked_at INTEGER\n, vault_id TEXT REFERENCES vaults(id))"
+   ],
+   [
+    "table",
+    "ceremonies",
+    "ceremonies",
+    "CREATE TABLE ceremonies (\n    key_hash TEXT PRIMARY KEY,\n    kind TEXT NOT NULL,\n    binding_hash TEXT NOT NULL,\n    document TEXT NOT NULL,\n    expires_at INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "clients",
+    "clients",
+    "CREATE TABLE clients (\n    client_id TEXT PRIMARY KEY,\n    client_name TEXT NOT NULL,\n    registered_at INTEGER NOT NULL,\n    last_token_at INTEGER,\n    document TEXT NOT NULL\n)"
+   ],
+   [
+    "table",
+    "codes",
+    "codes",
+    "CREATE TABLE codes (\n    code_hash TEXT PRIMARY KEY,\n    expires_at REAL NOT NULL,\n    document TEXT NOT NULL\n)"
+   ],
+   [
+    "table",
+    "devices",
+    "devices",
+    "CREATE TABLE devices (\n    device_hash TEXT PRIMARY KEY,\n    user_code TEXT NOT NULL UNIQUE,\n    client_id TEXT NOT NULL,\n    client_name TEXT NOT NULL,\n    name TEXT NOT NULL,\n    scopes TEXT NOT NULL,\n    status TEXT NOT NULL DEFAULT 'pending',\n    account_id TEXT,\n    granted TEXT,\n    interval INTEGER NOT NULL,\n    created_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL,\n    last_poll_at REAL\n, vault_id TEXT REFERENCES vaults(id), requested_vault TEXT)"
+   ],
+   [
+    "table",
+    "identities",
+    "identities",
+    "CREATE TABLE identities (\n    method TEXT NOT NULL,\n    subject TEXT NOT NULL,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    email TEXT NOT NULL DEFAULT '',\n    label TEXT NOT NULL DEFAULT '',\n    public_key BLOB,\n    sign_count INTEGER NOT NULL DEFAULT 0,\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    PRIMARY KEY (method, subject)\n)"
+   ],
+   [
+    "table",
+    "requests",
+    "requests",
+    "CREATE TABLE requests (\n    id TEXT PRIMARY KEY,\n    created_at INTEGER NOT NULL,\n    document TEXT NOT NULL\n)"
+   ],
+   [
+    "table",
+    "sessions",
+    "sessions",
+    "CREATE TABLE sessions (\n    id_hash TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    csrf TEXT NOT NULL,\n    created_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "sqlite_sequence",
+    "sqlite_sequence",
+    "CREATE TABLE sqlite_sequence(name,seq)"
+   ],
+   [
+    "table",
+    "tokens",
+    "tokens",
+    "CREATE TABLE tokens (\n    token_hash TEXT PRIMARY KEY,\n    kind TEXT NOT NULL,\n    grant_id TEXT NOT NULL,\n    client_id TEXT NOT NULL,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    scopes TEXT NOT NULL,\n    resource TEXT NOT NULL,\n    issued_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL,\n    revoked INTEGER NOT NULL DEFAULT 0\n, vault_id TEXT REFERENCES vaults(id))"
+   ],
+   [
+    "table",
+    "vault_access",
+    "vault_access",
+    "CREATE TABLE vault_access (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    vault_id TEXT,\n    at INTEGER NOT NULL,\n    operator TEXT NOT NULL,\n    reason TEXT NOT NULL,\n    action TEXT NOT NULL\n)"
+   ],
+   [
+    "table",
+    "vault_changes",
+    "vault_changes",
+    "CREATE TABLE vault_changes (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    path TEXT NOT NULL,\n    from_path TEXT,\n    action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'moved', 'deleted')),\n    author_email TEXT NOT NULL,\n    author TEXT,\n    client TEXT NOT NULL,\n    at INTEGER NOT NULL,\n    before TEXT,\n    after TEXT,\n    restored_from INTEGER\n)"
+   ],
+   [
+    "table",
+    "vault_data_keys",
+    "vault_data_keys",
+    "CREATE TABLE vault_data_keys (\n    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),\n    key_id TEXT NOT NULL,\n    wrapped BLOB NOT NULL,\n    created_at INTEGER NOT NULL,\n    rewrapped_at INTEGER\n)"
+   ],
+   [
+    "table",
+    "vault_invitations",
+    "vault_invitations",
+    "CREATE TABLE vault_invitations (\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    email TEXT NOT NULL COLLATE NOCASE,\n    invited_by TEXT NOT NULL,\n    link_hash TEXT,\n    created_at INTEGER NOT NULL,\n    PRIMARY KEY (vault_id, email)\n)"
+   ],
+   [
+    "table",
+    "vault_members",
+    "vault_members",
+    "CREATE TABLE vault_members (\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    joined_at INTEGER NOT NULL,\n    PRIMARY KEY (vault_id, account_id)\n)"
+   ],
+   [
+    "table",
+    "vault_support_grants",
+    "vault_support_grants",
+    "CREATE TABLE vault_support_grants (\n    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    granted_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "vaults",
+    "vaults",
+    "CREATE TABLE vaults (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    slug TEXT NOT NULL UNIQUE,\n    created_at INTEGER NOT NULL\n, kind TEXT NOT NULL DEFAULT 'personal' CHECK (kind IN ('personal', 'shared')))"
+   ]
+  ]
+ },
+ "migrated": {
+  "user_version": 2,
+  "objects": [
+   [
+    "index",
+    "api_keys_account",
+    "api_keys",
+    "CREATE INDEX api_keys_account ON api_keys(account_id)"
+   ],
+   [
+    "index",
+    "identities_account",
+    "identities",
+    "CREATE INDEX identities_account ON identities(account_id)"
+   ],
+   [
+    "index",
+    "identities_email",
+    "identities",
+    "CREATE INDEX identities_email ON identities(email)"
+   ],
+   [
+    "index",
+    "sqlite_autoindex_accounts_1",
+    "accounts",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_accounts_2",
+    "accounts",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_accounts_3",
+    "accounts",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_api_keys_1",
+    "api_keys",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_ceremonies_1",
+    "ceremonies",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_clients_1",
+    "clients",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_codes_1",
+    "codes",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_devices_1",
+    "devices",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_devices_2",
+    "devices",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_identities_1",
+    "identities",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_requests_1",
+    "requests",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_sessions_1",
+    "sessions",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_tokens_1",
+    "tokens",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vault_data_keys_1",
+    "vault_data_keys",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vault_invitations_1",
+    "vault_invitations",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vault_members_1",
+    "vault_members",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vault_support_grants_1",
+    "vault_support_grants",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vaults_1",
+    "vaults",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vaults_2",
+    "vaults",
+    null
+   ],
+   [
+    "index",
+    "vault_access_account",
+    "vault_access",
+    "CREATE INDEX vault_access_account ON vault_access(account_id, at)"
+   ],
+   [
+    "index",
+    "vault_changes_vault",
+    "vault_changes",
+    "CREATE INDEX vault_changes_vault ON vault_changes(vault_id, id)"
+   ],
+   [
+    "index",
+    "vault_members_account",
+    "vault_members",
+    "CREATE INDEX vault_members_account ON vault_members(account_id)"
+   ],
+   [
+    "index",
+    "vaults_account",
+    "vaults",
+    "CREATE INDEX vaults_account ON vaults(account_id)"
+   ],
+   [
+    "table",
+    "accounts",
+    "accounts",
+    "CREATE TABLE accounts (\n    id TEXT PRIMARY KEY,\n    email TEXT NOT NULL UNIQUE COLLATE NOCASE,\n    sub TEXT UNIQUE,\n    name TEXT NOT NULL DEFAULT '',\n    status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'suspended')),\n    status_source TEXT NOT NULL DEFAULT 'operator',\n    status_changed_at INTEGER NOT NULL,\n    created_at INTEGER NOT NULL,\n    last_login_at INTEGER\n)"
+   ],
+   [
+    "table",
+    "api_keys",
+    "api_keys",
+    "CREATE TABLE api_keys (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    key_hash TEXT NOT NULL,\n    scopes TEXT NOT NULL,\n    purpose TEXT NOT NULL DEFAULT 'api',\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    revoked_at INTEGER\n, vault_id TEXT REFERENCES vaults(id))"
+   ],
+   [
+    "table",
+    "ceremonies",
+    "ceremonies",
+    "CREATE TABLE ceremonies (\n    key_hash TEXT PRIMARY KEY,\n    kind TEXT NOT NULL,\n    binding_hash TEXT NOT NULL,\n    document TEXT NOT NULL,\n    expires_at INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "clients",
+    "clients",
+    "CREATE TABLE clients (\n    client_id TEXT PRIMARY KEY,\n    client_name TEXT NOT NULL,\n    registered_at INTEGER NOT NULL,\n    last_token_at INTEGER,\n    document TEXT NOT NULL\n)"
+   ],
+   [
+    "table",
+    "codes",
+    "codes",
+    "CREATE TABLE codes (\n    code_hash TEXT PRIMARY KEY,\n    expires_at REAL NOT NULL,\n    document TEXT NOT NULL\n)"
+   ],
+   [
+    "table",
+    "devices",
+    "devices",
+    "CREATE TABLE devices (\n    device_hash TEXT PRIMARY KEY,\n    user_code TEXT NOT NULL UNIQUE,\n    client_id TEXT NOT NULL,\n    client_name TEXT NOT NULL,\n    name TEXT NOT NULL,\n    scopes TEXT NOT NULL,\n    status TEXT NOT NULL DEFAULT 'pending',\n    account_id TEXT,\n    granted TEXT,\n    interval INTEGER NOT NULL,\n    created_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL,\n    last_poll_at REAL\n, vault_id TEXT REFERENCES vaults(id), requested_vault TEXT)"
+   ],
+   [
+    "table",
+    "identities",
+    "identities",
+    "CREATE TABLE identities (\n    method TEXT NOT NULL,\n    subject TEXT NOT NULL,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    email TEXT NOT NULL DEFAULT '',\n    label TEXT NOT NULL DEFAULT '',\n    public_key BLOB,\n    sign_count INTEGER NOT NULL DEFAULT 0,\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    PRIMARY KEY (method, subject)\n)"
+   ],
+   [
+    "table",
+    "requests",
+    "requests",
+    "CREATE TABLE requests (\n    id TEXT PRIMARY KEY,\n    created_at INTEGER NOT NULL,\n    document TEXT NOT NULL\n)"
+   ],
+   [
+    "table",
+    "sessions",
+    "sessions",
+    "CREATE TABLE sessions (\n    id_hash TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    csrf TEXT NOT NULL,\n    created_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "sqlite_sequence",
+    "sqlite_sequence",
+    "CREATE TABLE sqlite_sequence(name,seq)"
+   ],
+   [
+    "table",
+    "tokens",
+    "tokens",
+    "CREATE TABLE tokens (\n    token_hash TEXT PRIMARY KEY,\n    kind TEXT NOT NULL,\n    grant_id TEXT NOT NULL,\n    client_id TEXT NOT NULL,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    scopes TEXT NOT NULL,\n    resource TEXT NOT NULL,\n    issued_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL,\n    revoked INTEGER NOT NULL DEFAULT 0\n, vault_id TEXT REFERENCES vaults(id))"
+   ],
+   [
+    "table",
+    "vault_access",
+    "vault_access",
+    "CREATE TABLE vault_access (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    at INTEGER NOT NULL,\n    operator TEXT NOT NULL,\n    reason TEXT NOT NULL,\n    action TEXT NOT NULL\n, vault_id TEXT)"
+   ],
+   [
+    "table",
+    "vault_changes",
+    "vault_changes",
+    "CREATE TABLE vault_changes (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    path TEXT NOT NULL,\n    from_path TEXT,\n    action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'moved', 'deleted')),\n    author_email TEXT NOT NULL,\n    author TEXT,\n    client TEXT NOT NULL,\n    at INTEGER NOT NULL,\n    before TEXT,\n    after TEXT,\n    restored_from INTEGER\n)"
+   ],
+   [
+    "table",
+    "vault_data_keys",
+    "vault_data_keys",
+    "CREATE TABLE vault_data_keys (\n    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),\n    key_id TEXT NOT NULL,\n    wrapped BLOB NOT NULL,\n    created_at INTEGER NOT NULL,\n    rewrapped_at INTEGER\n)"
+   ],
+   [
+    "table",
+    "vault_invitations",
+    "vault_invitations",
+    "CREATE TABLE vault_invitations (\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    email TEXT NOT NULL COLLATE NOCASE,\n    invited_by TEXT NOT NULL,\n    link_hash TEXT,\n    created_at INTEGER NOT NULL,\n    PRIMARY KEY (vault_id, email)\n)"
+   ],
+   [
+    "table",
+    "vault_members",
+    "vault_members",
+    "CREATE TABLE vault_members (\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    joined_at INTEGER NOT NULL,\n    PRIMARY KEY (vault_id, account_id)\n)"
+   ],
+   [
+    "table",
+    "vault_support_grants",
+    "vault_support_grants",
+    "CREATE TABLE vault_support_grants (\n    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    granted_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "vaults",
+    "vaults",
+    "CREATE TABLE vaults (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    slug TEXT NOT NULL UNIQUE,\n    created_at INTEGER NOT NULL\n, kind TEXT NOT NULL DEFAULT 'personal' CHECK (kind IN ('personal', 'shared')))"
+   ]
+  ]
+ }
+}

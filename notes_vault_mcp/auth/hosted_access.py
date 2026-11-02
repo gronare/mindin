@@ -37,8 +37,9 @@ class SupportAccess:
         moment = int(self.clock())
         with self.store.connect() as connection:
             connection.execute(
-                "INSERT OR REPLACE INTO vault_support_grants(vault_id, account_id, granted_at, expires_at)"
-                " VALUES(?, ?, ?, ?)",
+                "INSERT INTO vault_support_grants(vault_id, account_id, granted_at, expires_at) VALUES(?, ?, ?, ?)"
+                " ON CONFLICT (vault_id) DO UPDATE SET account_id = excluded.account_id,"
+                " granted_at = excluded.granted_at, expires_at = excluded.expires_at",
                 (vault.id, vault.account_id, moment, moment + seconds),
             )
         return moment + seconds

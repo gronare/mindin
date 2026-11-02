@@ -16,6 +16,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from notes_vault_mcp.auth import READ_SCOPE, WRITE_SCOPE, auth_dir
+from notes_vault_mcp.auth.database import has_table
 from notes_vault_mcp.auth.hosted_vaults import (
     MEMBER,
     OWNER,
@@ -26,7 +27,6 @@ from notes_vault_mcp.auth.hosted_vaults import (
     accept_invitations,
     add_first_vault,
     clean_name,
-    has_table,
     insert_vault,
     migrate,
     new_vault_id,
@@ -435,7 +435,8 @@ class HostedStore:
                 "DELETE FROM vault_members WHERE vault_id = ? AND account_id = ?", (vault.id, account_id)
             )
             connection.execute(
-                "INSERT OR IGNORE INTO vault_members(vault_id, account_id, joined_at) VALUES(?, ?, ?)",
+                "INSERT INTO vault_members(vault_id, account_id, joined_at) VALUES(?, ?, ?)"
+                " ON CONFLICT (vault_id, account_id) DO NOTHING",
                 (vault.id, vault.account_id, moment),
             )
             connection.execute("UPDATE vaults SET account_id = ? WHERE id = ?", (account_id, vault.id))
@@ -645,7 +646,9 @@ class HostedStore:
                 "DELETE FROM clients WHERE last_token_at IS NULL AND registered_at < ?", (moment - UNUSED_CLIENT_TTL,)
             )
             connection.execute(
-                "INSERT OR REPLACE INTO clients(client_id, client_name, registered_at, document) VALUES(?, ?, ?, ?)",
+                "INSERT INTO clients(client_id, client_name, registered_at, document) VALUES(?, ?, ?, ?)"
+                " ON CONFLICT (client_id) DO UPDATE SET client_name = excluded.client_name,"
+                " registered_at = excluded.registered_at, last_token_at = NULL, document = excluded.document",
                 (client_id, client_name, moment, document),
             )
 

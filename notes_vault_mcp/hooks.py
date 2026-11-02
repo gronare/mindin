@@ -56,6 +56,11 @@ def _commits_since(root: Path, since: str, paths: list[str]) -> str:
     return f"{len(lines)} commits, newest {COMMITS_SHOWN}:\n{shown}"
 
 
+def _repo_paths(note: dict, main: Path) -> list[str]:
+    # Note paths name the main checkout; git log takes them relative to the worktree it runs in.
+    return [os.path.relpath(path, main) for path in vault_paths_in(note["paths"], main)]
+
+
 def commit_blocks(cwd: str, system: list[dict]) -> list[str]:
     root = repo_root(cwd)
     main = main_checkout(cwd)
@@ -63,12 +68,38 @@ def commit_blocks(cwd: str, system: list[dict]) -> list[str]:
         return []
     blocks = []
     for note in system:
-        # Note paths name the main checkout; git log takes them relative to the worktree it runs in.
-        paths = [os.path.relpath(path, main) for path in vault_paths_in(note["paths"], main)]
-        commits = _commits_since(root, note["updated"], paths)
+        commits = _commits_since(root, note["updated"], _repo_paths(note, main))
         if commits:
             blocks.append(f"## commits since the note — {note['key']} (updated {note['updated']})\n{commits}")
     return blocks
+
+
+@dataclass(frozen=True)
+class Commit:
+    sha: str
+    time: int
+    subject: str
+
+
+def note_commits(cwd: str, system: list[dict]) -> dict[str, list[Commit]]:
+    root = repo_root(cwd)
+    main = main_checkout(cwd)
+    if root is None or main is None:
+        return {}
+    found: dict[str, list[Commit]] = {}
+    for note in system:
+        paths = _repo_paths(note, main)
+        if not note["updated"] or not paths:
+            continue
+        output = git(["log", "--format=%h%x09%ct%x09%s", f"--since={note['updated']}", "--", *paths], root)
+        commits = []
+        for line in output.splitlines():
+            sha, _, rest = line.partition("\t")
+            stamp, _, subject = rest.partition("\t")
+            commits.append(Commit(sha=sha, time=int(stamp) if stamp.isdigit() else 0, subject=subject))
+        if commits:
+            found[note["key"]] = commits
+    return found
 
 
 def render_session_start(bundle: dict, cwd: str) -> str:

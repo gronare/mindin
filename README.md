@@ -240,9 +240,10 @@ server, sign the machine that runs the schedule in with [`login`](#sign-a-machin
 | `init` | write | Sets up a vault without a schema: the schema of the `preset` it is given and the Bases views. On a vault with a schema it only writes the missing views. |
 | `obsidian_access` | write | Server only. Mints the WebDAV password for Obsidian's Remotely Save and shows it once. |
 
-A server also serves `claim`, `release`, `changelog` and `lint_and_park` to a machine signed in with
-[`login`](#sign-a-machine-in), for the [task and log commands](#task-and-log-commands), `changelog` and
-`lint --write --park-stale` that run through it; connectors never see them.
+A server also serves `claim`, `release`, `changelog`, `lint_and_park` and `view` to a machine signed in
+with [`login`](#sign-a-machine-in), for the [task and log commands](#task-and-log-commands), `changelog`,
+`lint --write --park-stale` and the terminal output of the [command line](#command-line) that run through
+it; connectors never see them.
 
 Over HTTP, a connection carries `vault:read` or `vault:read vault:write`. A write tool called on a
 read-only connection fails with an error saying so, rather than half-writing.
@@ -707,8 +708,10 @@ notes-vault-mcp serve --transport http --host 0.0.0.0 --port 8765
 notes-vault-mcp init [--preset para] [--force]
 notes-vault-mcp sync [--rebuild]                 # refresh the index; --rebuild reads every note again
 notes-vault-mcp search "bokning" --limit 5       # the same ranking, from a shell
-notes-vault-mcp lint [--write Log/lint.md] [--park-stale]
-notes-vault-mcp backlog --area myapp --priority high
+notes-vault-mcp context [--path ~/projects/myapp] # what a session in this repo starts with
+notes-vault-mcp read Projects/myapp-idea.md [--body] [--raw]
+notes-vault-mcp lint [--kind orphans] [--write Log/lint.md] [--park-stale]
+notes-vault-mcp backlog --area myapp --priority high [--paths] [--all]
 notes-vault-mcp changelog myapp 2026-08 --repo-path ~/projects/myapp [--write]
 notes-vault-mcp changelog --all                  # this month, and last month during its first week
 notes-vault-mcp hook session-start | stop        # the Claude Code hooks, JSON on stdin
@@ -729,6 +732,21 @@ notes-vault-mcp accounts import <account> [--vault <slug>] --from-path <dir> | -
 notes-vault-mcp support files | read <account> [<path>] [--vault <slug>] --operator <name> --reason <text>
 notes-vault-mcp master-key generate | status | rewrap
 ```
+
+In a terminal, `search`, `context`, `read`, `backlog` and `lint` print for a person. `search` shows each
+note's title with its kind and age, its path below it, and the matching text with wikilinks unwrapped;
+`≈ meaning` marks a note found by meaning rather than by its words. `backlog` is one row per idea with
+its priority, area and age; `--paths` adds each note's path, and past 20 ideas the list is grouped by
+priority and ends with how many more there are, which `--all` shows. `read` turns the frontmatter into a
+title and one line (kind, area, status, age, tags) above the text. `context` sums up what the
+session-start hook gives an agent for the repo you stand in, or for `--path`: the system note, the
+commits newer than it, open tasks, the backlog, traps and the last log line. `lint` counts the findings
+per kind with a plain explanation, and `--kind` lists one kind. Rows are cut at the terminal's width,
+and a path is always printed whole so you can copy it.
+
+In a pipe, a script or a hook, and with `--plain`, every command prints the same plain lines as before,
+and `context` prints what the session-start hook prints. `read --raw` prints the file exactly as stored.
+`NO_COLOR=1` keeps the layout without colour.
 
 `changelog` prints the log lines, the git commits grouped by day, and the repo's notes dated inside
 the period (`YYYY` or `YYYY-MM`), each day whole from midnight to midnight. With `--write` it keeps that
@@ -765,7 +783,7 @@ notes-vault-mcp log append --cwd ~/wt/wt1.myapp --line "Login fixed" --commit ab
 notes-vault-mcp log path --repo myapp                         # {"path": "Log/myapp-log.md"}
 notes-vault-mcp log path --repo myapp --repo docs            # {"myapp": "Log/myapp-log.md", "docs": "Log/docs-log.md"}
 notes-vault-mcp snapshot --json [--since ETAG]               # the board's notes and logs in one answer, see below
-notes-vault-mcp read Projects/myapp-idea.md [--body]          # the note as stored, or only its text after the frontmatter
+notes-vault-mcp read Projects/myapp-idea.md [--body]          # the note as stored in a pipe, or only its text after the frontmatter
 notes-vault-mcp status
 # {"configured": true, "version": "0.11.0", "backend": "s3", "writable": null}
 notes-vault-mcp status --probe

@@ -356,3 +356,24 @@ def tool_text(url: str, tool: str, **arguments: Any) -> str:
 
 def whoami(url: str) -> dict:
     return json.loads(tool_text(url, "whoami"))
+
+
+def view(url: str, command: str, **arguments: Any) -> dict | None:
+    try:
+        found = tool_text(url, "view", command=command, **arguments)
+    except RemoteError as exc:
+        if "Unknown tool" in str(exc):
+            return None
+        raise
+    return json.loads(found)
+
+
+def lint(url: str, write: str | None = None, park: bool = False) -> tuple[str, int]:
+    async def action(remote: Remote) -> tuple[str, int]:
+        if write or park:
+            text = await remote.call("lint_and_park", write=write, park=park)
+        else:
+            text = await remote.call("lint")
+        return text, (await remote.schema()).stale_after_days
+
+    return run(url, action)

@@ -2,23 +2,26 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Callable
 from importlib import metadata
 from pathlib import Path
 
-from notes_vault_mcp import __version__, changelog, credentials, hooks, notes, provision, tasks
+from notes_vault_mcp import __version__, changelog, credentials, hooks, human, notes, provision, tasks, views
 from notes_vault_mcp.auth import auth_config
 from notes_vault_mcp.backends import NotFound
 from notes_vault_mcp.config import ConfigError, adopt_plugin_config, local_root, s3_settings
 from notes_vault_mcp.embedding import keep_warm
 from notes_vault_mcp.extensions import installed
 from notes_vault_mcp.frontmatter import parse
+from notes_vault_mcp.git import in_main_checkout, repo_name
 from notes_vault_mcp.presets import PERSONAL_LAYOUTS, PRESETS
 from notes_vault_mcp.schema import CLAIM_KEY
 from notes_vault_mcp.search import render, search
 from notes_vault_mcp.server import run_http, run_stdio
 from notes_vault_mcp.snapshot import build_snapshot
+from notes_vault_mcp.terminal import Terminal, terminal
 from notes_vault_mcp.vault import SubjectVaults, Vault, open_vault
 
 template = provision.template
@@ -154,6 +157,14 @@ def command_changelog(args: argparse.Namespace) -> int:
     return 0
 
 
+def lint_text(findings: notes.Findings, kind: str | None, term: Terminal, stale_after_days: int) -> str:
+    if not term.pretty:
+        return (findings.only(kind) if kind else findings).render()
+    if kind:
+        return human.render_lint_kind(findings, kind, term, stale_after_days)
+    return human.render_lint(findings, term, stale_after_days)
+
+
 def command_lint(args: argparse.Namespace) -> int:
     if args.write:
         try:
@@ -161,18 +172,29 @@ def command_lint(args: argparse.Namespace) -> int:
         except notes.InvalidKey as exc:
             print(one_line(exc), file=sys.stderr)
             return 2
+    kind = human.lint_kind_named(args.kind) if args.kind else None
+    if args.kind and kind is None:
+        known = ", ".join(human.option_name(name) for name in human.LINT_KINDS)
+        print(f"notes-vault-mcp: no finding kind named {args.kind!r}; the kinds are: {known}", file=sys.stderr)
+        return 2
+    term = terminal(args.plain)
     url = server_url()
     if url is not None:
         from notes_vault_mcp import remote
 
-        if args.write or args.park_stale:
-            print(remote.tool_text(url, "lint_and_park", write=args.write, park=bool(args.park_stale)))
+        if not term.pretty and not kind:
+            if args.write or args.park_stale:
+                print(remote.tool_text(url, "lint_and_park", write=args.write, park=bool(args.park_stale)))
+            else:
+                print(remote.tool_text(url, "lint"))
         else:
-            print(remote.tool_text(url, "lint"))
+            text, stale_after_days = remote.lint(url, write=args.write, park=bool(args.park_stale))
+            print(lint_text(notes.Findings.parse(text), kind, term, stale_after_days))
     else:
         vault = open_vault()
         vault.index.sync(force=True)
-        print(notes.lint_and_park(vault, write=args.write, park=args.park_stale))
+        findings = notes.lint_findings(vault, write=args.write, park=args.park_stale)
+        print(lint_text(findings, kind, term, vault.schema.stale_after_days))
     if args.write:
         print(f"wrote {args.write}", file=sys.stderr)
     return 0
@@ -235,29 +257,85 @@ def add_operator(parser: argparse.ArgumentParser) -> None:
 REMOTE_BACKLOG_LIMIT = 10000
 
 
+def remote_view(url: str, command: str, **arguments: object) -> dict | None:
+    from notes_vault_mcp import remote
+
+    return remote.view(url, command, **arguments)
+
+
 def command_backlog(args: argparse.Namespace) -> int:
+    term = terminal(args.plain)
     url = server_url()
     if url is not None:
         from notes_vault_mcp import remote
 
+        found = remote_view(url, "backlog", area=args.area, priority=args.priority) if term.pretty else None
+        if found is not None:
+            print(human.render_backlog(found, term, paths=args.paths, show_all=args.all))
+            return 0
         print(remote.tool_text(url, "backlog", area=args.area, priority=args.priority, limit=REMOTE_BACKLOG_LIMIT))
         return 0
     vault = open_vault()
     vault.index.sync()
+    if term.pretty:
+        found = views.backlog_view(vault, area=args.area, priority=args.priority)
+        print(human.render_backlog(found, term, paths=args.paths, show_all=args.all))
+        return 0
     print(notes.render_backlog(notes.backlog(vault, area=args.area, priority=args.priority), vault))
     return 0
 
 
 def command_search(args: argparse.Namespace) -> int:
+    term = terminal(args.plain)
     url = server_url()
     if url is not None:
         from notes_vault_mcp import remote
 
+        found = remote_view(url, "search", query=args.query, limit=args.limit) if term.pretty else None
+        if found is not None:
+            print(human.render_search(found, term))
+            return 0
         print(remote.tool_text(url, "search", query=args.query, limit=args.limit))
         return 0
     vault = open_vault(vectors="wait")
     vault.index.sync()
-    print(render(search(vault.index, vault.schema, args.query, limit=args.limit)))
+    result = search(vault.index, vault.schema, args.query, limit=args.limit)
+    print(human.render_search(views.search_view(result), term) if term.pretty else render(result))
+    return 0
+
+
+def context_view(cwd: str) -> dict | None:
+    where = {"path": str(in_main_checkout(cwd)), "repo": repo_name(cwd)}
+    url = server_url()
+    if url is not None:
+        return remote_view(url, "context", **where)
+    vault = open_vault()
+    try:
+        vault.index.sync()
+        return views.context_bundle(vault, **where).view()
+    finally:
+        vault.close()
+
+
+def context_plain(cwd: str) -> str:
+    raw = json.dumps({"cwd": cwd})
+    url = server_url()
+    if url is None:
+        return hooks.session_start(raw)
+    from notes_vault_mcp import remote
+
+    return remote.session_start(url, raw)
+
+
+def command_context(args: argparse.Namespace) -> int:
+    cwd = os.path.abspath(os.path.expanduser(args.path)) if args.path else os.getcwd()
+    term = terminal(args.plain)
+    with credentials.working_in(cwd):
+        found = context_view(cwd) if term.pretty else None
+        if found is None:
+            print(context_plain(cwd))
+            return 0
+        print(human.render_context(found, hooks.note_commits(cwd, found["system"]), term))
     return 0
 
 
@@ -367,6 +445,11 @@ def command_read(args: argparse.Namespace) -> int:
     except Exception as exc:
         print(one_line(exc), file=sys.stderr)
         return 1
+    term = terminal(args.plain or args.raw)
+    pretty = human.render_note(args.path, text, term, body_only=args.body) if term.pretty else None
+    if pretty is not None:
+        print(pretty)
+        return 0
     if args.body:
         text = parse(text)[1]
     print(text, end="" if text.endswith("\n") else "\n")
@@ -519,6 +602,10 @@ def command_vault(args: argparse.Namespace) -> int:
     return 0
 
 
+def add_plain(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--plain", action="store_true", help="the plain output a pipe gets, also in a terminal")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="notes-vault-mcp",
@@ -563,6 +650,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="set status backlog on open task notes untouched for longer than the schema's stale_after_days",
     )
+    lint.add_argument("--kind", help="list the findings of one kind, e.g. orphans or unresolved-links")
+    add_plain(lint)
     lint.set_defaults(func=command_lint)
 
     sync = sub.add_parser("sync", help="refresh the index")
@@ -663,17 +752,28 @@ def build_parser() -> argparse.ArgumentParser:
     queue = sub.add_parser("backlog", help="list the backlog, sorted by priority then age")
     queue.add_argument("--area", help="a system note stem, or the prefix a family of stems shares")
     queue.add_argument("--priority", help="urgent, high, medium or low")
+    queue.add_argument("--paths", action="store_true", help="show each note's vault path")
+    queue.add_argument("--all", action="store_true", help="show every item, not only the first 20")
+    add_plain(queue)
     queue.set_defaults(func=command_backlog)
 
     printing = sub.add_parser("read", help="print one note, as read_file reads it, without the etag line")
     printing.add_argument("path", help="the note's vault path, e.g. Projects/export.md")
     printing.add_argument("--body", action="store_true", help="only the text after the frontmatter")
+    printing.add_argument("--raw", action="store_true", help="print the file exactly as stored")
+    add_plain(printing)
     printing.set_defaults(func=command_read)
 
     find = sub.add_parser("search", help="search the index from the shell")
     find.add_argument("query")
     find.add_argument("--limit", type=int, default=15)
+    add_plain(find)
     find.set_defaults(func=command_search)
+
+    briefing = sub.add_parser("context", help="what a session in this repo starts with: its notes, commits and log")
+    briefing.add_argument("--path", help="the folder to read the context for; the current directory when omitted")
+    add_plain(briefing)
+    briefing.set_defaults(func=command_context)
 
     task = sub.add_parser("task", help="the task note of one piece of work, for tools that drive agents (JSON out)")
     task_sub = task.add_subparsers(dest="task_command", required=True)

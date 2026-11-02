@@ -705,3 +705,43 @@ async def test_the_proxy_serves_the_vault_of_its_folder(remote: Served, tmp_path
         found = await upstream.use(lambda server: server.call("whoami"))
         group.cancel_scope.cancel()
     assert json.loads(found)["vault"] == "workshop"
+
+
+def human_outputs(capsys, repo: Path) -> list[str]:
+    outputs = []
+    for argv in (["search", "kärnan"], ["backlog", "--paths"], ["lint"], ["read", "Areas/orchard.md"]):
+        assert main(argv) == 0, capsys.readouterr().err
+        outputs.append(capsys.readouterr().out)
+    assert main(["context", "--path", str(repo)]) == 0
+    return [*outputs, capsys.readouterr().out]
+
+
+def test_the_terminal_output_through_the_server_equals_the_local_vault(
+    remote: Served, vault_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    from test_cli_output import in_a_terminal
+
+    repo = make_repo(tmp_path / "repos", "frame")
+    on_both(remote, vault_dir, "Areas/frame.md", system_note(repo))
+    in_a_terminal(monkeypatch)
+    through_server = human_outputs(capsys, repo)
+    monkeypatch.delenv("VAULT_SERVER_URL")
+    monkeypatch.setenv("VAULT_PATH", str(vault_dir))
+    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "local-cache"))
+    assert through_server == human_outputs(capsys, repo)
+    assert through_server[0].startswith("4 notes · ")
+    assert through_server[2].startswith("15 findings in 9 kinds")
+    assert "1 commit since the note" in through_server[4]
+
+
+def test_a_server_without_the_view_answers_the_plain_form(
+    served: Served, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    from test_cli_output import SEARCH_KARNAN, in_a_terminal
+
+    credentials.save(served.url, {"key": served.key(purpose="api"), "scope": "vault:read vault:write"})
+    monkeypatch.setenv("VAULT_SERVER_URL", served.url)
+    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "client-cache"))
+    in_a_terminal(monkeypatch)
+    assert main(["search", "kärnan"]) == 0
+    assert capsys.readouterr().out == SEARCH_KARNAN

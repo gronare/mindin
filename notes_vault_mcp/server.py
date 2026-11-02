@@ -9,7 +9,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import Tool as MCPTool
 
-from notes_vault_mcp import changelog, notes, provision, tasks
+from notes_vault_mcp import changelog, notes, provision, tasks, views
 from notes_vault_mcp.auth import MACHINE_KEY_PURPOSE, WRITE_SCOPE, AuthConfig
 from notes_vault_mcp.auth.scopes import ScopeError, require_write
 from notes_vault_mcp.backends import VaultError
@@ -43,7 +43,7 @@ MEANING_DESCRIPTION = (
 )
 
 
-MACHINE_TOOLS = frozenset({"claim", "release", "changelog", "lint_and_park", "snapshot"})
+MACHINE_TOOLS = frozenset({"claim", "release", "changelog", "lint_and_park", "snapshot", "view"})
 
 
 def machine_request() -> bool:
@@ -287,10 +287,7 @@ def build_server(
         format: str = "text",
     ) -> str:
         def answer(vault: Vault) -> str:
-            bundle = notes.context(vault, path=path, repo=repo, query=query, limit=limit)
-            if vault.rules is not None:
-                bundle.notices.append(vault.rules.context_line)
-                bundle.shared = True
+            bundle = views.context_bundle(vault, path=path, repo=repo, query=query, limit=limit)
             return json.dumps(bundle.as_dict(), ensure_ascii=False) if format == "json" else bundle.render()
 
         return run(answer)
@@ -355,6 +352,32 @@ def build_server(
         )
         def snapshot_tool(since: str | None = None) -> str:
             return run(lambda vault: json.dumps(build_snapshot(vault, since=since), ensure_ascii=False))
+
+        @server.tool(
+            name="view",
+            description=(
+                "CHEAP — for the command line's human output: the data behind search, backlog or context "
+                "(command), with the arguments that command takes. Answers JSON."
+            ),
+        )
+        def view_tool(
+            command: str,
+            query: str | None = None,
+            limit: int = 15,
+            area: str | None = None,
+            priority: str | None = None,
+            path: str | None = None,
+            repo: str | None = None,
+        ) -> str:
+            def answer(vault: Vault) -> str:
+                found = views.view(vault, command, query, limit, area, priority, path, repo)
+                return json.dumps(found, ensure_ascii=False)
+
+            return run(
+                answer,
+                expected=(*EXPECTED_FAILURES, ValueError),
+                shared_refuses="backlog" if command == "backlog" else None,
+            )
 
         @server.tool(
             name="changelog",

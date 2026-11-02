@@ -5,6 +5,11 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 ## Unreleased
 
 ### What's new
+- In a terminal, `search`, `backlog`, `read` and `lint` print for a person: titles first, paths whole, ages in words, colour for status, priority and kind, and rows cut at the terminal's width. In a pipe or with `--plain` they print as before; `NO_COLOR` drops the colour.
+- `context` shows what a session in this repo starts with: the system note, the commits newer than it, open tasks, the backlog, traps and the last log line. `--path` reads it for another folder.
+- `backlog --paths` shows each note's path, and a backlog of more than 20 ideas is grouped by priority; `--all` shows every row.
+- `read --raw` prints the note exactly as stored, also in a terminal.
+- `lint` in a terminal counts the findings per kind with a plain explanation, and `lint --kind <kind>` lists one kind.
 
 ### Fixed
 - The session-start hook's repo log shows only log lines, never the log note's frontmatter.

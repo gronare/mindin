@@ -514,6 +514,39 @@ class ContextBundle:
             "shared": self.shared,
         }
 
+    def view(self) -> dict:
+        now = time.time()
+        return {
+            "repo": self.repo,
+            "shared": self.shared,
+            "notices": list(self.notices),
+            "schema_problems": list(self.schema_problems),
+            "system": [note_fields(note, now) for note, _ in self.system],
+            "tasks": [note_fields(note, now) for note in self.tasks],
+            "triage": [note_fields(note, now) for note in self.triage],
+            "backlog": [note_fields(note, now) for note in self.backlog],
+            "backlog_total": self.backlog_total,
+            "references": [note_fields(note, now) for note in self.references],
+            "log_tail": list(self.log_tail),
+        }
+
+
+def note_fields(note: Note, now: float) -> dict:
+    return {
+        "key": note.key,
+        "stem": note.stem,
+        "title": note.title,
+        "kind": note.kind,
+        "status": note.status,
+        "priority": note.priority,
+        "area": note.area,
+        "summary": note.summary,
+        "tags": note.tags,
+        "paths": note.paths,
+        "updated": note.updated,
+        "age_days": int(age_days(note, now)),
+    }
+
 
 def _claim_text(note: Note) -> str:
     claim = json.loads(note.claim) if note.claim else None
@@ -645,6 +678,23 @@ class Findings:
             blocks.append(f"\n## {kind} ({len(entries)})\n" + "\n".join(f"- {entry}" for entry in entries))
         return "\n".join(blocks)
 
+    def only(self, kind: str) -> Findings:
+        return Findings({kind: list(self.groups.get(kind, []))})
+
+    @classmethod
+    def parse(cls, text: str) -> Findings:
+        findings, kind = cls(), None
+        for line in text.splitlines():
+            heading = FINDINGS_HEADING_RE.match(line)
+            if heading:
+                kind = heading.group(1)
+            elif kind is not None and line.startswith("- "):
+                findings.add(kind, line[2:])
+        return findings
+
+
+FINDINGS_HEADING_RE = re.compile(r"^## (\w+) \(\d+\)$")
+
 
 def _lint_frontmatter(vault: Vault, note: Note, findings: Findings) -> None:
     if not note.valid:
@@ -725,7 +775,7 @@ def lint(vault: Vault) -> Findings:
     return findings
 
 
-def lint_and_park(vault: Vault, write: str | None = None, park: bool = False) -> str:
+def lint_findings(vault: Vault, write: str | None = None, park: bool = False) -> Findings:
     if write:
         note_key(write)
     parked = park_stale(vault) if park else []
@@ -735,7 +785,11 @@ def lint_and_park(vault: Vault, write: str | None = None, park: bool = False) ->
     if write:
         text = lint_note_text(findings)
         _reindex(vault, write, text, vault.backend.put(write, text))
-    return findings.render()
+    return findings
+
+
+def lint_and_park(vault: Vault, write: str | None = None, park: bool = False) -> str:
+    return lint_findings(vault, write=write, park=park).render()
 
 
 def lint_note_text(findings: Findings) -> str:

@@ -74,6 +74,30 @@ On a server the model process runs in the server's container, and the first sync
 
 `notes-vault-mcp sync` embeds whatever is pending and says how many notes carry vectors; `sync --rebuild` computes them all again.
 
+## The model in its own process
+
+The model can run as a process of its own, outside the server. The server then restarts in seconds and stays near the memory of searching by words, because it never loads the model; the model stays loaded across server restarts. Run the model:
+
+```sh
+VAULT_EMBED_TOKEN=<a long random secret> notes-vault-mcp embed-worker --listen 10.0.0.5:7400
+```
+
+and point the server at it:
+
+```sh
+VAULT_SEMANTIC=on
+VAULT_EMBED_URL=tcp://10.0.0.5:7400
+VAULT_EMBED_TOKEN=<the same secret>
+```
+
+- **Note text crosses the network unencrypted.** Every section the server embeds and every query reaches the worker in plaintext, also from a [sealed](../explanation/encryption.md) vault. Run the worker only on a private network: one host, a WireGuard link, or a cluster network that a NetworkPolicy closes to everything but the server. Nothing in the worker encrypts the connection.
+- **The token is required beyond loopback.** `--listen` defaults to `127.0.0.1:7400`, where `VAULT_EMBED_TOKEN` is optional. On any other address the worker refuses to start without one, and answers no request that lacks it.
+- **The worker runs until stopped.** It loads the model before it accepts connections, stays up while idle and stops on `SIGTERM`; a server cannot stop or restart it. It takes `VAULT_SEMANTIC_MODEL`, or `--model`, and keeps the model in its own `VAULT_CACHE_DIR/models`.
+- **The server names the worker's model.** A server whose `VAULT_SEMANTIC_MODEL` differs from the worker's gets no vectors, logs the mismatch once and searches by words. A server of another notes-vault-mcp version uses the worker as long as the model matches.
+- **Without `VAULT_EMBED_URL`** the server starts its own model process, as above.
+
+The server then needs `numpy` but not `fastembed` or the model files, and its memory stays near searching by words; the worker's machine needs the memory listed above.
+
 ## Where the vectors live
 
 Each vault has its own index, `VAULT_CACHE_DIR/<id>.sqlite`, holding every note's text and its vectors in plaintext. The model process is shared by every vault and session on the machine and stores nothing. On a server, whose vaults are [sealed](../explanation/encryption.md) in storage, put `VAULT_CACHE_DIR` on an encrypted volume.

@@ -11,7 +11,7 @@ from pathlib import Path
 from notes_vault_mcp import __version__, changelog, credentials, hooks, human, notes, provision, tasks, views
 from notes_vault_mcp.auth import auth_config
 from notes_vault_mcp.backends import NotFound
-from notes_vault_mcp.config import ConfigError, adopt_plugin_config, local_root, s3_settings
+from notes_vault_mcp.config import ConfigError, adopt_plugin_config, cache_dir, env, local_root, s3_settings
 from notes_vault_mcp.embedding import keep_warm
 from notes_vault_mcp.extensions import installed
 from notes_vault_mcp.frontmatter import parse
@@ -197,6 +197,19 @@ def command_lint(args: argparse.Namespace) -> int:
         print(lint_text(findings, kind, term, vault.schema.stale_after_days))
     if args.write:
         print(f"wrote {args.write}", file=sys.stderr)
+    return 0
+
+
+def command_embed_worker(args: argparse.Namespace) -> int:
+    from notes_vault_mcp import embed_worker
+    from notes_vault_mcp.embedding import model_name
+
+    host, port = embed_worker.listen_address(args.listen)
+    token = env(embed_worker.TOKEN_ENV)
+    embed_worker.check_token(host, token)
+    folder = cache_dir() / "models"
+    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+    embed_worker.listen(host, port, args.model or model_name(), str(folder), token)
     return 0
 
 
@@ -618,6 +631,13 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.set_defaults(func=command_serve)
+
+    worker = sub.add_parser(
+        "embed-worker", help="run the search-by-meaning model in a process of its own that a server reaches over TCP"
+    )
+    worker.add_argument("--listen", default="127.0.0.1:7400", help="host:port to listen on (default 127.0.0.1:7400)")
+    worker.add_argument("--model", help="the model to load (default VAULT_SEMANTIC_MODEL)")
+    worker.set_defaults(func=command_embed_worker)
 
     init = sub.add_parser("init", help="write the schema and the Obsidian bases into the vault")
     init.add_argument("--force", action="store_true", help="overwrite files that already exist")

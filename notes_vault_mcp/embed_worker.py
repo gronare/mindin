@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import hmac
 import importlib
+import ipaddress
 import json
 import math
 import os
@@ -19,7 +21,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from notes_vault_mcp.config import env
+from notes_vault_mcp.config import ConfigError, env
 
 HEADER = struct.Struct(">II")
 LENGTH = struct.Struct(">I")
@@ -31,6 +33,12 @@ PROTOCOL = 1
 QUERY, PASSAGES = 0, 1
 POLL_SECONDS = 0.2
 DEFAULT_LOADER = "notes_vault_mcp.embed_worker:fastembed_model"
+VECTOR_TYPE = "<f4"
+MAX_REMOTE_MESSAGE = 64 * 1024 * 1024
+MAX_UNAUTHENTICATED_MESSAGE = 4 * 1024
+CONNECTION_SECONDS = 60.0
+DEFAULT_LISTEN = "127.0.0.1:7400"
+TOKEN_ENV = "VAULT_EMBED_TOKEN"
 
 
 def package_version() -> str:
@@ -60,11 +68,14 @@ def read_exactly(stream: BinaryIO, size: int) -> bytes | None:
     return data
 
 
-def read_message(stream: BinaryIO) -> bytes | None:
+def read_message(stream: BinaryIO, limit: int | None = None) -> bytes | None:
     header = read_exactly(stream, LENGTH.size)
     if header is None:
         return None
-    return read_exactly(stream, LENGTH.unpack(header)[0])
+    size = LENGTH.unpack(header)[0]
+    if limit is not None and size > limit:
+        return None
+    return read_exactly(stream, size)
 
 
 def write_message(stream: BinaryIO, payload: bytes) -> None:
@@ -75,7 +86,7 @@ def write_message(stream: BinaryIO, payload: bytes) -> None:
 def vectors_reply(rows: Any) -> bytes:
     import numpy
 
-    matrix = numpy.asarray(rows, dtype=numpy.float32)
+    matrix = numpy.asarray(rows, dtype=VECTOR_TYPE)
     return HEADER.pack(*matrix.shape) + matrix.tobytes()
 
 
@@ -168,10 +179,19 @@ class Job:
 
 class Worker:
     def __init__(
-        self, sock_path: Path, lock_path: Path, folder: str, model: str, idle_seconds: float, loader: str
+        self,
+        sock_path: Path | None,
+        lock_path: Path | None,
+        folder: str,
+        model: str,
+        idle_seconds: float,
+        loader: str,
+        token: str | None = None,
     ) -> None:
         self.sock_path = sock_path
         self.lock_path = lock_path
+        self.token = token
+        self.remote = False
         self.folder = folder
         self.model_name = model
         self.idle_seconds = idle_seconds
@@ -186,7 +206,9 @@ class Worker:
         self.listener: socket.socket | None = None
 
     def hello(self) -> bytes:
-        payload = {"model": self.model_name, "protocol": PROTOCOL, "version": package_version(), "pid": os.getpid()}
+        payload: dict[str, Any] = {"model": self.model_name, "protocol": PROTOCOL, "version": package_version()}
+        if not self.remote:
+            payload["pid"] = os.getpid()
         return json.dumps(payload).encode("utf-8")
 
     def bind(self) -> None:
@@ -202,6 +224,14 @@ class Worker:
         listener.settimeout(POLL_SECONDS)
         self.listener = listener
 
+    def bind_tcp(self, host: str, port: int) -> tuple[str, int]:
+        family = socket.AF_INET6 if ":" in host else socket.AF_INET
+        listener = socket.create_server((host, port), family=family, backlog=64)
+        listener.settimeout(POLL_SECONDS)
+        self.listener = listener
+        self.remote = True
+        return listener.getsockname()[:2]
+
     def serve(self) -> None:
         for lane in self.lanes.values():
             threading.Thread(target=self._embed_loop, args=(lane,), name="embed", daemon=True).start()
@@ -209,7 +239,7 @@ class Worker:
             try:
                 connection, _ = self.listener.accept()
             except TimeoutError:
-                if self.stopping.is_set() or self._idle():
+                if self.stopping.is_set() or (not self.remote and self._idle()):
                     break
                 continue
             if self.stopping.is_set():
@@ -219,6 +249,8 @@ class Worker:
                 self.open_connections += 1
             threading.Thread(target=self._answer, args=(connection,), daemon=True).start()
         self.listener.close()
+        if self.remote:
+            return
         with machine_lock(self.lock_path), contextlib.suppress(FileNotFoundError):
             if not answers(self.sock_path):
                 self.sock_path.unlink()
@@ -229,21 +261,47 @@ class Worker:
 
     def _answer(self, connection: socket.socket) -> None:
         try:
+            connection.settimeout(CONNECTION_SECONDS)
             with connection, connection.makefile("rwb") as stream:
                 write_message(stream, self.hello())
-                while (request := read_message(stream)) is not None:
+                authenticated = not self.token
+                while (request := read_message(stream, self.limit(authenticated))) is not None:
                     message = json.loads(request)
+                    if not isinstance(message, dict):
+                        return
+                    if message.get("op") == "auth":
+                        authenticated = authenticated or self.admits(message)
+                    if not authenticated:
+                        write_message(stream, error_reply(f"the embedding worker needs the {TOKEN_ENV} it was given"))
+                        return
+                    if message.get("op") == "auth":
+                        write_message(stream, b"{}")
+                        continue
+                    if message.get("op") == "shutdown" and self.remote:
+                        write_message(stream, error_reply("a listening embedding worker stops on SIGTERM only"))
+                        continue
                     if message.get("op") == "shutdown":
                         self.stopping.set()
                         write_message(stream, b"{}")
                         return
                     write_message(stream, self.submit(message))
-        except OSError:
+        except (OSError, ValueError):
             pass
         finally:
             with self.state_lock:
                 self.open_connections -= 1
                 self.last_used = time.monotonic()
+
+    def limit(self, authenticated: bool) -> int | None:
+        if not authenticated:
+            return MAX_UNAUTHENTICATED_MESSAGE
+        return MAX_REMOTE_MESSAGE if self.remote else None
+
+    def admits(self, message: dict) -> bool:
+        if not self.token:
+            return True
+        offered = message.get("token")
+        return isinstance(offered, str) and hmac.compare_digest(offered.encode("utf-8"), self.token.encode("utf-8"))
 
     def submit(self, message: dict) -> bytes:
         job = Job([str(text) for text in message.get("texts") or []])
@@ -265,6 +323,43 @@ class Worker:
             except Exception as exc:
                 job.reply = error_reply(f"{type(exc).__name__}: {exc}")
             job.done.set()
+
+
+def listen_address(text: str) -> tuple[str, int]:
+    host, _, port = text.strip().rpartition(":")
+    host = host.removeprefix("[").removesuffix("]")
+    if not host or not port.isdigit() or not 0 < int(port) < 65536:
+        raise ConfigError(f"notes-vault-mcp: --listen takes host:port, such as {DEFAULT_LISTEN}, not {text!r}")
+    return host, int(port)
+
+
+def loopback(host: str) -> bool:
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def check_token(host: str, token: str | None) -> None:
+    if not token and not loopback(host):
+        raise ConfigError(
+            f"notes-vault-mcp: an embedding worker listening on {host} needs {TOKEN_ENV}, the secret the server "
+            "sending it notes must also carry"
+        )
+
+
+def listen(host: str, port: int, model: str, folder: str, token: str | None, loader: str = DEFAULT_LOADER) -> None:
+    check_token(host, token)
+    worker = Worker(None, None, folder, model, math.inf, loader, token)
+    worker._loaded()
+    bound_host, bound_port = worker.bind_tcp(host, port)
+    signal.signal(signal.SIGTERM, lambda *_: worker.stopping.set())
+    shown = f"[{bound_host}]" if ":" in bound_host else bound_host
+    print(f"notes-vault-mcp: embedding with {model} on tcp://{shown}:{bound_port}", file=sys.stderr, flush=True)
+    try:
+        worker.serve()
+    except KeyboardInterrupt:
+        worker.stopping.set()
 
 
 def answers(sock_path: Path) -> bool:

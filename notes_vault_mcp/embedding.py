@@ -16,8 +16,9 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
-from notes_vault_mcp.config import env
+from notes_vault_mcp.config import ConfigError, env
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ EXTRA_MODULES = ("fastembed", "numpy")
 ENABLED_VALUES = {"1", "on", "true", "yes"}
 
 _reported: set[str] = set()
-_shared: dict[tuple[Path, str], SharedEmbedder] = {}
+_shared: dict[tuple[str, str], SharedEmbedder] = {}
 _shared_lock = threading.Lock()
 
 
@@ -77,9 +78,23 @@ def _report_once(key: str, message: str) -> None:
         log.warning(message)
 
 
+def embed_address(url: str) -> tuple[str, int]:
+    parts = urlsplit(url.strip())
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    if parts.scheme != "tcp" or not parts.hostname or port is None:
+        raise ConfigError(f"notes-vault-mcp: VAULT_EMBED_URL takes tcp://host:port, not {url!r}")
+    return parts.hostname, port
+
+
 def configured_embedder(cache: Path) -> Embedder | None:
     if not semantic_requested():
         return None
+    url = (env("VAULT_EMBED_URL") or "").strip()
+    if url:
+        return remote_embedder(cache, url)
     if not extra_installed():
         _report_once(
             "extra",
@@ -92,9 +107,25 @@ def configured_embedder(cache: Path) -> Embedder | None:
         return None
     model = model_name()
     with _shared_lock:
-        if (cache, model) not in _shared:
-            _shared[(cache, model)] = SharedEmbedder(cache, model)
-        return _shared[(cache, model)]
+        if (str(cache), model) not in _shared:
+            _shared[(str(cache), model)] = SharedEmbedder(cache, model)
+        return _shared[(str(cache), model)]
+
+
+def remote_embedder(cache: Path, url: str) -> Embedder | None:
+    address = embed_address(url)
+    if importlib.util.find_spec("numpy") is None:
+        _report_once(
+            "numpy",
+            "notes-vault-mcp: VAULT_EMBED_URL is set but numpy is not installed; searching by words only. "
+            "Install notes-vault-mcp[semantic] to search by meaning.",
+        )
+        return None
+    model = model_name()
+    with _shared_lock:
+        if (url, model) not in _shared:
+            _shared[(url, model)] = RemoteEmbedder(cache, address, model, env("VAULT_EMBED_TOKEN"))
+        return _shared[(url, model)]
 
 
 def keep_warm(embedder: Embedder | None) -> None:
@@ -185,7 +216,7 @@ class SharedEmbedder:
             connection = self._connect()
             try:
                 connection.sock.settimeout(wait)
-                write_message(connection.stream, json.dumps({"op": op, "texts": texts}).encode("utf-8"))
+                write_message(connection.stream, json.dumps(self._message(op, texts)).encode("utf-8"))
                 reply = read_message(connection.stream)
             except TimeoutError:
                 raise
@@ -197,6 +228,9 @@ class SharedEmbedder:
                 return _rows(reply)
         raise EmbeddingError("the embedding process went away before it answered")
 
+    def _message(self, op: str, texts: list[str]) -> dict:
+        return {"op": op, "texts": texts}
+
     def _matches(self, hello: dict) -> bool:
         from notes_vault_mcp.embed_worker import PROTOCOL, package_version
 
@@ -204,8 +238,6 @@ class SharedEmbedder:
         return all(hello.get(key) == value for key, value in expected.items())
 
     def _open(self) -> Connection | None:
-        from notes_vault_mcp.embed_worker import read_message
-
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(HELLO_WAIT_SECONDS)
         try:
@@ -213,16 +245,7 @@ class SharedEmbedder:
         except OSError:
             sock.close()
             return None
-        connection = Connection(sock)
-        try:
-            raw = read_message(connection.stream)
-            connection.hello = json.loads(raw) if raw else {}
-        except (OSError, ValueError):
-            raw = None
-        if not raw:
-            connection.close()
-            return None
-        return connection
+        return greeted(sock)
 
     def _connect(self) -> Connection:
         connection = self._open()
@@ -289,12 +312,92 @@ class SharedEmbedder:
             )
 
 
+class RemoteEmbedder(SharedEmbedder):
+    def __init__(
+        self,
+        cache: Path,
+        address: tuple[str, int],
+        model: str = MPNET,
+        token: str | None = None,
+        query_wait: float = QUERY_WAIT_SECONDS,
+    ) -> None:
+        super().__init__(cache, model, query_wait=query_wait)
+        self.address = address
+        self.token = token
+
+    @property
+    def url(self) -> str:
+        host, port = self.address
+        return f"tcp://[{host}]:{port}" if ":" in host else f"tcp://{host}:{port}"
+
+    def _matches(self, hello: dict) -> bool:
+        from notes_vault_mcp.embed_worker import PROTOCOL
+
+        return hello.get("model") == self.model_id and hello.get("protocol") == PROTOCOL
+
+    def _open(self) -> Connection | None:
+        try:
+            sock = socket.create_connection(self.address, timeout=HELLO_WAIT_SECONDS)
+        except OSError:
+            return None
+        return greeted(sock)
+
+    def _connect(self) -> Connection:
+        connection = self._open()
+        if connection is None:
+            raise EmbeddingError(f"no embedding worker answers at {self.url}")
+        if not self._matches(connection.hello):
+            connection.close()
+            raise EmbeddingError(
+                f"the embedding worker at {self.url} runs {connection.hello.get('model')!r}, protocol "
+                f"{connection.hello.get('protocol')!r}; this server needs {self.model_id!r}"
+            )
+        if self.token:
+            self._authenticate(connection)
+        return connection
+
+    def _authenticate(self, connection: Connection) -> None:
+        from notes_vault_mcp.embed_worker import read_message, write_message
+
+        try:
+            write_message(connection.stream, json.dumps({"op": "auth", "token": self.token}).encode("utf-8"))
+            reply = read_message(connection.stream)
+        except OSError:
+            reply = None
+        if reply != b"{}":
+            connection.close()
+            refused = _refusal(reply) if reply else "the embedding worker closed the connection"
+            raise EmbeddingError(f"the embedding worker at {self.url} refused this server: {refused}")
+
+
+def greeted(sock: socket.socket) -> Connection | None:
+    from notes_vault_mcp.embed_worker import read_message
+
+    connection = Connection(sock)
+    try:
+        raw = read_message(connection.stream)
+        connection.hello = json.loads(raw) if raw else {}
+    except (OSError, ValueError):
+        raw = None
+    if not raw:
+        connection.close()
+        return None
+    return connection
+
+
+def _refusal(reply: bytes) -> str:
+    from notes_vault_mcp.embed_worker import HEADER
+
+    return reply[HEADER.size :].decode("utf-8", "replace")
+
+
 def _rows(reply: bytes) -> Any:
     import numpy
 
-    from notes_vault_mcp.embed_worker import HEADER
+    from notes_vault_mcp.embed_worker import HEADER, VECTOR_TYPE
 
     rows, dims = HEADER.unpack_from(reply)
     if not rows:
         raise EmbeddingError(reply[HEADER.size :].decode("utf-8", "replace"))
-    return numpy.frombuffer(reply, dtype=numpy.float32, offset=HEADER.size).reshape(rows, dims)
+    matrix = numpy.frombuffer(reply, dtype=VECTOR_TYPE, offset=HEADER.size).reshape(rows, dims)
+    return matrix.astype(numpy.float32, copy=False)

@@ -9,6 +9,7 @@ notes-vault-mcp serve --transport stdio          # the default, also with no sub
 notes-vault-mcp serve --transport http --host 0.0.0.0 --port 8765
 notes-vault-mcp init [--preset default|para|simple|journal|custom] [--force]
 notes-vault-mcp sync [--rebuild]                 # refresh the index; --rebuild reads every note again
+notes-vault-mcp embed-worker [--listen 127.0.0.1:7400] [--model <name>]  # the model in its own process
 notes-vault-mcp search "bokning" --limit 5       # the same ranking, from a shell
 notes-vault-mcp context [--path ~/projects/myapp] # what a session in this repo starts with
 notes-vault-mcp read Projects/myapp-idea.md [--body] [--raw]
@@ -19,7 +20,7 @@ notes-vault-mcp changelog --all                  # this month, and last month du
 notes-vault-mcp hook session-start | stop        # the Claude Code hooks, JSON on stdin
 ```
 
-`serve --host` defaults to `127.0.0.1` and `--port` to `8765`. Through a server, `sync` only says that the server keeps the index.
+`serve --host` defaults to `127.0.0.1` and `--port` to `8765`. `embed-worker` is described in [Search by meaning](../install/semantic-search.md#the-model-in-its-own-process). Through a server, `sync` only says that the server keeps the index.
 
 ## Signing in to a server
 

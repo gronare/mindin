@@ -93,6 +93,8 @@ At least one of `VAULT_SMTP_HOST`, `VAULT_GITHUB_CLIENT_ID`, `VAULT_OIDC_ISSUER`
 | --- | --- | --- | --- |
 | `VAULT_SEMANTIC` | no | off | `on`, `1`, `true` or `yes` adds search by meaning. |
 | `VAULT_SEMANTIC_MODEL` | no | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | The fastembed model. |
+| `VAULT_EMBED_URL` | no | | `tcp://host:port` of an `embed-worker` that this server sends its sections and queries to, instead of starting its own model process. The server then needs `numpy` but not `fastembed`. See [The model in its own process](../install/semantic-search.md#the-model-in-its-own-process). |
+| `VAULT_EMBED_TOKEN` | with `embed-worker --listen` beyond `127.0.0.1` or `::1` | | The secret an `embed-worker` asks of every request. Set the same value on the worker and on the server whose `VAULT_EMBED_URL` points at it. |
 | `VAULT_EMBED_BATCH` | no | `16` | Sections the model process runs through the model at once. Fewer lowers its peak memory during a first sync. |
 | `VAULT_EMBED_THREADS` | no | half the usable cores, at most `4` | Threads the model runs on. The usable cores count a container's CPU limit (cgroup v2 `cpu.max`); ONNX Runtime on its own takes every physical core of the node. |
 | `VAULT_EMBED_MAX_TOKENS` | no | `256` | Tokens of a section the model reads. Prose sections stay under it; a section of links or code is cut there instead of padding its batch to 512. |

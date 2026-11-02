@@ -510,6 +510,7 @@ references. Every change is kept with who made it.</span></label>
         upload: ASGIApp = RequestBodyLimitMiddleware(request_response(self.upload), MAX_UPLOAD_BYTES)
         base = prefix + "/account/vaults/{slug}"
         return [
+            Route(prefix + "/", endpoint=to_account, methods=["GET"]),
             Route(prefix + "/account", endpoint=self.list_page, methods=["GET"]),
             Route(prefix + "/account/page.js", endpoint=app_script, methods=["GET"]),
             Route(prefix + "/account/vaults/new", endpoint=self.new_page, methods=["GET"]),
@@ -524,3 +525,7 @@ references. Every change is kept with who made it.</span></label>
             Route(base + "/delete", endpoint=limited(self.delete), methods=["POST"]),
             *self.shared.routes(base, limited),
         ]
+
+
+async def to_account(request: Request) -> RedirectResponse:
+    return RedirectResponse(request.url.path.rstrip("/") + "/account", status_code=303)

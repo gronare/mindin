@@ -546,3 +546,10 @@ def test_new_accounts_get_their_first_vault_and_a_free_slug(tmp_path: Path):
     assert [vault.slug for vault in store.vaults(first.id)] == ["ann"]
     assert [vault.slug for vault in store.vaults(second.id)] == ["ann-2"]
     assert store.first_vault(first.id).id.startswith("vlt_")
+
+
+@pytest.mark.anyio
+async def test_the_server_root_sends_a_visitor_to_the_account_page(site: Hosted):
+    async with site.browser() as http:
+        root = await http.get("/")
+    assert root.status_code == 303 and root.headers["location"] == "/account"

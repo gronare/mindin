@@ -7,6 +7,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 ### What's new
 
 ### Fixed
+- A vault server's root address opens the account page instead of answering not found.
 
 ## 0.12.0
 

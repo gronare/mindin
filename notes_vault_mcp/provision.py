@@ -5,7 +5,7 @@ from datetime import date
 
 import yaml
 
-from notes_vault_mcp.backends import SCHEMA_KEY, NotFound, VaultBackend
+from notes_vault_mcp.backends import MUST_NOT_EXIST, SCHEMA_KEY, NotFound, VaultBackend, VersionConflict
 from notes_vault_mcp.presets import (
     DEFAULT_PRESET,
     PRESETS,
@@ -131,7 +131,11 @@ def initialize(
         if not force and (key in existing or (key == SCHEMA_KEY and old_schema is not None)):
             result.kept.append(key)
             continue
-        backend.put(key, text)
+        try:
+            backend.put(key, text, expected_version=None if force else MUST_NOT_EXIST)
+        except VersionConflict:
+            result.kept.append(key)
+            continue
         result.written.append(key)
     for key in result.removed:
         backend.delete(key)

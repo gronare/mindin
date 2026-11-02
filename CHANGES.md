@@ -10,6 +10,8 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 - `VAULT_HTTP_STATELESS=on` serves MCP without sessions, so a server restart drops no session a client holds.
 
 ### Fixed
+- Two writes to one note at the same moment both land: `append_file`, `set_status`, `close`, `log_append`, `write_file` and the monthly log pages write over the version they read and read again when the note changed meanwhile, two `backlog_add` calls with one title get two notes, and a new vault's first files never overwrite a file already there.
+- WebDAV `PUT` honours `If-Match` and `If-None-Match: *` and answers `412` when the file changed.
 - A note's age counts calendar days in local time, so a note from five days back reads "5 days" also just after midnight.
 - A vault server's root address opens the account page instead of answering not found.
 

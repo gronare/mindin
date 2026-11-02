@@ -12,6 +12,6 @@ A vault on a server opens in Obsidian through the Remotely Save plugin over WebD
 
 The address is the same for every vault: the key decides which vault opens. A new vault's welcome note carries these steps.
 
-Obsidian hides `.vault/`, so edit the schema with another WebDAV client, such as Finder's Connect to Server or Cyberduck. Other WebDAV clients open `VAULT_PUBLIC_URL/dav/vault/`.
+Obsidian hides `.vault/`, so edit the schema with another WebDAV client, such as Finder's Connect to Server or Cyberduck. Other WebDAV clients open `VAULT_PUBLIC_URL/dav/vault/`. A `PUT` with `If-Match` or `If-None-Match: *` is answered `412 Precondition Failed` when the file changed or already exists, so a client that sends them never overwrites a newer version.
 
 A proxy in front of the server must pass `/dav/*` through; see [Behind a reverse proxy](reverse-proxy.md).

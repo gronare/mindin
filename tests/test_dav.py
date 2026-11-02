@@ -358,3 +358,38 @@ async def test_any_vault_name_reaches_the_same_vault(app: Any, secret: str, vaul
     stored = keys(vault_id, vaults)
     assert "Areas/moved.md" in stored and "Areas/något.md" not in stored
     assert not any(key.startswith(("My Vault", "other")) for key in stored)
+
+
+def test_if_match_star_writes_only_over_the_version_that_exists():
+    from datetime import UTC, datetime
+
+    from starlette.requests import Request
+
+    from notes_vault_mcp.backends import Entry
+    from notes_vault_mcp.dav import PreconditionFailed, expected_version
+
+    request = Request({"type": "http", "headers": [(b"if-match", b"*")]})
+    entry = Entry(key="Areas/orchard.md", version="v-orchard", mtime=datetime.now(tz=UTC), size=3)
+    assert expected_version(request, entry) == "v-orchard"
+    with pytest.raises(PreconditionFailed):
+        expected_version(request, None)
+
+
+@pytest.mark.anyio
+async def test_if_match_star_on_a_file_deleted_meanwhile_is_412(
+    app: Any, secret: str, vault_id: str, vaults: SubjectVaults, monkeypatch: pytest.MonkeyPatch
+):
+    async with dav_client(app) as client:
+        await client.put("/dav/vault/Areas/orchard.md", content=b"first", headers=basic(secret))
+        backend = vaults.for_subject(vault_id).backend
+        real = backend.list_all
+        stale = real("Areas/orchard.md")
+        backend.delete("Areas/orchard.md")
+        monkeypatch.setattr(
+            backend, "list_all", lambda prefix="": stale if prefix == "Areas/orchard.md" else real(prefix)
+        )
+        response = await client.put(
+            "/dav/vault/Areas/orchard.md", content=b"second", headers={"If-Match": "*", **basic(secret)}
+        )
+    assert response.status_code == 412
+    assert "Areas/orchard.md" not in keys(vault_id, vaults)

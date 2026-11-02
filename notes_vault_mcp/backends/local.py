@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import os
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
 from notes_vault_mcp.backends import MUST_NOT_EXIST, Entry, NotFound, VaultError, VersionConflict, is_vault_key
+
+CHECKED_WRITES = threading.Lock()
 
 
 def _version(stat: os.stat_result) -> str:
@@ -91,11 +94,13 @@ class LocalBackend:
     def put_checked(
         self, key: str, data: bytes, expected_version: str | None = None, content_type: str | None = None
     ) -> str:
-        if expected_version is not None:
+        if expected_version is None:
+            return self.put_bytes(key, data)
+        with CHECKED_WRITES:
             current = self.current_version(key)
             if (current is not None) if expected_version == MUST_NOT_EXIST else (current != expected_version):
                 raise VersionConflict(f"{key} changed since it was read (etag {current}, expected {expected_version})")
-        return self.put_bytes(key, data)
+            return self.put_bytes(key, data)
 
     def put_bytes(self, key: str, data: bytes, content_type: str | None = None) -> str:
         path = self._path(key)

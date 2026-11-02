@@ -14,7 +14,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from notes_vault_mcp.backends import Entry, NotFound, VaultBackend
+from notes_vault_mcp.backends import MUST_NOT_EXIST, Entry, NotFound, VaultBackend, VersionConflict
 from notes_vault_mcp.shared import SharedRefusal, acting_as
 from notes_vault_mcp.vault import SubjectVaults
 
@@ -56,6 +56,31 @@ def _now() -> datetime:
 
 def _http_date(moment: datetime) -> str:
     return format_datetime(moment.astimezone(UTC), usegmt=True)
+
+
+class PreconditionFailed(Exception):
+    pass
+
+
+def etags(header: str) -> list[str]:
+    return [tag.strip().removeprefix("W/").strip('"') for tag in header.split(",") if tag.strip()]
+
+
+def expected_version(request: Request, entry: Entry | None) -> str | None:
+    if request.headers.get("if-none-match", "").strip() == "*":
+        return MUST_NOT_EXIST
+    wanted = etags(request.headers.get("if-match", ""))
+    if not wanted:
+        return None
+    if wanted == ["*"]:
+        if entry is None:
+            raise PreconditionFailed
+        return entry.version
+    if len(wanted) == 1:
+        return wanted[0]
+    if entry is None or entry.version not in wanted:
+        raise PreconditionFailed
+    return entry.version
 
 
 def _content_type(key: str) -> str:
@@ -273,8 +298,17 @@ class WebDav:
         if key == "" or key.endswith("/"):
             return Response("cannot PUT a collection", 405, headers={"Allow": ALLOW})
         data = await _bounded_body(request, self.max_body)
-        existed = self._lookup(backend, key) is not None
-        version = backend.put_bytes(key, data, request.headers.get("content-type") or None)
+        found = self._lookup(backend, key)
+        existed = found is not None
+        content_type = request.headers.get("content-type") or None
+        try:
+            expected = expected_version(request, found[1] if found else None)
+            if expected is None:
+                version = backend.put_bytes(key, data, content_type)
+            else:
+                version = backend.put_checked(key, data, expected, content_type or _content_type(key))
+        except (PreconditionFailed, VersionConflict):
+            return Response("precondition failed", 412)
         return Response(status_code=204 if existed else 201, headers={"ETag": f'"{version}"'})
 
     async def do_delete(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:

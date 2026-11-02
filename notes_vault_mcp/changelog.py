@@ -5,11 +5,10 @@ from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
-from notes_vault_mcp.backends import NotFound
 from notes_vault_mcp.frontmatter import dump, parse
 from notes_vault_mcp.git import git, is_checkout, repo_name
 from notes_vault_mcp.index import Note, stem_of
-from notes_vault_mcp.notes import _reindex, changelog_notes, log_lines, note_key, stamp
+from notes_vault_mcp.notes import changelog_notes, log_lines, note_key, rewrite, stamp
 from notes_vault_mcp.vault import Vault
 
 GENERATED_START = "<!-- changelog:generated -->"
@@ -135,20 +134,18 @@ def write_page(
 ) -> bool:
     period_bounds(period)
     key = note_key(vault.schema.period_key(repo, period))
-    try:
-        text, _ = vault.backend.get(key)
-        frontmatter, body = parse(text)
-        existed = True
-    except NotFound:
-        frontmatter, body, existed = _new_page(vault, repo, period), "", False
-    new_body = splice(body, generated_block(vault, repo, period, commits_of(repo_path, period, commits)))
-    if existed and new_body == body:
-        return False
-    frontmatter["updated"] = stamp()
-    frontmatter["status"] = "complete" if period_over(period) else "active"
-    out = dump(frontmatter, new_body)
-    _reindex(vault, key, out, vault.backend.put(key, out))
-    return True
+    block = generated_block(vault, repo, period, commits_of(repo_path, period, commits))
+
+    def paged(text: str | None) -> str | None:
+        frontmatter, body = (_new_page(vault, repo, period), "") if text is None else parse(text)
+        new_body = splice(body, block)
+        if text is not None and new_body == body:
+            return None
+        frontmatter["updated"] = stamp()
+        frontmatter["status"] = "complete" if period_over(period) else "active"
+        return dump(frontmatter, new_body)
+
+    return rewrite(vault, key, paged) is not None
 
 
 def live_repos(vault: Vault) -> list[tuple[str, str]]:

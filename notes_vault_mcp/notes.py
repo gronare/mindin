@@ -5,11 +5,12 @@ import os
 import re
 import time
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from notes_vault_mcp.backends import SCHEMA_KEY, NotFound
+from notes_vault_mcp.backends import MUST_NOT_EXIST, SCHEMA_KEY, NotFound, VersionConflict
 from notes_vault_mcp.frontmatter import (
     CLAIM_KEY,
     FRONTMATTER_RE,
@@ -35,6 +36,7 @@ TRIAGE_HINT = (
 )
 PRIORITY_ORDER = ("urgent", "high", "medium", "low")
 SLUG_MAX = 60
+REWRITE_RETRIES = 3
 
 
 SCHEMA_REFUSAL = (
@@ -89,6 +91,25 @@ def _reindex(vault: Vault, path: str, text: str, version: str) -> None:
     vault.index.upsert(path, text, version, time.time(), len(text.encode("utf-8")))
 
 
+def rewrite(vault: Vault, key: str, change: Callable[[str | None], str | None]) -> tuple[str, str] | None:
+    """Writes change(stored text, or None when absent) only over the version it read, reading again on a conflict."""
+    for _ in range(REWRITE_RETRIES + 1):
+        try:
+            current, version = _read(vault, key)
+        except NotFound:
+            current, version = None, MUST_NOT_EXIST
+        text = change(current)
+        if text is None:
+            return None
+        try:
+            written = vault.backend.put(key, text, expected_version=version)
+        except VersionConflict:
+            continue
+        _reindex(vault, key, text, written)
+        return text, written
+    raise VersionConflict(f"{key} kept changing while it was being written; try again")
+
+
 def read(vault: Vault, path: str) -> str:
     text, version = _read(vault, note_key(path, readable=True))
     frontmatter, body = parse(text)
@@ -124,8 +145,17 @@ def _require_valid(vault: Vault, frontmatter: dict, key: str, verdict: str) -> N
 def _stored_claim(vault: Vault, key: str) -> dict[str, str] | None:
     try:
         text, _ = _read(vault, key)
+    except NotFound:
+        return None
+    return _claim_in(text)
+
+
+def _claim_in(text: str | None) -> dict[str, str] | None:
+    if text is None:
+        return None
+    try:
         return claim_fields(parse(text)[0].get(CLAIM_KEY))
-    except (NotFound, FrontmatterError):
+    except FrontmatterError:
         return None
 
 
@@ -139,27 +169,36 @@ def _with_claim(frontmatter: dict, claim: dict[str, str] | None) -> dict:
 def write(vault: Vault, path: str, content: str, expected_etag: str | None = None) -> str:
     key = note_key(path)
     frontmatter, body = parse(content)
-    stamped = _with_dates(_with_claim(frontmatter, _stored_claim(vault, key)))
-    _require_valid(vault, stamped, key, "is not a valid note")
-    text = dump(stamped, body)
-    version = vault.backend.put(key, text, expected_version=expected_etag)
-    _reindex(vault, key, text, version)
+
+    def written(claim: dict[str, str] | None) -> str:
+        stamped = _with_dates(_with_claim(frontmatter, claim))
+        _require_valid(vault, stamped, key, "is not a valid note")
+        return dump(stamped, body)
+
+    if expected_etag is None:
+        stored = rewrite(vault, key, lambda existing: written(_claim_in(existing)))
+        assert stored is not None
+        version = stored[1]
+    else:
+        text = written(_stored_claim(vault, key))
+        version = vault.backend.put(key, text, expected_version=expected_etag)
+        _reindex(vault, key, text, version)
     return f"Written: {key}\netag: {version}"
 
 
 def append(vault: Vault, path: str, content: str) -> str:
     key = note_key(path)
-    try:
-        existing, _ = _read(vault, key)
-    except NotFound as exc:
-        raise NotFound(f"{key} (append_file extends a note; write_file creates one)") from exc
-    frontmatter, body = parse(existing)
-    stamped = _with_dates(frontmatter)
-    _require_valid(vault, stamped, key, "would not be a valid note")
-    body = f"{body.rstrip()}\n{content}\n" if body.strip() else f"{content}\n"
-    text = dump(stamped, body)
-    version = vault.backend.put(key, text)
-    _reindex(vault, key, text, version)
+
+    def appended(existing: str | None) -> str:
+        if existing is None:
+            raise NotFound(f"{key} (append_file extends a note; write_file creates one)")
+        frontmatter, body = parse(existing)
+        stamped = _with_dates(frontmatter)
+        _require_valid(vault, stamped, key, "would not be a valid note")
+        body = f"{body.rstrip()}\n{content}\n" if body.strip() else f"{content}\n"
+        return dump(stamped, body)
+
+    rewrite(vault, key, appended)
     return f"Appended to: {key}"
 
 
@@ -182,11 +221,11 @@ def delete(vault: Vault, path: str) -> str:
     return f"Deleted: {key}"
 
 
-def _free_key(vault: Vault, folder: str, basename: str) -> str:
+def _free_key(vault: Vault, folder: str, basename: str, lost: frozenset[str] = frozenset()) -> str:
     stem = basename.removesuffix(".md")
     candidate = f"{folder}/{stem}.md"
     suffix = 2
-    taken = {entry.key for entry in vault.backend.list()}
+    taken = {entry.key for entry in vault.backend.list()} | lost
     while candidate in taken:
         candidate = f"{folder}/{stem}-{suffix}.md"
         suffix += 1
@@ -195,19 +234,23 @@ def _free_key(vault: Vault, folder: str, basename: str) -> str:
 
 def set_status(vault: Vault, path: str, status: str, priority: str | None = None, source: str | None = None) -> str:
     path = note_key(path)
-    text, _ = _read(vault, path)
-    frontmatter, body = parse(text)
-    frontmatter["status"] = status
-    if status == BACKLOG_STATUS:
-        frontmatter.pop(CLAIM_KEY, None)
-    if priority:
-        frontmatter["priority"] = priority
-    if source:
-        frontmatter["source"] = source
-    stamped = _with_dates(frontmatter)
-    _require_valid(vault, stamped, path, "would not be a valid note")
-    out = dump(stamped, body)
-    _reindex(vault, path, out, vault.backend.put(path, out))
+
+    def restated(text: str | None) -> str:
+        if text is None:
+            raise NotFound(path)
+        frontmatter, body = parse(text)
+        frontmatter["status"] = status
+        if status == BACKLOG_STATUS:
+            frontmatter.pop(CLAIM_KEY, None)
+        if priority:
+            frontmatter["priority"] = priority
+        if source:
+            frontmatter["source"] = source
+        stamped = _with_dates(frontmatter)
+        _require_valid(vault, stamped, path, "would not be a valid note")
+        return dump(stamped, body)
+
+    rewrite(vault, path, restated)
     return f"{path}: status {status}" + (f", priority {priority}" if priority else "")
 
 
@@ -257,26 +300,44 @@ def park_stale(vault: Vault) -> list[str]:
 
 def close(vault: Vault, path: str, merged_into: str | None = None, status: str | None = None) -> str:
     path = note_key(path)
-    text, _ = _read(vault, path)
-    frontmatter, body = parse(text)
-    if merged_into:
-        frontmatter["status"] = "superseded"
-        frontmatter["superseded_by"] = f"[[{stem_of(merged_into)}]]"
-    else:
-        frontmatter["status"] = status or "complete"
-    frontmatter.pop(CLAIM_KEY, None)
-    archive = vault.schema.archive_folder
-    archived = archive is None or vault.schema.under(path, [archive])
-    destination = path if archived else _free_key(vault, archive, path.rsplit("/", 1)[-1])
-    stamped = _with_dates(frontmatter)
-    _require_valid(vault, stamped, destination, "cannot be closed into a valid note")
-    out = dump(stamped, body)
-    version = vault.backend.put(destination, out)
-    if not archived:
-        vault.backend.delete(path)
-        vault.index.remove(path)
-    _reindex(vault, destination, out, version)
-    return destination
+    lost: frozenset[str] = frozenset()
+    for _ in range(REWRITE_RETRIES + 1):
+        text, read_version = _read(vault, path)
+        frontmatter, body = parse(text)
+        if merged_into:
+            frontmatter["status"] = "superseded"
+            frontmatter["superseded_by"] = f"[[{stem_of(merged_into)}]]"
+        else:
+            frontmatter["status"] = status or "complete"
+        frontmatter.pop(CLAIM_KEY, None)
+        archive = vault.schema.archive_folder
+        archived = archive is None or vault.schema.under(path, [archive])
+        destination = path if archived else _free_key(vault, archive, path.rsplit("/", 1)[-1], lost)
+        stamped = _with_dates(frontmatter)
+        _require_valid(vault, stamped, destination, "cannot be closed into a valid note")
+        out = dump(stamped, body)
+        try:
+            version = vault.backend.put(destination, out, expected_version=read_version if archived else MUST_NOT_EXIST)
+        except VersionConflict:
+            if not archived:
+                lost |= {destination}
+            continue
+        if not archived:
+            if _version_of(vault, path) != read_version:
+                vault.backend.delete(destination)
+                continue
+            vault.backend.delete(path)
+            vault.index.remove(path)
+        _reindex(vault, destination, out, version)
+        return destination
+    raise VersionConflict(f"{path} kept changing while it was being closed; try again")
+
+
+def _version_of(vault: Vault, key: str) -> str | None:
+    try:
+        return _read(vault, key)[1]
+    except NotFound:
+        return None
 
 
 def _area_link(area: str | None, repo: str) -> str:
@@ -306,26 +367,26 @@ def log_append(
     branch: str | None = None,
 ) -> str:
     key = note_key(vault.schema.log_key(repo))
-    try:
-        existing, _ = _read(vault, key)
-        frontmatter, body = parse(existing)
-    except NotFound:
-        frontmatter, body = _new_log(repo, area)
-    if area:
-        frontmatter["area"] = _area_link(area, repo)
-    frontmatter["updated"] = stamp()
-    entry = vault.schema.log_entry_format.format(
-        date=today(),
-        line=line,
-        commits=" ".join(commits) if commits else "-",
-        branch=branch or "-",
-        area=frontmatter.get("area") or "-",
-    )
-    body = f"{body.rstrip()}\n{entry}\n" if body.strip() else f"{entry}\n"
-    text = dump(frontmatter, body)
-    version = vault.backend.put(key, text)
-    _reindex(vault, key, text, version)
-    return f"Logged to {key}:\n{entry}"
+    entries: list[str] = []
+
+    def logged(existing: str | None) -> str:
+        frontmatter, body = _new_log(repo, area) if existing is None else parse(existing)
+        if area:
+            frontmatter["area"] = _area_link(area, repo)
+        frontmatter["updated"] = stamp()
+        entry = vault.schema.log_entry_format.format(
+            date=today(),
+            line=line,
+            commits=" ".join(commits) if commits else "-",
+            branch=branch or "-",
+            area=frontmatter.get("area") or "-",
+        )
+        entries.append(entry)
+        body = f"{body.rstrip()}\n{entry}\n" if body.strip() else f"{entry}\n"
+        return dump(frontmatter, body)
+
+    rewrite(vault, key, logged)
+    return f"Logged to {key}:\n{entries[-1]}"
 
 
 def priority_rank(value: str) -> int:
@@ -363,7 +424,6 @@ def backlog_add(
     family = area_stem.split("-")[0]
     slug = _title_slug(title)
     stem = slug if slug == family or slug.startswith(f"{family}-") else f"{family}-{slug}"
-    key = note_key(_free_key(vault, vault.schema.backlog_folder, stem))
     frontmatter: dict = {
         "title": title,
         "date": stamp(),
@@ -378,12 +438,21 @@ def backlog_add(
         frontmatter["priority"] = priority
     if source:
         frontmatter["source"] = source
-    problems = validate(frontmatter, key, vault.schema)
-    if problems:
-        raise ValueError("; ".join(problems))
     text = dump(frontmatter, f"{line}\n")
-    _reindex(vault, key, text, vault.backend.put(key, text))
-    return key
+    lost: frozenset[str] = frozenset()
+    for _ in range(REWRITE_RETRIES + 1):
+        key = note_key(_free_key(vault, vault.schema.backlog_folder, stem, lost))
+        problems = validate(frontmatter, key, vault.schema)
+        if problems:
+            raise ValueError("; ".join(problems))
+        try:
+            version = vault.backend.put(key, text, expected_version=MUST_NOT_EXIST)
+        except VersionConflict:
+            lost |= {key}
+            continue
+        _reindex(vault, key, text, version)
+        return key
+    raise VersionConflict(f"every free name for {stem} was taken while the note was being added; try again")
 
 
 def _in_area(note: Note, area: str | None) -> bool:

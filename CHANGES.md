@@ -20,6 +20,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 - A vault server's root address opens the account page instead of answering not found.
 - The access log leaves out query strings, so sign-in and invitation links never land in it.
 - An unknown vault address answers like a known one the caller cannot reach.
+- WebDAV opens vaults and talks to storage off the event loop, so a slow vault never stalls other requests or `/up`.
 
 ## 0.12.0
 

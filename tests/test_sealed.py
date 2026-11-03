@@ -236,3 +236,37 @@ def test_a_listing_that_raced_a_write_is_not_kept(tmp_path: Path):
     inner.list_all = listing_then_a_write
     assert [entry.key for entry in sealed.list_all()] == ["a.md"]
     assert [entry.key for entry in sealed.list_all()] == ["a.md", "late.md"]
+
+
+def test_a_burst_of_writes_after_a_listing_lists_the_storage_once(tmp_path: Path):
+    key = os.urandom(32)
+    counting = Counting(LocalBackend(tmp_path / "raw"))
+    sealed = SealedBackend(counting, key, clock=Ticking())
+    sealed.put("Areas/orchard.md", "o")
+    sealed.put("Areas/frame.md", "f")
+    counting.listings = 0
+    assert [entry.key for entry in sealed.list_all()] == ["Areas/frame.md", "Areas/orchard.md"]
+    version = ""
+    for round in range(5):
+        version = sealed.put_checked(f"Inbox/workshop-{round}.md", b"w" * (round + 1))
+        sealed.list_all("Inbox/")
+    sealed.delete("Areas/frame.md")
+    sealed.mkdir("Projects/")
+    listed = {entry.key: entry for entry in sealed.list_all()}
+    assert counting.listings == 1
+    assert set(listed) == {"Areas/orchard.md", "Projects/"} | {f"Inbox/workshop-{round}.md" for round in range(5)}
+    assert listed["Inbox/workshop-4.md"].version == version and listed["Inbox/workshop-4.md"].size == 5
+    fresh = {entry.key: entry.version for entry in SealedBackend(counting.inner, key).list_all()}
+    assert {key: entry.version for key, entry in listed.items()} == fresh
+
+
+def test_a_failed_write_drops_the_cached_listing(tmp_path: Path):
+    counting = Counting(LocalBackend(tmp_path / "raw"))
+    sealed = SealedBackend(counting, os.urandom(32), clock=Ticking())
+    sealed.put("Areas/orchard.md", "o")
+    sealed.list_all()
+    counting.listings = 0
+    with pytest.raises(VersionConflict):
+        sealed.put("Areas/orchard.md", "stale", expected_version="not-the-version")
+    sealed.list_all()
+    assert counting.listings == 1

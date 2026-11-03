@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import base64
 import binascii
+import bisect
 import logging
 import os
 import threading
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Protocol
 
 from cryptography.exceptions import InvalidTag
@@ -94,7 +96,7 @@ class SealedBackend:
     def list_all(self, prefix: str = "") -> list[Entry]:
         return [entry for entry in self._entries() if entry.key.startswith(prefix)]
 
-    # Writes from another process show here only after LISTING_TTL, or at once when a change bus calls forget_listing.
+    # Others' writes show here after LISTING_TTL or on forget_listing; this process's writes patch the cached listing.
     def _entries(self) -> list[Entry]:
         with self._lock:
             if self._listing is not None and self.clock() - self._listing[0] < LISTING_TTL:
@@ -114,6 +116,17 @@ class SealedBackend:
         with self._lock:
             self._generation += 1
             self._listing = None
+
+    def _wrote(self, key: str, entry: Entry | None) -> None:
+        with self._lock:
+            self._generation += 1
+            if self._listing is None:
+                return
+            moment, entries = self._listing
+            kept = [found for found in entries if found.key != key]
+            if entry is not None:
+                bisect.insort(kept, entry, key=lambda found: found.key)
+            self._listing = (moment, kept)
 
     def _read_listing(self) -> list[Entry]:
         entries: list[Entry] = []
@@ -149,9 +162,12 @@ class SealedBackend:
         self, key: str, data: bytes, expected_version: str | None = None, content_type: str = SEALED_TYPE
     ) -> str:
         try:
-            return self.inner.put_checked(self.object_key(key), self.seal(key, data), expected_version, SEALED_TYPE)
-        finally:
+            version = self.inner.put_checked(self.object_key(key), self.seal(key, data), expected_version, SEALED_TYPE)
+        except BaseException:
             self._changed()
+            raise
+        self._wrote(key, Entry(key=key, version=version, mtime=datetime.now(tz=UTC), size=len(data)))
+        return version
 
     def put(self, key: str, text: str, expected_version: str | None = None) -> str:
         return self.put_checked(key, text.encode("utf-8"), expected_version)
@@ -162,17 +178,22 @@ class SealedBackend:
     def mkdir(self, key: str) -> None:
         folder = key.rstrip("/") + "/"
         try:
-            self.inner.put_bytes(self.object_key(folder), self.seal(folder, b""), SEALED_TYPE)
-        finally:
+            version = self.inner.put_bytes(self.object_key(folder), self.seal(folder, b""), SEALED_TYPE)
+        except BaseException:
             self._changed()
+            raise
+        self._wrote(folder, Entry(key=folder, version=version, mtime=datetime.now(tz=UTC), size=0))
 
     def delete(self, key: str) -> None:
         try:
             self.inner.delete(self.object_key(key))
         except NotFound:
-            raise NotFound(key) from None
-        finally:
             self._changed()
+            raise NotFound(key) from None
+        except BaseException:
+            self._changed()
+            raise
+        self._wrote(key, None)
 
     def move(self, src: str, dst: str) -> None:
         if src.endswith("/"):

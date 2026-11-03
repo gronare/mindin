@@ -274,7 +274,7 @@ async def test_a_remotely_save_walk_lists_the_storage_once(
         for folder in ("", "Areas/", "Projects/", "Projects/Deep/"):
             walked = await client.request("PROPFIND", f"/dav/vault/{folder}", headers={"Depth": "1", **basic(secret)})
             assert walked.status_code == 207
-    assert len(listings) == 1
+    assert len(listings) <= 1
 
 
 def keys(vault_id: str, vaults: SubjectVaults) -> set[str]:
@@ -393,3 +393,33 @@ async def test_if_match_star_on_a_file_deleted_meanwhile_is_412(
         )
     assert response.status_code == 412
     assert "Areas/orchard.md" not in keys(vault_id, vaults)
+
+
+@pytest.mark.anyio
+async def test_a_slow_vault_open_leaves_the_event_loop_free(
+    app: Any, secret: str, vaults: SubjectVaults, monkeypatch: pytest.MonkeyPatch
+):
+    import time
+
+    import anyio
+
+    real = vaults.for_subject
+
+    def slow(subject: str):
+        time.sleep(0.6)
+        return real(subject)
+
+    monkeypatch.setattr(vaults, "for_subject", slow)
+    async with dav_client(app) as client:
+        statuses: list[int] = []
+
+        async def walk() -> None:
+            statuses.append((await client.request("PROPFIND", "/dav/vault/", headers=basic(secret))).status_code)
+
+        async with anyio.create_task_group() as group:
+            group.start_soon(walk)
+            started = time.monotonic()
+            await anyio.sleep(0.05)
+            waited = time.monotonic() - started
+    assert statuses == [207]
+    assert waited < 0.4

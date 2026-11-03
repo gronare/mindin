@@ -4,12 +4,14 @@ import base64
 import contextlib
 import mimetypes
 import posixpath
+from collections.abc import Callable
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from typing import Protocol
 from urllib.parse import quote, unquote, urlsplit
 from xml.sax.saxutils import escape
 
+import anyio.to_thread
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
@@ -24,6 +26,8 @@ LISTED_NAME = "vault"
 READING_METHODS = frozenset({"OPTIONS", "PROPFIND", "GET", "HEAD"})
 XML = "application/xml; charset=utf-8"
 MAX_BODY_BYTES = 32 * 1024 * 1024
+BODY_METHODS = frozenset({"PUT", "MKCOL"})
+Handler = Callable[[Request, VaultBackend, str, str, bytes], Response]
 
 
 class DavCredentials(Protocol):
@@ -134,11 +138,12 @@ class WebDav:
         await response(scope, receive, send)
 
     async def handle(self, request: Request) -> Response:
-        grant = self._grant(request)
+        grant = await anyio.to_thread.run_sync(self._grant, request)
         if grant is None:
             return Response("unauthorized", 401, headers={"WWW-Authenticate": 'Basic realm="vault"'})
         subject, writable = grant
-        if not writable and request.method.upper() not in READING_METHODS:
+        method = request.method.upper()
+        if not writable and method not in READING_METHODS:
             return Response("this key may only read the vault", 403)
         target = self._target(request.scope)
         if target is None:
@@ -146,21 +151,27 @@ class WebDav:
         name, key = target
         if name is None:
             return self._root(request)
-        handler = getattr(self, "do_" + request.method.lower(), None)
+        handler = getattr(self, "do_" + method.lower(), None)
         if handler is None:
             return Response("method not allowed", 405, headers={"Allow": ALLOW})
-        backend = self.vaults.for_subject(subject).backend
+        try:
+            body = await _bounded_body(request, self.max_body) if method in BODY_METHODS else b""
+        except BodyTooLarge:
+            return Response(f"body larger than {self.max_body} bytes", 413)
         base = self.mount + "/" + quote(name, safe="") + "/"
+        return await anyio.to_thread.run_sync(self._serve, handler, request, subject, key, base, body)
+
+    def _serve(self, handler: Handler, request: Request, subject: str, key: str, base: str, body: bytes) -> Response:
+        backend = self.vaults.for_subject(subject).backend
         actor = getattr(self.tokens, "actor", None)
         try:
             with acting_as(actor(self._secret(request)) if actor else None):
-                return await handler(request, backend, key, base)
+                response = handler(request, backend, key, base, body)
         except NotFound:
             return Response("not found", 404)
-        except BodyTooLarge:
-            return Response(f"body larger than {self.max_body} bytes", 413)
         except SharedRefusal as exc:
             return Response(str(exc), 403)
+        return response
 
     def _secret(self, request: Request) -> str:
         scheme, _, value = request.headers.get("authorization", "").partition(" ")
@@ -259,10 +270,10 @@ class WebDav:
 
     # --- methods ---------------------------------------------------------------------------------------
 
-    async def do_options(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
+    def do_options(self, request: Request, backend: VaultBackend, key: str, base: str, body: bytes) -> Response:
         return Response(status_code=200, headers={"DAV": "1", "Allow": ALLOW, "MS-Author-Via": "DAV"})
 
-    async def do_propfind(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
+    def do_propfind(self, request: Request, backend: VaultBackend, key: str, base: str, body: bytes) -> Response:
         found = self._lookup(backend, key)
         if found is None:
             return Response("not found", 404)
@@ -277,13 +288,13 @@ class WebDav:
             )
         return _multistatus(parts)
 
-    async def do_head(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
-        response = await self.do_get(request, backend, key, base)
+    def do_head(self, request: Request, backend: VaultBackend, key: str, base: str, body: bytes) -> Response:
+        response = self.do_get(request, backend, key, base, body)
         return Response(
             status_code=response.status_code, headers=dict(response.headers), media_type=response.media_type
         )
 
-    async def do_get(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
+    def do_get(self, request: Request, backend: VaultBackend, key: str, base: str, body: bytes) -> Response:
         found = self._lookup(backend, key)
         if found is None:
             return Response("not found", 404)
@@ -294,24 +305,23 @@ class WebDav:
         headers = {"ETag": f'"{version}"', "Last-Modified": _http_date(entry.mtime if entry else _now())}
         return Response(data, status_code=200, headers=headers, media_type=_content_type(key))
 
-    async def do_put(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
+    def do_put(self, request: Request, backend: VaultBackend, key: str, base: str, body: bytes) -> Response:
         if key == "" or key.endswith("/"):
             return Response("cannot PUT a collection", 405, headers={"Allow": ALLOW})
-        data = await _bounded_body(request, self.max_body)
         found = self._lookup(backend, key)
         existed = found is not None
         content_type = request.headers.get("content-type") or None
         try:
             expected = expected_version(request, found[1] if found else None)
             if expected is None:
-                version = backend.put_bytes(key, data, content_type)
+                version = backend.put_bytes(key, body, content_type)
             else:
-                version = backend.put_checked(key, data, expected, content_type or _content_type(key))
+                version = backend.put_checked(key, body, expected, content_type or _content_type(key))
         except (PreconditionFailed, VersionConflict):
             return Response("precondition failed", 412)
         return Response(status_code=204 if existed else 201, headers={"ETag": f'"{version}"'})
 
-    async def do_delete(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
+    def do_delete(self, request: Request, backend: VaultBackend, key: str, base: str, body: bytes) -> Response:
         if key == "":
             return Response("the vault itself cannot be deleted", 403)
         found = self._lookup(backend, key)
@@ -335,8 +345,8 @@ class WebDav:
             with contextlib.suppress(NotFound):
                 backend.delete(folder)
 
-    async def do_mkcol(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
-        if await _bounded_body(request, self.max_body):
+    def do_mkcol(self, request: Request, backend: VaultBackend, key: str, base: str, body: bytes) -> Response:
+        if body:
             return Response("unsupported media type", 415)
         if key == "":
             return Response(status_code=201)
@@ -354,13 +364,13 @@ class WebDav:
             return None
         return target[1]
 
-    async def do_move(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
-        return await self._transfer(request, backend, key, copy=False)
+    def do_move(self, request: Request, backend: VaultBackend, key: str, base: str, body: bytes) -> Response:
+        return self._transfer(request, backend, key, copy=False)
 
-    async def do_copy(self, request: Request, backend: VaultBackend, key: str, base: str) -> Response:
-        return await self._transfer(request, backend, key, copy=True)
+    def do_copy(self, request: Request, backend: VaultBackend, key: str, base: str, body: bytes) -> Response:
+        return self._transfer(request, backend, key, copy=True)
 
-    async def _transfer(self, request: Request, backend: VaultBackend, key: str, copy: bool) -> Response:
+    def _transfer(self, request: Request, backend: VaultBackend, key: str, copy: bool) -> Response:
         if key == "":
             return Response("the vault itself cannot be moved or copied", 403)
         dest = self._destination(request)

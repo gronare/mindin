@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import copy
 import json
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -508,8 +510,23 @@ def run_stdio(vault: Vault) -> None:
     build_server(vault).run("stdio")
 
 
+class WithoutQuery(logging.Filter):
+    """Drops the query string from uvicorn's access lines, where sign-in links carry their tokens."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
+            record.args = (*args[:2], args[2].partition("?")[0], *args[3:])
+        return True
+
+
 def uvicorn_options(auth: AuthConfig) -> dict[str, Any]:
-    options: dict[str, Any] = {"log_level": "info", "proxy_headers": True}
+    from uvicorn.config import LOGGING_CONFIG
+
+    log_config = copy.deepcopy(LOGGING_CONFIG)
+    log_config["filters"] = {"without_query": {"()": WithoutQuery}}
+    log_config["handlers"]["access"]["filters"] = ["without_query"]
+    options: dict[str, Any] = {"log_level": "info", "log_config": log_config, "proxy_headers": True}
     if auth.forwarded_allow_ips:
         options["forwarded_allow_ips"] = list(auth.forwarded_allow_ips)
     return options

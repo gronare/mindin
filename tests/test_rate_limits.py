@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import logging.config
 from pathlib import Path
 
 import pytest
@@ -152,6 +154,22 @@ async def test_a_hop_left_out_of_the_list_becomes_the_client():
 @pytest.mark.anyio
 async def test_an_untrusted_peer_cannot_claim_an_address():
     assert await seen_client((EDGE,), ORCHARD, "192.0.2.1") == ORCHARD
+
+
+def test_access_lines_carry_the_path_but_never_the_query(capsys: pytest.CaptureFixture[str]):
+    logging.config.dictConfig(uvicorn_options(AuthConfig())["log_config"])
+    access = logging.getLogger("uvicorn.access")
+    try:
+        access.info(
+            '%s - "%s %s HTTP/%s" %d', f"{ORCHARD}:40000", "GET", "/signin/email?token=orchard-ticket", "1.1", 303
+        )
+        line = capsys.readouterr().out
+    finally:
+        for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+            logging.getLogger(name).handlers.clear()
+            logging.getLogger(name).propagate = True
+    assert "/signin/email" in line and ORCHARD in line and "303" in line
+    assert "orchard-ticket" not in line and "?" not in line
 
 
 def test_a_lone_star_trusts_every_peer(monkeypatch: pytest.MonkeyPatch):

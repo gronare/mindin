@@ -24,9 +24,9 @@ notes-vault-mcp log path --repo myapp --repo docs            # {"myapp": "Log/my
 notes-vault-mcp snapshot --json [--since ETAG]               # the board's notes and logs in one answer
 notes-vault-mcp read Projects/myapp-idea.md [--body]          # the note as stored in a pipe, or only its text after the frontmatter
 notes-vault-mcp status
-# {"configured": true, "version": "0.12.0", "backend": "s3", "writable": null}
+# {"configured": true, "version": "0.13.0", "backend": "s3", "writable": null}
 notes-vault-mcp status --probe
-# {"configured": true, "version": "0.12.0", "backend": "s3", "writable": true}
+# {"configured": true, "version": "0.13.0", "backend": "s3", "writable": true}
 ```
 
 ## task open

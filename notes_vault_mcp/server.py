@@ -23,7 +23,7 @@ from notes_vault_mcp.search import QueryError, render, search
 from notes_vault_mcp.snapshot import build_snapshot
 from notes_vault_mcp.vault import SingleVault, SubjectVaults, Vault, VaultResolver, open_vault
 
-VERSION = "0.12.0"
+VERSION = "0.13.0"
 
 EXPECTED_FAILURES = (VaultError, FrontmatterError, notes.ValidationError, ScopeError, QueryError, NoHome)
 

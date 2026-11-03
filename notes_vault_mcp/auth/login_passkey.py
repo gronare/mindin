@@ -24,7 +24,7 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
-from notes_vault_mcp.auth.hosted_web import NO_STORE, Window, client_address, esc
+from notes_vault_mcp.auth.hosted_web import NO_STORE, client_address, esc
 from notes_vault_mcp.auth.identities import Proof
 from notes_vault_mcp.auth.login import Login
 
@@ -120,7 +120,7 @@ class PasskeySignIn:
 
     def __init__(self, login: Login) -> None:
         self.login = login
-        self.window = Window(30, 60)
+        self.window = login.limits.window("passkey", 30, 60)
 
     @property
     def rp_id(self) -> str:

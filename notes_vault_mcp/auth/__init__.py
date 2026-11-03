@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import ipaddress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -80,6 +81,7 @@ class AuthConfig:
     stateless_http: bool = False
     index_snapshots: bool = False
     snapshot_minutes: float = 10.0
+    forwarded_allow_ips: tuple[str, ...] = ()
     smtp: SmtpConfig | None = None
     github: GithubConfig | None = None
     oidc: OidcConfig | None = None
@@ -170,6 +172,18 @@ def _choice(name: str, choices: tuple[str, ...], default: str) -> str:
     return value
 
 
+def proxy_addresses(name: str) -> tuple[str, ...]:
+    entries = _words(name, ())
+    if entries == ("*",):
+        return entries
+    for entry in entries:
+        try:
+            ipaddress.ip_network(entry, strict=False)
+        except ValueError as exc:
+            raise ConfigError(f"notes-vault-mcp: {name} holds {entry!r}, which is no IP address or CIDR range") from exc
+    return entries
+
+
 def auth_config() -> AuthConfig:
     public_url = _text("VAULT_PUBLIC_URL").rstrip("/")
     if not public_url.startswith("https://") and not public_url.startswith("http://localhost"):
@@ -185,6 +199,7 @@ def auth_config() -> AuthConfig:
         stateless_http=_choice("VAULT_HTTP_STATELESS", ("on", "off"), "off") == "on",
         index_snapshots=_choice("VAULT_INDEX_SNAPSHOTS", ("on", "off"), "off") == "on",
         snapshot_minutes=_minutes("VAULT_INDEX_SNAPSHOT_MINUTES", 10.0),
+        forwarded_allow_ips=proxy_addresses("VAULT_FORWARDED_ALLOW_IPS"),
         smtp=smtp_config(),
         github=github_config(),
         oidc=oidc_config(),

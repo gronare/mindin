@@ -598,7 +598,7 @@ def build_hosted_app(
         vaults.use_snapshots(IndexSnapshots(sealed), auth.snapshot_minutes * 60.0)
     vaults.use_sweep(sealed.live_identifiers)
     provider = HostedProvider(auth, store, ClientMetadataFetcher(metadata_transport, resolver), clock, extensions)
-    limits = Limits()
+    limits = Limits(store)
     browser = Browser(auth, store, limits, clock)
     login = Login(auth, store, browser, limits)
     forwarded = sign_in_methods(auth, login, oidc_transport, github_transport, smtp_factory)

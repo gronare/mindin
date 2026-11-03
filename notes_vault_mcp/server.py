@@ -508,12 +508,19 @@ def run_stdio(vault: Vault) -> None:
     build_server(vault).run("stdio")
 
 
+def uvicorn_options(auth: AuthConfig) -> dict[str, Any]:
+    options: dict[str, Any] = {"log_level": "info", "proxy_headers": True}
+    if auth.forwarded_allow_ips:
+        options["forwarded_allow_ips"] = list(auth.forwarded_allow_ips)
+    return options
+
+
 def run_http(vaults: SubjectVaults, host: str, port: int, auth: AuthConfig) -> None:
     import uvicorn
 
     from notes_vault_mcp.auth.hosted import build_hosted_app
 
-    uvicorn.run(build_hosted_app(vaults, auth, host), host=host, port=port, log_level="info")
+    uvicorn.run(build_hosted_app(vaults, auth, host), host=host, port=port, **uvicorn_options(auth))
 
 
 def create_server() -> MCPServer:

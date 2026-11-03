@@ -11,6 +11,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 - `notes-vault-mcp embed-worker --listen host:port` runs the model for search by meaning in a process of its own that the server reaches through `VAULT_EMBED_URL`, with `VAULT_EMBED_TOKEN` as its secret, so the server restarts fast and stays small.
 - `GET /ready` answers `200` when the server is ready for requests and `503` with the names of the failing checks, for a load balancer or a readiness probe.
 - `VAULT_INDEX_SNAPSHOTS=on` keeps a sealed copy of each vault's search index in storage, so a restarted or moved server restores a vault's index instead of indexing and embedding every note again. A busy vault's copy is written at most once per `VAULT_INDEX_SNAPSHOT_MINUTES` (default 10) and only when the index changed, plus once when it goes idle and once when the server stops.
+- `VAULT_FORWARDED_ALLOW_IPS` names the reverse proxies, as addresses or CIDR ranges, whose `X-Forwarded-For` the server trusts, so rate limits count each real client; the limits are kept in the account store and survive a restart.
 
 ### Fixed
 - Two writes to one note at the same moment both land: `append_file`, `set_status`, `close`, `log_append`, `write_file` and the monthly log pages write over the version they read and read again when the note changed meanwhile, two `backlog_add` calls with one title get two notes, and a new vault's first files never overwrite a file already there.

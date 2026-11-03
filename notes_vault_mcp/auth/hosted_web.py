@@ -94,14 +94,86 @@ def client_address(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+RATE_TABLE = """
+CREATE TABLE IF NOT EXISTS rate_limit_hits (
+    scope TEXT NOT NULL,
+    address TEXT NOT NULL,
+    slot INTEGER NOT NULL,
+    hits INTEGER NOT NULL,
+    PRIMARY KEY (scope, address, slot)
+)
+"""
+BLOCKED_KEYS = 10_000
+
+
+class RateCounter:
+    """Counts hits per scope and address in the account store, one row per fixed slot of a window's length."""
+
+    def __init__(self, store: HostedStore) -> None:
+        self.store = store
+        with store.connect() as connection:
+            store.database.create(connection, RATE_TABLE)
+
+    def hit(self, scope: str, key: str, limit: int, seconds: float, moment: float) -> bool:
+        address = digest(key)
+        slot = int(moment // seconds)
+        weight = 1.0 - (moment - slot * seconds) / seconds
+        with self.store.connect() as connection:
+            rows = connection.execute(
+                "SELECT slot, hits FROM rate_limit_hits WHERE scope = ? AND address = ? AND slot IN (?, ?)",
+                (scope, address, slot - 1, slot),
+            ).fetchall()
+            counted = {row["slot"]: row["hits"] for row in rows}
+            if counted.get(slot - 1, 0) * weight + counted.get(slot, 0) >= limit:
+                return False
+            connection.execute(
+                "INSERT INTO rate_limit_hits(scope, address, slot, hits) VALUES(?, ?, ?, 1)"
+                " ON CONFLICT (scope, address, slot) DO UPDATE SET hits = rate_limit_hits.hits + 1",
+                (scope, address, slot),
+            )
+        return True
+
+    def forget_before(self, scope: str, slot: int) -> None:
+        with self.store.connect() as connection:
+            connection.execute("DELETE FROM rate_limit_hits WHERE scope = ? AND slot < ?", (scope, slot))
+
+
 class Window:
-    def __init__(self, limit: int, seconds: float, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        limit: int,
+        seconds: float,
+        clock: Callable[[], float] = time.monotonic,
+        counter: RateCounter | None = None,
+        scope: str = "",
+    ) -> None:
         self.limit = limit
         self.seconds = seconds
         self.clock = clock
+        self.counter = counter
+        self.scope = scope
         self._hits: dict[str, list[float]] = {}
+        self._blocked: dict[str, float] = {}
+        self._swept = 0
 
     def allow(self, key: str) -> bool:
+        if self.counter is None:
+            return self._allow_here(key)
+        moment = self.clock()
+        if self._blocked.get(key, 0.0) > moment:
+            return False
+        slot = int(moment // self.seconds)
+        if slot != self._swept:
+            self._swept = slot
+            self._blocked = {name: until for name, until in self._blocked.items() if until > moment}
+            self.counter.forget_before(self.scope, slot - 1)
+        if self.counter.hit(self.scope, key, self.limit, self.seconds, moment):
+            return True
+        if len(self._blocked) < BLOCKED_KEYS:
+            self._blocked[key] = (slot + 1) * self.seconds
+        return False
+
+    def _allow_here(self, key: str) -> bool:
         moment = self.clock()
         if len(self._hits) > 10_000:
             self._hits = {name: hits for name, hits in self._hits.items() if moment - hits[-1] < self.seconds}
@@ -115,12 +187,17 @@ class Window:
 
 
 class Limits:
-    def __init__(self) -> None:
-        self.sign_in = Window(20, 60)
-        self.callback = Window(20, 60)
-        self.device_start = Window(10, 60)
-        self.device_lookup = Window(5, 60)
-        self.token_misses = Window(30, 60)
+    def __init__(self, store: HostedStore | None = None, clock: Callable[[], float] = time.time) -> None:
+        self.counter = RateCounter(store) if store is not None else None
+        self.clock = clock
+        self.sign_in = self.window("sign-in", 20, 60)
+        self.callback = self.window("callback", 20, 60)
+        self.device_start = self.window("device-start", 10, 60)
+        self.device_lookup = self.window("device-lookup", 5, 60)
+        self.token_misses = self.window("token-misses", 30, 60)
+
+    def window(self, scope: str, limit: int, seconds: float) -> Window:
+        return Window(limit, seconds, self.clock, self.counter, scope)
 
 
 class Browser:

@@ -5,7 +5,6 @@ import re
 import secrets
 import smtplib
 import ssl
-import time
 from collections.abc import Callable
 from email.message import EmailMessage
 from typing import Any
@@ -17,7 +16,7 @@ from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
 from notes_vault_mcp.auth import SmtpConfig
-from notes_vault_mcp.auth.hosted_web import Window, client_address, esc, page
+from notes_vault_mcp.auth.hosted_web import client_address, esc, page
 from notes_vault_mcp.auth.identities import Proof, addresses
 from notes_vault_mcp.auth.login import Login, hidden, next_field
 
@@ -56,11 +55,11 @@ class Mailer:
 class EmailSignIn:
     method = "email"
 
-    def __init__(self, login: Login, mailer: Mailer, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, login: Login, mailer: Mailer) -> None:
         self.login = login
         self.mailer = mailer
-        self.per_address = Window(3, LINK_TTL, clock)
-        self.per_client = Window(10, LINK_TTL, clock)
+        self.per_address = login.limits.window("email-address", 3, LINK_TTL)
+        self.per_client = login.limits.window("email-client", 10, LINK_TTL)
 
     def button(self, next_url: str) -> str:
         return (

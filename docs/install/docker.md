@@ -83,4 +83,4 @@ This overwrites `compose.yml`, so keep your own changes in a `compose.override.y
 
 ## Another reverse proxy
 
-Caddy is there so HTTPS works without more setup. To use a proxy you already run, see [Behind a reverse proxy](../how-to/reverse-proxy.md).
+Caddy is there so HTTPS works without more setup. To use a proxy you already run, see [Behind a reverse proxy](../how-to/reverse-proxy.md), and set `VAULT_FORWARDED_ALLOW_IPS` in `.env` to that proxy's address: `compose.yml` trusts every peer, which is only safe while nothing but the proxy can reach the server's port.

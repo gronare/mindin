@@ -6,6 +6,7 @@ services:
     env_file: .env
     environment:
       VAULT_PUBLIC_URL: https://${VAULT_HOST:?set VAULT_HOST in .env}
+      VAULT_FORWARDED_ALLOW_IPS: ${VAULT_FORWARDED_ALLOW_IPS:-*}
     volumes:
       - vault-data:/data
     expose:

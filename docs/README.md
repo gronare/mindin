@@ -44,6 +44,7 @@ Keeping a vault tidy:
 - [Hooks](reference/hooks.md): `session-start` and `stop`.
 - [The schema file](reference/schema.md): `.vault/schema.yml`.
 - [Device flow](reference/device-flow.md): signing a tool in without a browser.
+- [Extensions](reference/extensions.md): adding tables, pages, routes and commands to a server from a package of your own.
 
 ## Explanation
 

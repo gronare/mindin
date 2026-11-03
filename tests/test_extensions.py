@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import argparse
+import inspect
 import sqlite3
+import typing
 from importlib.metadata import EntryPoint
 from pathlib import Path
 
@@ -11,9 +12,9 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 from starlette.routing import Route
 
-from notes_vault_mcp import cli, extensions
+from notes_vault_mcp import cli, extension_api, extensions
 from notes_vault_mcp.auth.hosted_store import Account, HostedStore
-from notes_vault_mcp.extensions import Access, Extension, Server
+from notes_vault_mcp.extensions import Access, Extension, Server, Subcommands
 from notes_vault_mcp.vault import SubjectVaults
 
 
@@ -25,7 +26,7 @@ class Ledger(Extension):
     def migrate(self, connection: sqlite3.Connection) -> None:
         connection.execute("CREATE TABLE IF NOT EXISTS ledger_notes (account_id TEXT PRIMARY KEY, note TEXT)")
 
-    def commands(self, subparsers: argparse._SubParsersAction) -> None:
+    def commands(self, subparsers: Subcommands) -> None:
         tally = subparsers.add_parser("tally", help="count the accounts")
         tally.set_defaults(func=lambda args: self.ran.append("tally") or 0)
 
@@ -135,3 +136,69 @@ def test_an_extension_adds_a_cli_command(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(cli, "installed", lambda: (ledger,))
     assert cli.main(["tally"]) == 0
     assert ledger.ran == ["tally"]
+
+
+EXTENSION_NEEDS = {
+    "Access",
+    "Account",
+    "AuthConfig",
+    "Browser",
+    "Change",
+    "ConfigError",
+    "EMAIL_ADDRESS",
+    "Extension",
+    "HostedStore",
+    "INVITATION_TTL",
+    "Identities",
+    "Listener",
+    "MACHINE_KEY_PURPOSE",
+    "MUST_NOT_EXIST",
+    "Mailer",
+    "STORE_VERSION",
+    "Server",
+    "SmtpFactory",
+    "Vault",
+    "VaultFacts",
+    "VersionConflict",
+    "account_of",
+    "auth_dir",
+    "digest",
+    "env",
+    "esc",
+    "has_table",
+    "honours_conditions",
+    "limited",
+    "local_root",
+    "make_subject_backend",
+    "page",
+    "scope_label",
+    "stamp",
+}
+
+
+def test_every_name_of_the_extension_api_imports():
+    missing = [name for name in extension_api.__all__ if not hasattr(extension_api, name)]
+    assert missing == []
+
+
+def test_the_extension_api_covers_what_an_extension_builds_on():
+    assert EXTENSION_NEEDS - set(extension_api.__all__) == set()
+
+
+def test_the_server_an_extension_attaches_to_names_the_type_of_every_field():
+    hints = typing.get_type_hints(Server, {**vars(extensions), **vars(extension_api), "BaseRoute": Route})
+    assert [field for field, hint in hints.items() if hint is typing.Any] == []
+    assert hints["sealed"] == extension_api.SealedVaults | None
+
+
+def test_the_commands_hook_takes_a_public_type():
+    annotation = inspect.signature(Extension.commands).parameters["subparsers"].annotation
+    assert annotation == "Subcommands"
+
+
+def test_storage_that_checks_versions_itself_honours_conditions():
+    class Checking:
+        conditional_puts = False
+
+    assert extension_api.honours_conditions(Checking()) is False
+    assert extension_api.honours_conditions(object()) is True

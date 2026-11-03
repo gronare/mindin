@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from functools import cache
 from importlib.metadata import entry_points
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from notes_vault_mcp.auth import READ_SCOPE
 
@@ -16,9 +16,14 @@ if TYPE_CHECKING:
 
     from notes_vault_mcp.auth import AuthConfig
     from notes_vault_mcp.auth.database import Connection, Database
+    from notes_vault_mcp.auth.hosted_deletion import SelfDeletion
+    from notes_vault_mcp.auth.hosted_keys import SealedVaults
     from notes_vault_mcp.auth.hosted_store import Account, HostedStore
     from notes_vault_mcp.auth.hosted_vaults import Vault
+    from notes_vault_mcp.auth.hosted_web import Browser
+    from notes_vault_mcp.auth.login_email import SmtpFactory
     from notes_vault_mcp.changes import ChangeBus
+    from notes_vault_mcp.vault import SubjectVaults
 
 GROUP = "notes_vault_mcp.extensions"
 Access = Literal["full", "read", "none"]
@@ -28,6 +33,12 @@ VaultSection = Callable[["Account", "Vault", str], str]
 HealthCheck = Callable[[], bool]
 
 
+class Subcommands(Protocol):
+    """The CLI's subcommand group, as argparse's add_subparsers returns it."""
+
+    def add_parser(self, name: str, **kwargs: Any) -> argparse.ArgumentParser: ...
+
+
 @dataclass
 class Server:
     """The hosted server an extension attaches to while it is built."""
@@ -35,11 +46,11 @@ class Server:
     config: AuthConfig
     store: HostedStore
     clock: Callable[[], float] = time.time
-    browser: Any = None
-    vaults: Any = None
-    sealed: Any = None
-    deletion: Any = None
-    smtp_factory: Any = None
+    browser: Browser | None = None
+    vaults: SubjectVaults | None = None
+    sealed: SealedVaults | None = None
+    deletion: SelfDeletion | None = None
+    smtp_factory: SmtpFactory | None = None
     routes: list[BaseRoute] = field(default_factory=list)
     account_sections: list[Section] = field(default_factory=list)
     vault_sections: list[VaultSection] = field(default_factory=list)
@@ -56,7 +67,7 @@ class Extension:
         """The database the account store keeps its tables in, instead of hosted.sqlite in this directory."""
         return None
 
-    def commands(self, subparsers: argparse._SubParsersAction) -> None:
+    def commands(self, subparsers: Subcommands) -> None:
         """Add subcommands to the notes-vault-mcp CLI."""
 
     def attach(self, server: Server) -> None:

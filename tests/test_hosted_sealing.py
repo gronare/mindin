@@ -244,7 +244,7 @@ async def test_support_opens_a_vault_only_under_a_live_grant_and_every_access_is
 ):
     http = await site.member("ann@example.com", sub="sub-ann")
     key = site.key_for("ann@example.com")
-    support = ["--operator", "carl", "--reason", "ticket 4711"]
+    support = ["--operator", "quill", "--reason", "ticket 4711"]
     async with http:
         written = await call_tool(http, key, "write_file", {"path": "Areas/secret.md", "content": NOTE_BODY})
         assert not written.get("isError")
@@ -261,7 +261,7 @@ async def test_support_opens_a_vault_only_under_a_live_grant_and_every_access_is
         assert main(["support", "read", "ann@example.com", "Areas/secret.md", *support]) == 1
     assert "Personal: open to support until" in page
     assert page.count("ticket 4711") == 2
-    assert "read Areas/secret.md" in page and "list files" in page and "carl" in page
+    assert "read Areas/secret.md" in page and "list files" in page and "quill" in page
     account = site.store.account("ann@example.com")
     assert len(SupportAccess(site.store).log(account.id)) == 2
 
@@ -274,11 +274,11 @@ async def test_a_grant_expires_and_a_reason_is_required(site: Hosted):
     access = SupportAccess(site.store, clock=lambda: site.clock.now)
     access.grant(vault, 3600)
     with pytest.raises(PermissionError):
-        access.admit(vault, "carl", "  ", "list files")
-    access.admit(vault, "carl", "ticket", "list files")
+        access.admit(vault, "quill", "  ", "list files")
+    access.admit(vault, "quill", "ticket", "list files")
     site.clock.advance(3601)
     with pytest.raises(PermissionError):
-        access.admit(vault, "carl", "ticket", "list files")
+        access.admit(vault, "quill", "ticket", "list files")
     assert len(access.log(account.id)) == 1
 
 
@@ -360,7 +360,7 @@ def grant_first_vault(store: HostedStore, account_id: str) -> None:
     SupportAccess(store).grant(store.first_vault(account_id), 3600)
 
 
-IMPORT = ["accounts", "import", "ann@example.com", "--operator", "carl", "--reason", "moving my vault in"]
+IMPORT = ["accounts", "import", "ann@example.com", "--operator", "quill", "--reason", "moving my vault in"]
 
 
 def test_importing_a_folder_seals_every_file_and_the_export_matches_byte_for_byte(
@@ -393,8 +393,8 @@ def test_importing_from_a_bucket_preserves_paths_and_bytes(
         client = boto3.client("s3", region_name="us-east-1")
         client.create_bucket(Bucket="old-vault")
         for name, data in source.items():
-            client.put_object(Bucket="old-vault", Key=f"carl/{name}", Body=data)
-        bucket = ["--from-s3-bucket", "old-vault", "--from-s3-prefix", "carl", "--from-s3-endpoint", ENDPOINT]
+            client.put_object(Bucket="old-vault", Key=f"quill/{name}", Body=data)
+        bucket = ["--from-s3-bucket", "old-vault", "--from-s3-prefix", "quill", "--from-s3-endpoint", ENDPOINT]
         assert main([*IMPORT, *bucket]) == 0
     assert files_of(sealed_target(store, account_id)) == source
 

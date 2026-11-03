@@ -173,9 +173,9 @@ def test_the_allowed_hosts_are_read_as_a_space_or_comma_separated_list(mailing: 
 
 def test_a_path_in_the_public_url_is_the_prefix_of_every_route():
     assert AuthConfig(public_url="https://vault.example.com").path_prefix == ""
-    assert AuthConfig(public_url="https://host.example.com/home-vault/").path_prefix == "/home-vault"
-    config = AuthConfig(public_url="https://host.example.com/home-vault")
-    assert config.resource_url == "https://host.example.com/home-vault/mcp"
+    assert AuthConfig(public_url="https://host.example.com/vault/").path_prefix == "/vault"
+    config = AuthConfig(public_url="https://host.example.com/vault")
+    assert config.resource_url == "https://host.example.com/vault/mcp"
     assert config.public_origin == "https://host.example.com"
     assert config.public_host == "host.example.com"
 

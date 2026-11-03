@@ -21,11 +21,11 @@ NOTES = {
     "Areas/anslutning.md": (
         "Anslutning för claude.ai",
         "## OAuth-flödet\n\nKlienten skickas till leverantören, får en kod tillbaka och byter den mot en åtkomsttoken. "
-        "Token förnyas med en refresh-token.\n\n## Drift\n\nServern körs i klustret bakom Traefik.\n",
+        "Token förnyas med en refresh-token.\n\n## Drift\n\nServern körs bakom en omvänd proxy.\n",
     ),
     "Areas/kopior.md": (
         "Säkerhetskopior",
-        "## Schema\n\nLonghorn-volymerna kopieras varje natt till MinIO och behålls i trettio dagar.\n",
+        "## Schema\n\nOrchard-volymerna kopieras varje natt till en extern disk och behålls i trettio dagar.\n",
     ),
     "Areas/utskick.md": (
         "Outgoing mail",
@@ -81,5 +81,5 @@ def test_a_swedish_query_finds_an_english_note(vault: Vault):
 
 
 def test_words_in_the_note_still_rank_it_first(vault: Vault):
-    result = search(vault.index, vault.schema, "Longhorn")
+    result = search(vault.index, vault.schema, "Orchard")
     assert result.rows[0].note.key == "Areas/kopior.md" and not result.rows[0].by_meaning

@@ -130,8 +130,8 @@ class SupportDesk:
         )
         granted_list = f'<ul class="plain stack">{live}</ul>' if live else ""
         return (
-            '<div class="box"><h2>Support access</h2><p class="small muted">Nobody at the service can open a vault '
-            "unless you allow it here, for one vault and a set time. Every look is logged.</p>"
+            '<div class="box"><h2>Support access</h2><p class="small muted">Support opens a vault only through a grant '
+            "you give here, for one vault and a set time, and every look is logged.</p>"
             f"{granted_list}{form}{log}</div>"
         )
 

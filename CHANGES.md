@@ -21,6 +21,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 - The access log leaves out query strings, so sign-in and invitation links never land in it.
 - An unknown vault address answers like a known one the caller cannot reach.
 - WebDAV opens vaults and talks to storage off the event loop, so a slow vault never stalls other requests or `/up`.
+- An edit from Obsidian over WebDAV shows in search at once instead of after up to 20 seconds.
 
 ## 0.12.0
 

@@ -342,3 +342,26 @@ def test_a_layout_change_heard_on_the_bus_reloads_on_the_next_request_not_on_the
     assert vaults.for_subject(vault_id).schema.log_key("workshop").endswith("workshop-journal.md")
     assert reloads == [threading.current_thread().name]
     vaults.close()
+
+
+def test_marking_a_vault_stale_after_its_own_write_keeps_the_listing_it_already_holds(
+    sealed: SealedVaults, vault_id: str, tmp_path: Path
+):
+    vaults = sealed_vaults(sealed, tmp_path / "cache")
+    backend = vaults.for_subject(vault_id).backend
+    listings: list[str] = []
+    inner_list = backend.inner.list_all
+
+    def counted(prefix: str = ""):
+        listings.append(prefix)
+        return inner_list(prefix)
+
+    backend.inner.list_all = counted
+    backend.forget_listing()
+    backend.list_all()
+    for number in range(3):
+        backend.put_bytes(f"Areas/lathe-{number}.md", LATHE.encode())
+        vaults.wrote(vault_id)
+        backend.list_all()
+    assert len(listings) == 1
+    vaults.close()

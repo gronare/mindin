@@ -423,3 +423,51 @@ async def test_a_slow_vault_open_leaves_the_event_loop_free(
             waited = time.monotonic() - started
     assert statuses == [207]
     assert waited < 0.4
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("method", "path", "headers", "content"),
+    [
+        ("PUT", "/dav/vault/Areas/workshop.md", {}, b"---\ntitle: Workshop\n---\n\nWorkshop note.\n"),
+        ("DELETE", "/dav/vault/Welcome.md", {}, b""),
+        ("MKCOL", "/dav/vault/Frames/", {}, b""),
+        ("MOVE", "/dav/vault/Welcome.md", {"Destination": "/dav/vault/Moved.md"}, b""),
+        ("COPY", "/dav/vault/Welcome.md", {"Destination": "/dav/vault/Copied.md"}, b""),
+    ],
+    ids=["put", "delete", "mkcol", "move", "copy"],
+)
+async def test_a_webdav_write_shows_in_this_servers_index_at_once(
+    app: Any, secret: str, vault_id: str, vaults: SubjectVaults, method: str, path: str, headers: dict, content: bytes
+):
+    vault = vaults.for_subject(vault_id)
+    vault.sync(force=True)
+    before = {note.key for note in vault.index.all_notes()}
+    async with dav_client(app) as client:
+        response = await client.request(method, path, headers={**headers, **basic(secret)}, content=content)
+    assert response.status_code < 300
+    vault.sync()
+    after = {note.key for note in vault.index.all_notes()}
+    expected = {
+        "PUT": before | {"Areas/workshop.md"},
+        "DELETE": before - {"Welcome.md"},
+        "MKCOL": before,
+        "MOVE": (before - {"Welcome.md"}) | {"Moved.md"},
+        "COPY": before | {"Copied.md"},
+    }[method]
+    assert after == expected
+
+
+@pytest.mark.anyio
+async def test_a_webdav_read_or_a_refused_write_leaves_the_index_alone(
+    app: Any, secret: str, vault_id: str, vaults: SubjectVaults
+):
+    vault = vaults.for_subject(vault_id)
+    vault.sync(force=True)
+    async with dav_client(app) as client:
+        await client.request("PROPFIND", "/dav/vault/", headers=basic(secret))
+        refused = await client.put(
+            "/dav/vault/Areas/workshop.md", content=b"x", headers={"If-Match": '"nope"', **basic(secret)}
+        )
+    assert refused.status_code == 412
+    assert vault._stale is False

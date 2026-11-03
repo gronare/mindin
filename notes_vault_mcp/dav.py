@@ -27,6 +27,7 @@ READING_METHODS = frozenset({"OPTIONS", "PROPFIND", "GET", "HEAD"})
 XML = "application/xml; charset=utf-8"
 MAX_BODY_BYTES = 32 * 1024 * 1024
 BODY_METHODS = frozenset({"PUT", "MKCOL"})
+WRITING_METHODS = frozenset({"PUT", "DELETE", "MKCOL", "MOVE", "COPY"})
 Handler = Callable[[Request, VaultBackend, str, str, bytes], Response]
 
 
@@ -171,6 +172,8 @@ class WebDav:
             return Response("not found", 404)
         except SharedRefusal as exc:
             return Response(str(exc), 403)
+        if request.method.upper() in WRITING_METHODS and response.status_code < 300:
+            self.vaults.wrote(subject)
         return response
 
     def _secret(self, request: Request) -> str:

@@ -87,8 +87,9 @@ class Vault:
             self.close()
             self.index.rebuild()
 
-    def mark_stale(self) -> None:
-        forget_listing(self.backend)
+    def mark_stale(self, listing: bool = True) -> None:
+        if listing:
+            forget_listing(self.backend)
         self._stale = True
 
     def mark_schema_changed(self) -> None:
@@ -368,6 +369,12 @@ class SubjectVaults:
             found[0].mark_schema_changed()
         else:
             found[0].mark_stale()
+
+    def wrote(self, subject: str) -> None:
+        with self._lock:
+            opened = self._open.get(subject_key(subject))
+        if opened is not None:
+            opened[0].mark_stale(listing=False)
 
     def _current_subject(self) -> str:
         from mcp.server.auth.middleware.auth_context import get_access_token

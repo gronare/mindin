@@ -22,17 +22,20 @@ from notes_vault_mcp.auth.hosted_vaults import (
     MIGRATIONS,
     OWNER,
     PERSONAL,
-    RESERVED_SLUGS,
     SHARED,
+    SLUG_MAX,
     Vault,
+    Waiting,
     accept_invitations,
     add_first_vault,
+    clash,
     clean_name,
+    free_slug,
+    holders,
     insert_vault,
     new_vault_id,
     reaches,
-    slug_taken,
-    slugify,
+    taken_slugs,
     valid_slug,
     vault_of,
 )
@@ -180,6 +183,18 @@ class MembershipError(ValueError):
     pass
 
 
+def check_slug(slug: str) -> None:
+    if not valid_slug(slug):
+        raise VaultNameError(
+            f"{slug or 'That'} cannot be an address: one word of lowercase letters a-z and digits, starting with a"
+            f" letter, up to {SLUG_MAX}."
+        )
+
+
+def taken_by(slug: str, vault: Vault) -> str:
+    return f"You already reach the vault {vault.name} at the address {slug}. Rename it, or choose another address."
+
+
 @dataclass(frozen=True)
 class Member:
     email: str
@@ -268,7 +283,7 @@ class HostedStore:
                 "INSERT INTO accounts(id, email, status, status_changed_at, created_at) VALUES(?, ?, 'invited', ?, ?)",
                 (account_id, address, moment, moment),
             )
-            add_first_vault(connection, account_id, address, moment)
+            add_first_vault(connection, account_id, moment)
         created = self.account(address)
         assert created is not None
         return created, True
@@ -297,17 +312,14 @@ class HostedStore:
         with self.connect() as connection:
             return vault_of(connection.execute("SELECT * FROM vaults WHERE id = ?", (vault_id,)).fetchone())
 
-    def vault_by_slug(self, slug: str) -> Vault | None:
-        with self.connect() as connection:
-            return vault_of(connection.execute("SELECT * FROM vaults WHERE slug = ?", (slug,)).fetchone())
-
     def own_vault(self, account_id: str, ref: str) -> Vault | None:
-        vault = self.vault_by_slug(ref) or self.vault(ref)
-        return vault if vault is not None and vault.account_id == account_id else None
+        return next((vault for vault in self.vaults(account_id) if ref in (vault.slug, vault.id)), None)
+
+    def vault_at(self, account_id: str, slug: str) -> Vault | None:
+        return next((vault for vault in self.reachable_vaults(account_id) if vault.slug == slug), None)
 
     def reachable_vault(self, account_id: str, ref: str) -> Vault | None:
-        vault = self.vault_by_slug(ref) or self.vault(ref)
-        return vault if vault is not None and self.reaches(vault, account_id) else None
+        return next((vault for vault in self.reachable_vaults(account_id) if ref in (vault.slug, vault.id)), None)
 
     def reaches(self, vault: Vault, account_id: str) -> bool:
         with self.connect() as connection:
@@ -331,7 +343,7 @@ class HostedStore:
     def reachable_vaults(self, account_id: str) -> list[Vault]:
         return self.vaults(account_id) + self.shared_with(account_id)
 
-    def accept_invitations(self, account: Account) -> int:
+    def accept_invitations(self, account: Account) -> list[Waiting]:
         with self.connect() as connection:
             return accept_invitations(connection, account.id, (account.email.lower(),))
 
@@ -427,6 +439,11 @@ class HostedStore:
         with self.connect() as connection:
             if account_id == vault.account_id or not reaches(connection, vault, account_id):
                 raise MembershipError("Only a member of this vault can become its owner.")
+            found = clash(connection, [account_id], vault.slug, vault.id)
+            if found is not None:
+                raise MembershipError(
+                    f"The new owner already reaches another vault at the address {vault.slug}; rename this vault first."
+                )
             moment = now()
             connection.execute(
                 "DELETE FROM vault_members WHERE vault_id = ? AND account_id = ?", (vault.id, account_id)
@@ -453,24 +470,20 @@ class HostedStore:
 
     def create_vault(self, account_id: str, name: str, slug: str | None = None, kind: str = PERSONAL) -> Vault:
         cleaned = clean_name(name)
-        address = slug if slug is not None else slugify(cleaned)
         if not cleaned:
             raise VaultNameError("Give the vault a name.")
-        self.check_slug(address)
+        if slug is not None:
+            check_slug(slug)
         vault_id = new_vault_id()
         with self.connect() as connection:
-            if slug_taken(connection, address):
-                raise VaultNameError(f"The address {address} is taken. Choose another name.")
+            address = slug if slug is not None else free_slug(taken_slugs(connection, [account_id]), cleaned)
+            found = clash(connection, [account_id], address)
+            if found is not None:
+                raise VaultNameError(taken_by(address, found))
             insert_vault(connection, vault_id, account_id, cleaned, address, now(), kind)
         created = self.vault(vault_id)
         assert created is not None
         return created
-
-    def check_slug(self, slug: str) -> None:
-        if slug in RESERVED_SLUGS or not valid_slug(slug):
-            raise VaultNameError(
-                f"{slug or 'That name'} cannot be an address: use letters a-z, digits and dashes, up to 40."
-            )
 
     def rename_vault(self, vault_id: str, name: str | None = None, slug: str | None = None) -> Vault:
         vault = self.vault(vault_id)
@@ -480,10 +493,17 @@ class HostedStore:
         if not cleaned:
             raise VaultNameError("Give the vault a name.")
         address = slug if slug is not None else vault.slug
-        self.check_slug(address)
+        check_slug(address)
         with self.connect() as connection:
-            if address != vault.slug and slug_taken(connection, address):
-                raise VaultNameError(f"The address {address} is taken.")
+            if address != vault.slug:
+                found = clash(connection, [vault.account_id], address, vault.id)
+                if found is not None:
+                    raise VaultNameError(taken_by(address, found))
+                if clash(connection, holders(connection, vault.id), address, vault.id) is not None:
+                    raise VaultNameError(
+                        f"A member of {vault.name} already reaches another vault at the address {address}."
+                        " Choose another address."
+                    )
             connection.execute("UPDATE vaults SET name = ?, slug = ? WHERE id = ?", (cleaned, address, vault_id))
         renamed = self.vault(vault_id)
         assert renamed is not None
@@ -858,7 +878,9 @@ def command_vaults(store: HostedStore, args: argparse.Namespace) -> int:
 
                 backend, _ = sealed_vaults_from_env(store).for_vault(vault.id)
                 provision.initialize(backend, preset=args.preset)
-            print(f"notes-vault-mcp: {account.email} has the {vault.kind} vault {vault.name} at /v/{vault.slug}/mcp")
+            print(
+                f"notes-vault-mcp: {account.email} has the {vault.kind} vault {vault.name} at /mcp?vault={vault.slug}"
+            )
             return 0
         if action == "rename-vault":
             vault = store.own_vault(account.id, args.vault)
@@ -866,7 +888,7 @@ def command_vaults(store: HostedStore, args: argparse.Namespace) -> int:
                 print(f"notes-vault-mcp: {account.email} has no vault {args.vault!r}", file=sys.stderr)
                 return 1
             renamed = store.rename_vault(vault.id, args.name, args.slug)
-            print(f"notes-vault-mcp: {renamed.name} is at /v/{renamed.slug}/mcp")
+            print(f"notes-vault-mcp: {renamed.name} is at /mcp?vault={renamed.slug}")
             return 0
     except VaultNameError as exc:
         print(f"notes-vault-mcp: {exc}", file=sys.stderr)

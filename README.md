@@ -27,7 +27,7 @@ claude mcp add vault -s user -e VAULT_PATH=$HOME/vault -- uvx notes-vault-mcp
 
 ## Use
 
-Add the vault's address, `https://VAULT_HOST/v/<slug>/mcp`, as a custom connector in claude.ai. Claude searches, reads and writes your notes. The same search from a shell on a [signed-in machine](https://github.com/gronare/notes-vault-mcp/blob/main/docs/how-to/sign-in-a-machine.md):
+Add the server's address, `https://VAULT_HOST/mcp`, as a custom connector in claude.ai. Claude searches, reads and writes your notes. The same search from a shell on a [signed-in machine](https://github.com/gronare/notes-vault-mcp/blob/main/docs/how-to/sign-in-a-machine.md):
 
 ```console
 $ notes-vault-mcp search "signing in"

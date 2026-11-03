@@ -1,6 +1,6 @@
 {
  "fresh": {
-  "user_version": 2,
+  "user_version": 3,
   "objects": [
    [
     "index",
@@ -130,12 +130,6 @@
    ],
    [
     "index",
-    "sqlite_autoindex_vaults_2",
-    "vaults",
-    null
-   ],
-   [
-    "index",
     "vault_access_account",
     "vault_access",
     "CREATE INDEX vault_access_account ON vault_access(account_id, at)"
@@ -157,6 +151,12 @@
     "vaults_account",
     "vaults",
     "CREATE INDEX vaults_account ON vaults(account_id)"
+   ],
+   [
+    "index",
+    "vaults_account_slug",
+    "vaults",
+    "CREATE UNIQUE INDEX vaults_account_slug ON vaults(account_id, slug)"
    ],
    [
     "table",
@@ -264,12 +264,12 @@
     "table",
     "vaults",
     "vaults",
-    "CREATE TABLE vaults (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    slug TEXT NOT NULL UNIQUE,\n    created_at INTEGER NOT NULL\n, kind TEXT NOT NULL DEFAULT 'personal' CHECK (kind IN ('personal', 'shared')))"
+    "CREATE TABLE \"vaults\" (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    slug TEXT NOT NULL,\n    created_at INTEGER NOT NULL,\n    kind TEXT NOT NULL DEFAULT 'personal' CHECK (kind IN ('personal', 'shared'))\n)"
    ]
   ]
  },
  "migrated": {
-  "user_version": 2,
+  "user_version": 3,
   "objects": [
    [
     "index",
@@ -399,12 +399,6 @@
    ],
    [
     "index",
-    "sqlite_autoindex_vaults_2",
-    "vaults",
-    null
-   ],
-   [
-    "index",
     "vault_access_account",
     "vault_access",
     "CREATE INDEX vault_access_account ON vault_access(account_id, at)"
@@ -426,6 +420,12 @@
     "vaults_account",
     "vaults",
     "CREATE INDEX vaults_account ON vaults(account_id)"
+   ],
+   [
+    "index",
+    "vaults_account_slug",
+    "vaults",
+    "CREATE UNIQUE INDEX vaults_account_slug ON vaults(account_id, slug)"
    ],
    [
     "table",
@@ -533,7 +533,7 @@
     "table",
     "vaults",
     "vaults",
-    "CREATE TABLE vaults (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    slug TEXT NOT NULL UNIQUE,\n    created_at INTEGER NOT NULL\n, kind TEXT NOT NULL DEFAULT 'personal' CHECK (kind IN ('personal', 'shared')))"
+    "CREATE TABLE \"vaults\" (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    slug TEXT NOT NULL,\n    created_at INTEGER NOT NULL,\n    kind TEXT NOT NULL DEFAULT 'personal' CHECK (kind IN ('personal', 'shared'))\n)"
    ]
   ]
  }

@@ -58,7 +58,7 @@ Escape everything a section prints with `esc`, and wrap a route that takes a for
 
 ## The account store
 
-`Database` is what the account store runs on: `connect()` gives a `Connection` that commits when the block ends cleanly, and SQL uses `?` parameters. Write SQL that both SQLite and the database you supply run: `INSERT … ON CONFLICT … DO …` rather than `INSERT OR …`, and `database.tables(connection)` and `database.columns(connection, table)` rather than SQLite's catalogue. `has_table(connection, name)` checks a table on SQLite alone. `STORE_VERSION` is the number of the store's own migrations, so a tool that copies the store can check it is copying the version this server writes.
+`Database` is what the account store runs on: `connect()` gives a `Connection` that commits when the block ends cleanly, and SQL uses `?` parameters. Write SQL that both SQLite and the database you supply run: `INSERT … ON CONFLICT … DO …` rather than `INSERT OR …`, and `database.tables(connection)` and `database.columns(connection, table)` rather than SQLite's catalogue. `has_table(connection, name)` checks a table on SQLite alone. `STORE_VERSION` is the number of the store's own migrations, so a tool that copies the store can check it is copying the version this server writes. `rewrite_slugs(connection)` gives every vault whose slug breaks the one-word rule the slug the server would make today, for a database that brings its own schema.
 
 ## The change bus
 
@@ -69,7 +69,7 @@ A `ChangeBus` carries `Change(vault_id, kind, origin)` messages. The server publ
 `notes_vault_mcp.extension_api` exports:
 
 - Hooks and the server: `Extension`, `Server`, `Access`, `Section`, `VaultSection`, `HealthCheck`, `Subcommands`.
-- The account store: `Database`, `Connection`, `HostedStore`, `Account`, `Vault`, `Identities`, `STORE_VERSION`, `has_table`, `account_of`, `digest`, `scope_label`, `MACHINE_KEY_PURPOSE`, `INVITATION_TTL`.
+- The account store: `Database`, `Connection`, `HostedStore`, `Account`, `Vault`, `Identities`, `STORE_VERSION`, `rewrite_slugs`, `has_table`, `account_of`, `digest`, `scope_label`, `MACHINE_KEY_PURPOSE`, `INVITATION_TTL`.
 - Pages and mail: `Browser`, `page`, `esc`, `stamp`, `limited`, `Mailer`, `SmtpFactory`, `EMAIL_ADDRESS`.
 - Vaults and storage: `SubjectVaults`, `SealedVaults`, `SelfDeletion`, `VaultFacts`, `VaultBackend`, `make_subject_backend`, `MUST_NOT_EXIST`, `VersionConflict`, `honours_conditions`.
 - Changes: `ChangeBus`, `Change`, `Kind`, `Listener`.

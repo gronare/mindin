@@ -311,8 +311,9 @@ class Browser:
             if WRITE_SCOPE in pending["scopes"]
             else ""
         )
-        bound = self.store.vault(pending["vault_id"]) if pending.get("vault_id") else None
-        if bound is not None and not self.store.reaches(bound, account.id):
+        requested = pending.get("requested_vault")
+        bound = None if requested is None else self.store.vault_at(account.id, requested)
+        if requested is not None and bound is None:
             return page(
                 "Not your vault", "The client asks for a vault this account does not own or belong to.", status_code=403
             )
@@ -359,8 +360,9 @@ class Browser:
         if session is None or not session[0].active or not self.csrf_ok(form.get("csrf"), session[1]):
             return page("Not signed in", "Open the link from the client again.", status_code=403)
         account, _ = session
-        vault = self.store.reachable_vault(account.id, str(form.get("vault") or ""))
-        if form.get("decision") == "approve" and (vault is None or pending.get("vault_id") not in (None, vault.id)):
+        vault = self.store.vault_at(account.id, str(form.get("vault") or ""))
+        requested = pending.get("requested_vault")
+        if form.get("decision") == "approve" and (vault is None or requested not in (None, vault.slug)):
             return self.render_consent(request_id, pending, account, session[1], "Choose one of your vaults.")
         self.store.drop_request(request_id)
         if form.get("decision") != "approve" or vault is None:

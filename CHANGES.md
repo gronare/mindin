@@ -13,6 +13,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 - `VAULT_INDEX_SNAPSHOTS=on` keeps a sealed copy of each vault's search index in storage, so a restarted or moved server restores a vault's index instead of indexing and embedding every note again. A busy vault's copy is written at most once per `VAULT_INDEX_SNAPSHOT_MINUTES` (default 10) and only when the index changed, plus once when it goes idle and once when the server stops.
 - `VAULT_FORWARDED_ALLOW_IPS` names the reverse proxies, as addresses or CIDR ranges, whose `X-Forwarded-For` the server trusts, so rate limits count each real client; the limits are kept in the account store and survive a restart.
 - Extensions import what they build on from `notes_vault_mcp.extension_api`; [Extensions](docs/reference/extensions.md) describes each hook.
+- A vault server has one address, `/mcp`; another vault than the one picked when connecting is `/mcp?vault=<slug>`, and a slug is one lowercase word, unique among the vaults an account reaches. A new account's first vault is `notes`, and existing slugs that break the rule are rewritten on the first start.
 
 ### Fixed
 - Two writes to one note at the same moment both land: `append_file`, `set_status`, `close`, `log_append`, `write_file` and the monthly log pages write over the version they read and read again when the note changed meanwhile, two `backlog_add` calls with one title get two notes, and a new vault's first files never overwrite a file already there.

@@ -26,15 +26,15 @@ def basic(secret: str) -> dict[str, str]:
 async def test_the_first_vault_asks_for_a_layout_and_writes_the_one_picked(site: Hosted, vaults: SubjectVaults):
     http = await site.member("ann@example.com", sub="sub-ann")
     async with http:
-        first = await http.get("/account/vaults/ann")
+        first = await http.get("/account/vaults/notes")
         assert "Pick a layout" in first.text and "no layout yet" in first.text
         offered = re.findall(r'name="preset" value="([^"]+)"', first.text)
         assert offered == ["para", "simple", "journal", "custom"]
-        forged = await http.post("/account/vaults/ann/layout", data={"csrf": "wrong", "preset": "para"})
+        forged = await http.post("/account/vaults/notes/layout", data={"csrf": "wrong", "preset": "para"})
         csrf = csrf_of(first.text)
-        unknown = await http.post("/account/vaults/ann/layout", data={"csrf": csrf, "preset": "nope"})
-        picked = await http.post("/account/vaults/ann/layout", data={"csrf": csrf, "preset": "para"})
-        again = await http.get("/account/vaults/ann")
+        unknown = await http.post("/account/vaults/notes/layout", data={"csrf": csrf, "preset": "nope"})
+        picked = await http.post("/account/vaults/notes/layout", data={"csrf": csrf, "preset": "para"})
+        again = await http.get("/account/vaults/notes")
     assert forged.status_code == 403
     assert unknown.status_code == 400 and "Pick one of the layouts." in unknown.text
     assert picked.status_code == 200 and "This vault now uses PARA." in picked.text
@@ -52,12 +52,14 @@ async def test_switching_layout_keeps_every_note_and_the_tools_follow(site: Host
     http = await site.member("ann@example.com", sub="sub-ann")
     key = site.key_for("ann@example.com")
     async with http:
-        page = await http.get("/account/vaults/ann")
-        await http.post("/account/vaults/ann/layout", data={"csrf": csrf_of(page.text), "preset": "para"})
+        page = await http.get("/account/vaults/notes")
+        await http.post("/account/vaults/notes/layout", data={"csrf": csrf_of(page.text), "preset": "para"})
         written = await call_tool(http, key, "write_file", {"path": "Areas/secret.md", "content": NOTE_BODY})
         assert not written.get("isError"), text_of(written)
-        same = await http.post("/account/vaults/ann/layout", data={"csrf": csrf_of(page.text), "preset": "para"})
-        switched = await http.post("/account/vaults/ann/layout", data={"csrf": csrf_of(page.text), "preset": "custom"})
+        same = await http.post("/account/vaults/notes/layout", data={"csrf": csrf_of(page.text), "preset": "para"})
+        switched = await http.post(
+            "/account/vaults/notes/layout", data={"csrf": csrf_of(page.text), "preset": "custom"}
+        )
         refused = await call_tool(http, key, "backlog_add", {"title": "x", "area": "demo", "line": "y"})
         found = await call_tool(http, key, "search", {"query": "Hemligt"})
     assert "This vault already uses PARA." in same.text
@@ -74,8 +76,8 @@ async def test_a_vault_in_the_built_in_layout_names_it_and_offers_no_switch(site
     http = await site.member("ann@example.com", sub="sub-ann")
     async with http:
         vaults.for_subject(site.vault_of("ann@example.com"))
-        page = await http.get("/account/vaults/ann")
-        refused = await http.post("/account/vaults/ann/layout", data={"csrf": csrf_of(page.text), "preset": "para"})
+        page = await http.get("/account/vaults/notes")
+        refused = await http.post("/account/vaults/notes/layout", data={"csrf": csrf_of(page.text), "preset": "para"})
     assert "This vault uses Built-in." in page.text and "built-in layout" in page.text
     assert "Switch layout" not in page.text and 'name="preset"' not in page.text
     assert refused.status_code == 409
@@ -94,12 +96,12 @@ async def test_a_new_vault_gets_the_layout_picked_with_its_name(site: Hosted, va
         page = await http.get(made.headers["location"])
         taken = await http.post("/account/vaults", data={"csrf": csrf, "name": "orchard notes", "preset": "para"})
     assert offered == ["para", "simple", "journal", "custom"]
-    assert 'data-slug-from="vault-name"' in form.text and "http://localhost/v/" in form.text
+    assert 'data-slug-from="vault-name"' in form.text and 'data-base="http://localhost/mcp?vault="' in form.text
     assert unnamed.status_code == 400 and "Give the vault a name." in unnamed.text
-    assert made.status_code == 303 and made.headers["location"] == "/account/vaults/orchard-notes"
-    assert "Simple layout" in page.text and "http://localhost/v/orchard-notes/mcp" in page.text
-    assert taken.status_code == 400 and "orchard-notes is taken" in taken.text
-    backend = vaults.backend_factory(site.vault_of("ann@example.com", "orchard-notes"))[0]
+    assert made.status_code == 303 and made.headers["location"] == "/account/vaults/orchardnotes"
+    assert "Simple layout" in page.text and "http://localhost/mcp?vault=orchardnotes" in page.text
+    assert taken.status_code == 303 and taken.headers["location"] == "/account/vaults/orchardnotes2"
+    backend = vaults.backend_factory(site.vault_of("ann@example.com", "orchardnotes"))[0]
     assert provision.current_preset(backend) == "simple"
 
 
@@ -108,14 +110,14 @@ async def test_a_schema_broken_over_webdav_is_named_on_the_vault_page(site: Host
     http = await site.member("ann@example.com", sub="sub-ann")
     key = site.key_for("ann@example.com")
     async with http:
-        page = await http.get("/account/vaults/ann")
-        await http.post("/account/vaults/ann/layout", data={"csrf": csrf_of(page.text), "preset": "simple"})
+        page = await http.get("/account/vaults/notes")
+        await http.post("/account/vaults/notes/layout", data={"csrf": csrf_of(page.text), "preset": "simple"})
         put = await http.put(
             "/dav/vault/.vault/schema.yml",
             content=b"preset: simple\nfolders:\n  Inbox: { kind: todo }\n",
             headers=basic(key),
         )
-        broken = await http.get("/account/vaults/ann")
+        broken = await http.get("/account/vaults/notes")
         context = await call_tool(http, key, "context", {"repo": "demo"})
     assert put.status_code in (201, 204), put.text
     assert "the vault runs on the simple layout until it is fixed" in broken.text
@@ -129,8 +131,8 @@ async def test_a_vault_on_a_preset_no_longer_shipped_is_named_and_can_switch(sit
     async with http:
         vault = vaults.backend_factory(site.vault_of("ann@example.com"))[0]
         vault.put(SCHEMA_KEY, "preset: lyt\nfolders:\n  Atlas: { kind: reference }\n")
-        page = await http.get("/account/vaults/ann")
-        switched = await http.post("/account/vaults/ann/layout", data={"csrf": csrf_of(page.text), "preset": "para"})
+        page = await http.get("/account/vaults/notes")
+        switched = await http.post("/account/vaults/notes/layout", data={"csrf": csrf_of(page.text), "preset": "para"})
     assert "lyt layout" in page.text and "Pick a layout" not in page.text
     assert "names &#x27;lyt&#x27;, a layout this version does not ship; it is read as written" in page.text
     assert "preset &#x27;lyt&#x27; is not one this version ships" in page.text

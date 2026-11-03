@@ -13,8 +13,8 @@ from notes_vault_mcp.auth import MACHINE_KEY_PURPOSE
 from notes_vault_mcp.auth.database import SqliteDatabase
 from notes_vault_mcp.auth.hosted_access import SupportAccess
 from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
-from notes_vault_mcp.auth.hosted_store import HostedStore
-from notes_vault_mcp.auth.hosted_vaults import MIGRATIONS
+from notes_vault_mcp.auth.hosted_store import HostedStore, MembershipError, VaultNameError
+from notes_vault_mcp.auth.hosted_vaults import MIGRATIONS, Vault
 from notes_vault_mcp.backends import SCHEMA_KEY
 from notes_vault_mcp.cli import main
 from notes_vault_mcp.vault import SubjectVaults
@@ -46,27 +46,33 @@ async def make_shared(site: Hosted, http: httpx2.AsyncClient, name: str = "Orcha
 
 async def club(site: Hosted) -> tuple[httpx2.AsyncClient, httpx2.AsyncClient]:
     ann = await site.member("ann@example.com", sub="sub-ann")
-    site.store.rename_vault(site.vault_of("ann@example.com"), "Ann's orchard", "ann-orchard")
+    site.store.rename_vault(site.vault_of("ann@example.com"), "Ann's orchard", "annorchard")
     made = await make_shared(site, ann)
-    assert made.status_code == 303 and made.headers["location"] == "/account/vaults/orchard-club", made.text
-    vault = site.store.vault_by_slug("orchard-club")
+    assert made.status_code == 303 and made.headers["location"] == "/account/vaults/orchardclub", made.text
+    vault = club_vault(site)
     site.store.invite_member(vault, "bo@example.com", site.store.account("ann@example.com").id)
     bo = await site.member("bo@example.com", sub="sub-bo")
     return ann, bo
 
 
-def key_of(site: Hosted, email: str, name: str, slug: str = "orchard-club", purpose: str = "api") -> str:
+def club_vault(site: Hosted, slug: str = "orchardclub") -> Vault | None:
+    owned = (vault for account in site.store.accounts() for vault in site.store.vaults(account.id))
+    return next((vault for vault in owned if vault.slug == slug), None)
+
+
+def key_of(site: Hosted, email: str, name: str, slug: str = "orchardclub", purpose: str = "api") -> str:
     account = site.store.account(email)
-    return site.store.create_key(account.id, name, WRITE, purpose=purpose, vault_id=site.store.vault_by_slug(slug).id)
+    vault = site.store.vault_at(account.id, slug) or club_vault(site, slug)
+    return site.store.create_key(account.id, name, WRITE, purpose=purpose, vault_id=vault.id)
 
 
-def changes(site: Hosted, slug: str = "orchard-club") -> list:
-    vault = site.store.vault_by_slug(slug)
+def changes(site: Hosted, slug: str = "orchardclub") -> list:
+    vault = club_vault(site, slug)
     return SealedVaults(site.store, VaultKeys(site.store, site.keyring)).history(vault.id).changes()
 
 
 async def write(http: httpx2.AsyncClient, key: str, path: str, content: str) -> dict:
-    return await call_tool(http, key, "write_file", {"path": path, "content": content}, path="/v/orchard-club/mcp")
+    return await call_tool(http, key, "write_file", {"path": path, "content": content}, path="/mcp?vault=orchardclub")
 
 
 # --- membership -----------------------------------------------------------------------------------------------
@@ -78,23 +84,23 @@ async def test_a_member_sees_the_shared_vault_and_never_the_owners_personal_vaul
     async with ann, bo:
         listed = (await bo.get("/account")).text
         own = (await ann.get("/account")).text
-        personal = await bo.get("/account/vaults/ann-orchard")
-        shared = await bo.get("/account/vaults/orchard-club")
+        personal = await bo.get("/account/vaults/annorchard")
+        shared = await bo.get("/account/vaults/orchardclub")
     assert "Orchard club" in listed and '<span class="chip role">Member</span>' in listed
-    assert "Ann&#x27;s orchard" not in listed and "ann-orchard" not in listed
+    assert "Ann&#x27;s orchard" not in listed and "annorchard" not in listed
     assert '<span class="chip role">Owner</span>' in own and "Ann&#x27;s orchard" in own
     assert personal.status_code == 404
     assert shared.status_code == 200 and "Leave this vault" in shared.text
     assert "Send invitation" not in shared.text and "Hand over or delete" not in shared.text
     with pytest.raises(ValueError):
-        key_of(site, "bo@example.com", "peek", slug="ann-orchard")
+        key_of(site, "bo@example.com", "peek", slug="annorchard")
 
 
 @pytest.mark.anyio
 async def test_a_removed_members_key_and_token_are_refused_at_once_even_on_an_open_connection(site: Hosted):
     ann, bo = await club(site)
     key = key_of(site, "bo@example.com", "bo laptop")
-    vault = site.store.vault_by_slug("orchard-club")
+    vault = club_vault(site)
     member = site.store.account("bo@example.com")
     grant = {
         "grant_id": "g-bo",
@@ -102,23 +108,23 @@ async def test_a_removed_members_key_and_token_are_refused_at_once_even_on_an_op
         "account_id": member.id,
         "vault_id": vault.id,
         "scopes": WRITE,
-        "resource": f"{BASE}/v/orchard-club/mcp",
+        "resource": f"{BASE}/mcp?vault=orchardclub",
     }
     site.store.save_token("token-of-bo", "access", grant, 3600)
     ping = {"jsonrpc": "2.0", "id": 7, "method": "ping"}
     async with ann, bo:
-        session = await open_session(bo, key, "/v/orchard-club/mcp")
-        before = await post_mcp(bo, key, ping, session, "/v/orchard-club/mcp")
-        by_token = await post_mcp(bo, "token-of-bo", INITIALIZE, path="/v/orchard-club/mcp")
+        session = await open_session(bo, key, "/mcp?vault=orchardclub")
+        before = await post_mcp(bo, key, ping, session, "/mcp?vault=orchardclub")
+        by_token = await post_mcp(bo, "token-of-bo", INITIALIZE, path="/mcp?vault=orchardclub")
         dav_before = await bo.get("/dav/vault/", headers=basic(key))
-        page = await ann.get("/account/vaults/orchard-club")
+        page = await ann.get("/account/vaults/orchardclub")
         removed = await ann.post(
-            "/account/vaults/orchard-club/members/remove", data={"csrf": csrf_of(page.text), "account": member.id}
+            "/account/vaults/orchardclub/members/remove", data={"csrf": csrf_of(page.text), "account": member.id}
         )
-        after = await post_mcp(bo, key, ping, session, "/v/orchard-club/mcp")
-        token_after = await post_mcp(bo, "token-of-bo", INITIALIZE, path="/v/orchard-club/mcp")
+        after = await post_mcp(bo, key, ping, session, "/mcp?vault=orchardclub")
+        token_after = await post_mcp(bo, "token-of-bo", INITIALIZE, path="/mcp?vault=orchardclub")
         dav_after = await bo.request("PROPFIND", "/dav/vault/", headers=basic(key))
-        page_after = await bo.get("/account/vaults/orchard-club")
+        page_after = await bo.get("/account/vaults/orchardclub")
     assert before.status_code == 200 and by_token.status_code == 200 and dav_before.status_code != 401
     assert removed.status_code == 200 and "no longer work" in removed.text
     assert after.status_code == 401 and token_after.status_code == 401 and dav_after.status_code == 401
@@ -137,11 +143,11 @@ async def test_an_invitation_opens_an_account_under_invite_registration_with_one
     ann = await site.member("ann@example.com", sub="sub-ann")
     async with ann, site.browser() as cy:
         await make_shared(site, ann)
-        page = await ann.get("/account/vaults/orchard-club")
+        page = await ann.get("/account/vaults/orchardclub")
         sent = await ann.post(
-            "/account/vaults/orchard-club/members/invite", data={"csrf": csrf_of(page.text), "email": "Cy@Example.com"}
+            "/account/vaults/orchardclub/members/invite", data={"csrf": csrf_of(page.text), "email": "Cy@Example.com"}
         )
-        listed = await ann.get("/account/vaults/orchard-club")
+        listed = await ann.get("/account/vaults/orchardclub")
         assert site.store.account("cy@example.com") is None
         token = query(site.smtp.last_link("cy@example.com"))["token"]
         shown = await cy.get("/signin/email/confirm", params={"token": token})
@@ -155,11 +161,11 @@ async def test_an_invitation_opens_an_account_under_invite_registration_with_one
         and site.smtp.messages[0]["Subject"] == "ann@example.com invites you to Orchard club"
     )
     assert shown.status_code == 200
-    assert signed_in.status_code == 303 and signed_in.headers["location"] == "/account/vaults/orchard-club"
+    assert signed_in.status_code == 303 and signed_in.headers["location"] == "/account/vaults/orchardclub"
     assert landing.status_code == 200 and "Orchard club" in landing.text
     created = site.store.account("cy@example.com")
     assert created is not None and created.active
-    assert site.store.role(site.store.vault_by_slug("orchard-club"), created.id) == "member"
+    assert site.store.role(club_vault(site), created.id) == "member"
     assert '<span class="chip role">Member</span>' in vaults.text
 
 
@@ -168,14 +174,14 @@ async def test_a_withdrawn_invitation_lets_nobody_in(site: Hosted):
     ann = await site.member("ann@example.com", sub="sub-ann")
     async with ann, site.browser() as cy:
         await make_shared(site, ann)
-        page = await ann.get("/account/vaults/orchard-club")
+        page = await ann.get("/account/vaults/orchardclub")
         await ann.post(
-            "/account/vaults/orchard-club/members/invite", data={"csrf": csrf_of(page.text), "email": "cy@example.com"}
+            "/account/vaults/orchardclub/members/invite", data={"csrf": csrf_of(page.text), "email": "cy@example.com"}
         )
         token = query(site.smtp.last_link("cy@example.com"))["token"]
-        page = await ann.get("/account/vaults/orchard-club")
+        page = await ann.get("/account/vaults/orchardclub")
         withdrawn = await ann.post(
-            "/account/vaults/orchard-club/members/withdraw",
+            "/account/vaults/orchardclub/members/withdraw",
             data={"csrf": csrf_of(page.text), "email": "cy@example.com"},
         )
         late = await cy.post("/signin/email/confirm", data={"token": token})
@@ -190,13 +196,13 @@ async def test_the_owner_hands_over_and_stays_a_member(site: Hosted):
     key = key_of(site, "ann@example.com", "ann laptop")
     member = site.store.account("bo@example.com")
     async with ann, bo:
-        page = await ann.get("/account/vaults/orchard-club")
+        page = await ann.get("/account/vaults/orchardclub")
         handed = await ann.post(
-            "/account/vaults/orchard-club/hand-over", data={"csrf": csrf_of(page.text), "account": member.id}
+            "/account/vaults/orchardclub/hand-over", data={"csrf": csrf_of(page.text), "account": member.id}
         )
-        still = await call_tool(ann, key, "read_file", {"path": SCHEMA_KEY}, path="/v/orchard-club/mcp")
-        bo_page = await bo.get("/account/vaults/orchard-club")
-    vault = site.store.vault_by_slug("orchard-club")
+        still = await call_tool(ann, key, "read_file", {"path": SCHEMA_KEY}, path="/mcp?vault=orchardclub")
+        bo_page = await bo.get("/account/vaults/orchardclub")
+    vault = club_vault(site)
     assert "bo@example.com owns Orchard club now" in handed.text and "Leave this vault" in handed.text
     assert vault.account_id == member.id
     assert site.store.role(vault, site.store.account("ann@example.com").id) == "member"
@@ -209,10 +215,10 @@ async def test_a_member_leaves_and_their_key_stops(site: Hosted):
     ann, bo = await club(site)
     key = key_of(site, "bo@example.com", "bo laptop")
     async with ann, bo:
-        page = await bo.get("/account/vaults/orchard-club")
-        left = await bo.post("/account/vaults/orchard-club/leave", data={"csrf": csrf_of(page.text)})
-        refused = await post_mcp(bo, key, {"jsonrpc": "2.0", "id": 1, "method": "ping"}, path="/v/orchard-club/mcp")
-    assert "You left Orchard club" in left.text and 'href="/account/vaults/orchard-club"' not in left.text
+        page = await bo.get("/account/vaults/orchardclub")
+        left = await bo.post("/account/vaults/orchardclub/leave", data={"csrf": csrf_of(page.text)})
+        refused = await post_mcp(bo, key, {"jsonrpc": "2.0", "id": 1, "method": "ping"}, path="/mcp?vault=orchardclub")
+    assert "You left Orchard club" in left.text and 'href="/account/vaults/orchardclub"' not in left.text
     assert refused.status_code == 401
 
 
@@ -226,10 +232,10 @@ async def test_the_owner_cannot_delete_the_account_while_other_members_remain(si
         monkeypatch.setenv("VAULT_HOSTED_MASTER_KEY", site.keyring.current.encoded())
         monkeypatch.setenv("VAULT_AUTH_DIR", str(site.config.auth_dir))
         cli = main(["accounts", "delete", "ann@example.com", "--yes"])
-        page = await ann.get("/account/vaults/orchard-club")
+        page = await ann.get("/account/vaults/orchardclub")
         member = site.store.account("bo@example.com")
         await ann.post(
-            "/account/vaults/orchard-club/members/remove", data={"csrf": csrf_of(page.text), "account": member.id}
+            "/account/vaults/orchardclub/members/remove", data={"csrf": csrf_of(page.text), "account": member.id}
         )
         form = await ann.get("/account/delete")
         deleted = await ann.post("/account/delete", data={"csrf": csrf_of(form.text), "email": "ann@example.com"})
@@ -237,7 +243,7 @@ async def test_the_owner_cannot_delete_the_account_while_other_members_remain(si
     assert refused.status_code == 409
     assert cli == 1
     assert deleted.status_code == 200 and site.store.account("ann@example.com") is None
-    assert site.store.vault_by_slug("orchard-club") is None
+    assert club_vault(site) is None
 
 
 @pytest.mark.anyio
@@ -248,7 +254,7 @@ async def test_a_deleted_members_changes_stay_in_the_history_under_their_email(s
         await write(bo, key, "Areas/pruning.md", PRUNING)
         form = await bo.get("/account/delete")
         deleted = await bo.post("/account/delete", data={"csrf": csrf_of(form.text), "email": "bo@example.com"})
-        page = await ann.get("/account/vaults/orchard-club")
+        page = await ann.get("/account/vaults/orchardclub")
     assert deleted.status_code == 200
     assert [(change.action, change.author_email) for change in changes(site)] == [("created", "bo@example.com")]
     assert "created by bo@example.com · bo laptop" in page.text
@@ -262,7 +268,7 @@ async def test_a_member_connects_a_client_to_the_shared_vault_and_is_never_offer
     async with ann, bo:
         client = await register(bo)
         verifier, started = await authorize(bo, client["client_id"])
-        page, approved = await consent(bo, started.headers["location"], vault="orchard-club")
+        page, approved = await consent(bo, started.headers["location"], vault="orchardclub")
         code = query(approved.headers["location"])["code"]
         issued = await bo.post(
             "/token",
@@ -277,9 +283,9 @@ async def test_a_member_connects_a_client_to_the_shared_vault_and_is_never_offer
         )
         token = issued.json()["access_token"]
         written = await call_tool(bo, token, "write_file", {"path": "Areas/pruning.md", "content": PRUNING})
-        bo_page = await bo.get("/account/vaults/orchard-club")
-        ann_page = await ann.get("/account/vaults/orchard-club")
-    assert 'value="orchard-club"' in page.text and 'value="bo"' in page.text and "ann-orchard" not in page.text
+        bo_page = await bo.get("/account/vaults/orchardclub")
+        ann_page = await ann.get("/account/vaults/orchardclub")
+    assert 'value="orchardclub"' in page.text and 'value="notes"' in page.text and "annorchard" not in page.text
     assert not written.get("isError"), text_of(written)
     assert changes(site)[0].client == "Cursor" and changes(site)[0].author_email == "bo@example.com"
     assert "<td>Cursor</td><td>Connector</td>" in bo_page.text
@@ -294,11 +300,11 @@ async def test_obsidian_access_in_a_shared_vault_mints_the_members_own_webdav_ke
         "Obsidian (WebDAV)",
         WRITE,
         purpose="webdav",
-        vault_id=site.store.vault_by_slug("orchard-club").id,
+        vault_id=club_vault(site).id,
     )
     key = key_of(site, "bo@example.com", "bo laptop")
     async with ann, bo:
-        minted = await call_tool(bo, key, "obsidian_access", {}, "/v/orchard-club/mcp")
+        minted = await call_tool(bo, key, "obsidian_access", {}, "/mcp?vault=orchardclub")
         password = text_of(minted).split("Password: ")[1].split()[0]
         put = await bo.put("/dav/vault/Areas/pruning.md", content=PRUNING.encode(), headers=basic(password))
         still = await ann.request("PROPFIND", "/dav/vault/", headers=basic(ann_dav, "ann@example.com"))
@@ -315,12 +321,12 @@ async def test_support_access_to_a_shared_vault_is_the_owners_to_grant(site: Hos
         member = (await bo.get("/account/settings")).text
         form = await bo.get("/account/settings")
         tried = await bo.post(
-            "/account/support", data={"csrf": csrf_of(form.text), "vault": "orchard-club", "duration": "day"}
+            "/account/support", data={"csrf": csrf_of(form.text), "vault": "orchardclub", "duration": "day"}
         )
-    assert '<option value="orchard-club">Orchard club</option>' in owner
-    assert "orchard-club" not in member
+    assert '<option value="orchardclub">Orchard club</option>' in owner
+    assert "orchardclub" not in member
     assert tried.status_code == 303
-    assert SupportAccess(site.store).grant_until(site.store.vault_by_slug("orchard-club").id) is None
+    assert SupportAccess(site.store).grant_until(club_vault(site).id) is None
 
 
 # --- what belongs in a shared vault ---------------------------------------------------------------------------
@@ -331,7 +337,7 @@ async def test_task_and_log_notes_and_the_task_tools_are_refused_with_a_message_
     ann, bo = await club(site)
     key = key_of(site, "bo@example.com", "bo laptop")
     machine = key_of(site, "bo@example.com", "bo-mac", purpose=MACHINE_KEY_PURPOSE)
-    path = "/v/orchard-club/mcp"
+    path = "/mcp?vault=orchardclub"
     async with ann, bo:
         project = await write(bo, key, "Projects/chores.md", CHORES.replace("kind: task\n", ""))
         task = await write(bo, key, "Areas/chores.md", CHORES)
@@ -363,8 +369,8 @@ async def test_the_session_context_of_a_shared_vault_has_no_task_backlog_or_log_
     key = key_of(site, "bo@example.com", "bo laptop")
     async with ann, bo:
         await write(bo, key, "Areas/orchard.md", PRUNING.replace("title: Pruning", "title: Orchard"))
-        answer = await call_tool(bo, key, "context", {"repo": "orchard", "format": "json"}, "/v/orchard-club/mcp")
-        shown = await call_tool(bo, key, "whoami", {}, "/v/orchard-club/mcp")
+        answer = await call_tool(bo, key, "context", {"repo": "orchard", "format": "json"}, "/mcp?vault=orchardclub")
+        shown = await call_tool(bo, key, "whoami", {}, "/mcp?vault=orchardclub")
     text = json.loads(text_of(answer))["text"]
     assert text.startswith("## shared vault\nOrchard club is a shared vault")
     assert "## system notes\n### Areas/orchard.md" in text
@@ -372,7 +378,7 @@ async def test_the_session_context_of_a_shared_vault_has_no_task_backlog_or_log_
         assert section not in text
     assert json.loads(text_of(shown)) == {
         "email": "bo@example.com",
-        "vault": "orchard-club",
+        "vault": "orchardclub",
         "vault_name": "Orchard club",
         "vault_kind": "shared",
         "write": True,
@@ -387,7 +393,7 @@ async def test_the_session_context_of_a_shared_vault_has_no_task_backlog_or_log_
 async def test_every_write_move_and_delete_through_mcp_is_in_the_history_with_account_and_client(site: Hosted):
     ann, bo = await club(site)
     key = key_of(site, "bo@example.com", "bo laptop")
-    path = "/v/orchard-club/mcp"
+    path = "/mcp?vault=orchardclub"
     async with ann, bo:
         await write(bo, key, "Areas/pruning.md", PRUNING)
         await call_tool(bo, key, "append_file", {"path": "Areas/pruning.md", "content": "Wear gloves."}, path)
@@ -439,12 +445,12 @@ async def test_restore_writes_the_previous_version_back_as_a_new_change(site: Ho
         await write(bo, key, "Areas/pruning.md", PRUNING)
         await write(bo, key, "Areas/pruning.md", PRUNING_LATER)
         update = changes(site)[0]
-        shown = await ann.get(f"/account/vaults/orchard-club/changes/{update.id}")
-        history = await ann.get("/account/vaults/orchard-club/history")
+        shown = await ann.get(f"/account/vaults/orchardclub/changes/{update.id}")
+        history = await ann.get("/account/vaults/orchardclub/history")
         restored = await ann.post(
-            f"/account/vaults/orchard-club/changes/{update.id}/restore", data={"csrf": csrf_of(shown.text)}
+            f"/account/vaults/orchardclub/changes/{update.id}/restore", data={"csrf": csrf_of(shown.text)}
         )
-        read = await call_tool(bo, key, "read_file", {"path": "Areas/pruning.md"}, "/v/orchard-club/mcp")
+        read = await call_tool(bo, key, "read_file", {"path": "Areas/pruning.md"}, "/mcp?vault=orchardclub")
     assert shown.status_code == 200
     assert '<span class="del">-Prune the apple trees in March.</span>' in shown.text
     assert '<span class="add">+Prune the apple trees in late February.</span>' in shown.text
@@ -462,7 +468,7 @@ async def test_restore_writes_the_previous_version_back_as_a_new_change(site: Ho
 async def test_previous_versions_are_sealed_and_go_with_the_vault(site: Hosted, storage: Path):
     ann, bo = await club(site)
     key = key_of(site, "bo@example.com", "bo laptop")
-    vault = site.store.vault_by_slug("orchard-club")
+    vault = club_vault(site)
     async with ann, bo:
         await write(bo, key, "Areas/pruning.md", PRUNING)
         await write(bo, key, "Areas/pruning.md", PRUNING_LATER)
@@ -470,9 +476,9 @@ async def test_previous_versions_are_sealed_and_go_with_the_vault(site: Hosted, 
         stored = [path.read_bytes() for path in history_root.rglob("*") if path.is_file()]
         with sqlite3.connect(site.store.database.path) as connection:
             paths = [row[0] for row in connection.execute("SELECT path FROM vault_changes")]
-        page = await ann.get("/account/vaults/orchard-club")
+        page = await ann.get("/account/vaults/orchardclub")
         deleted = await ann.post(
-            "/account/vaults/orchard-club/delete", data={"csrf": csrf_of(page.text), "name": "Orchard club"}
+            "/account/vaults/orchardclub/delete", data={"csrf": csrf_of(page.text), "name": "Orchard club"}
         )
     assert len(stored) == 2 and not any(b"Prune" in blob for blob in stored)
     assert paths and not any("pruning" in path for path in paths)
@@ -510,12 +516,17 @@ def test_the_shell_makes_a_shared_vault_and_manages_its_members(
     vaults = capsys.readouterr().out
     assert main(["accounts", "remove-member", "ann@example.com", "workshop", "bo@example.com"]) == 0
     removed = capsys.readouterr().out
-    assert "ann@example.com has the shared vault Workshop at /v/workshop/mcp" in listing
+    assert "ann@example.com has the shared vault Workshop at /mcp?vault=workshop" in listing
     assert "invited bo@example.com to workshop; no email was sent" in listing
     assert "ann@example.com  owner" in listing and "bo@example.com  member" in listing
     assert "workshop  Workshop  shared, member" in vaults
     assert "removed bo@example.com from workshop" in removed
-    assert store.role(store.vault_by_slug("workshop"), bo.id) is None
+    assert (
+        store.role(
+            store.vault_at(bo.id, "workshop") or store.own_vault(store.account("ann@example.com").id, "workshop"), bo.id
+        )
+        is None
+    )
 
 
 # --- storage --------------------------------------------------------------------------------------------------
@@ -541,9 +552,9 @@ def test_the_migration_adds_shared_vaults_and_leaves_a_personal_vault_as_it_was(
     SqliteDatabase(path).migrate(MIGRATIONS)
     with sqlite3.connect(path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == len(MIGRATIONS)
-        assert (
-            connection.execute("SELECT id, account_id, name, slug, created_at FROM vaults").fetchall() == vaults_before
-        )
+        after = connection.execute("SELECT id, account_id, name, created_at, slug FROM vaults").fetchall()
+        assert [tuple(row)[:4] for row in after] == [(row[0], row[1], row[2], row[4]) for row in vaults_before]
+        assert [row[4] for row in after] == ["notes"]
         assert connection.execute("SELECT kind FROM vaults").fetchall() == [("personal",)]
         assert connection.execute("SELECT * FROM vault_data_keys").fetchall() == keys_before
         for table in ("vault_members", "vault_invitations", "vault_changes"):
@@ -554,3 +565,51 @@ def test_the_migration_adds_shared_vaults_and_leaves_a_personal_vault_as_it_was(
     assert vault is not None and not vault.shared
     backend, _ = SealedVaults(store, VaultKeys(store, keyring)).for_vault(vault.id)
     assert backend.get("Areas/trees.md")[0] == ORCHARD_NOTE
+
+
+@pytest.mark.anyio
+async def test_an_invitation_to_a_slug_the_member_already_reaches_waits_until_they_rename_theirs(site: Hosted):
+    ann, bo = await club(site)
+    made = await make_shared(site, ann, "Notes")
+    assert made.headers["location"] == "/account/vaults/notes"
+    shared = club_vault(site, "notes")
+    assert shared is not None and shared.account_id == site.store.account("ann@example.com").id
+    site.store.invite_member(shared, "bo@example.com", shared.account_id)
+    bo_id = site.store.account("bo@example.com").id
+    async with ann, bo:
+        waiting = await bo.get("/account")
+        before = site.store.role(shared, bo_id)
+        site.store.rename_vault(site.store.own_vault(bo_id, "notes").id, slug="mine")
+        joined = await bo.get("/account")
+    assert "You are invited to Notes, but you already reach Personal at the address <code>notes</code>" in waiting.text
+    assert "Rename Personal" in waiting.text and before is None
+    assert site.store.role(shared, bo_id) == "member" and "You are invited" not in joined.text
+
+
+@pytest.mark.anyio
+async def test_a_rename_refuses_a_slug_a_member_already_reaches(site: Hosted):
+    ann, bo = await club(site)
+    async with ann, bo:
+        pass
+    with pytest.raises(
+        VaultNameError, match="A member of Orchard club already reaches another vault at the address notes"
+    ):
+        site.store.rename_vault(club_vault(site).id, slug="notes")
+    assert site.store.rename_vault(club_vault(site).id, slug="club").slug == "club"
+
+
+@pytest.mark.anyio
+async def test_a_hand_over_refuses_an_owner_who_already_owns_the_slug(site: Hosted):
+    ann, bo = await club(site)
+    async with ann, bo:
+        pass
+    bo_id = site.store.account("bo@example.com").id
+    with site.store.connect() as connection:
+        connection.execute(
+            "INSERT INTO vaults(id, account_id, name, slug, created_at, kind) VALUES('vlt_twin', ?, 'Twin',"
+            " 'orchardclub', 1, 'personal')",
+            (bo_id,),
+        )
+    with pytest.raises(MembershipError, match="already reaches another vault at the address orchardclub"):
+        site.store.hand_over(club_vault(site), bo_id)
+    assert club_vault(site).account_id == site.store.account("ann@example.com").id

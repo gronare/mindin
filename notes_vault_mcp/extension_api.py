@@ -9,7 +9,7 @@ from notes_vault_mcp.auth.hosted_deletion import SelfDeletion
 from notes_vault_mcp.auth.hosted_keys import SealedVaults, VaultFacts
 from notes_vault_mcp.auth.hosted_members import INVITATION_TTL
 from notes_vault_mcp.auth.hosted_store import Account, HostedStore, account_of, digest, scope_label
-from notes_vault_mcp.auth.hosted_vaults import MIGRATIONS, Vault
+from notes_vault_mcp.auth.hosted_vaults import MIGRATIONS, Vault, rewrite_slugs
 from notes_vault_mcp.auth.hosted_web import Browser, esc, page
 from notes_vault_mcp.auth.identities import Identities
 from notes_vault_mcp.auth.login_email import ADDRESS as EMAIL_ADDRESS
@@ -75,6 +75,7 @@ __all__ = [
     "local_root",
     "make_subject_backend",
     "page",
+    "rewrite_slugs",
     "scope_label",
     "stamp",
     "semantic_requested",

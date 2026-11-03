@@ -161,10 +161,10 @@ async def test_an_invited_address_signs_in_and_becomes_active(site: Hosted):
         assert landed.status_code == 303
         assert landed.headers["location"] == "/account"
         page = await http.get("/account/settings")
-        vault_page = await http.get("/account/vaults/ann")
+        vault_page = await http.get("/account/vaults/notes")
     assert page.status_code == 200
     assert "ann@example.com" in page.text
-    assert f"{BASE}/v/ann/mcp" in vault_page.text
+    assert f"{BASE}/mcp?vault=notes" in vault_page.text
     assert "<script>" not in page.text + vault_page.text, "scripts load from this server, never inline"
     account = site.store.account("ann@example.com")
     assert account is not None and account.status == "active" and account.sub
@@ -490,20 +490,22 @@ async def test_a_suspended_accounts_key_is_refused_at_once(site: Hosted):
 async def test_the_account_page_makes_lists_and_revokes_keys(site: Hosted):
     http = await site.member("ann@example.com")
     async with http:
-        page = await http.get("/account/vaults/ann")
+        page = await http.get("/account/vaults/notes")
         made = await http.post(
-            "/account/vaults/ann/keys", data={"csrf": csrf_of(page.text), "name": "devbox", "access": "write"}
+            "/account/vaults/notes/keys", data={"csrf": csrf_of(page.text), "name": "devbox", "access": "write"}
         )
         key = made.text.split('<code id="new-key">')[1].split("<")[0]
         assert key.startswith("nvm_")
-        listed = await http.get("/account/vaults/ann")
+        listed = await http.get("/account/vaults/notes")
         assert "devbox" in listed.text and "read and write" in listed.text and key not in listed.text
         used = await call_tool(http, key, "list_files", {})
         assert not used.get("isError")
         key_id = key[4:16]
-        forged = await http.post("/account/vaults/ann/keys/revoke", data={"csrf": "wrong", "key": key_id})
+        forged = await http.post("/account/vaults/notes/keys/revoke", data={"csrf": "wrong", "key": key_id})
         assert forged.status_code == 403
-        revoked = await http.post("/account/vaults/ann/keys/revoke", data={"csrf": csrf_of(listed.text), "key": key_id})
+        revoked = await http.post(
+            "/account/vaults/notes/keys/revoke", data={"csrf": csrf_of(listed.text), "key": key_id}
+        )
         assert revoked.status_code == 303
         refused = await post_mcp(http, key, INITIALIZE_BODY)
     assert refused.status_code == 401

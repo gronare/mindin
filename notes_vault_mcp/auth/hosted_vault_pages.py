@@ -38,7 +38,7 @@ from notes_vault_mcp.auth.hosted_transfer import (
     import_files,
     zip_source,
 )
-from notes_vault_mcp.auth.hosted_vaults import KINDS, NAME_MAX, PERSONAL, SHARED, Vault
+from notes_vault_mcp.auth.hosted_vaults import KINDS, NAME_MAX, PERSONAL, SHARED, Vault, Waiting, vault_resource_url
 from notes_vault_mcp.auth.hosted_web import Browser, app_script, copy_field, error_box, esc, hidden_field
 from notes_vault_mcp.auth.login_email import SmtpFactory
 from notes_vault_mcp.backends import SCHEMA_KEY, VaultBackend
@@ -108,7 +108,7 @@ class VaultPages:
         return self.local(f"/account/vaults/{vault.slug}{path}")
 
     def mcp_url(self, vault: Vault) -> str:
-        return f"{self.browser.config.public_url.rstrip('/')}/v/{vault.slug}/mcp"
+        return vault_resource_url(self.browser.config, vault.slug)
 
     def storage(self, vault: Vault) -> VaultBackend:
         return self.vaults.backend_factory(vault.id)[0]
@@ -140,7 +140,7 @@ class VaultPages:
             f'<div class="name">{esc(vault.name)} {chips}</div>'
             '<span class="go" aria-hidden="true">›</span>'
             f'<div class="facts">{esc(facts)}</div>'
-            f'<div class="where">…/v/{esc(vault.slug)}/mcp</div></a>'
+            f'<div class="where">…/mcp?vault={esc(vault.slug)}</div></a>'
         )
 
     def render_list(self, account: Account, notice: str = "", status_code: int = 200) -> Response:
@@ -303,7 +303,7 @@ decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url
         self, csrf: str, name: str = "", preset: str = "", error: str = "", status_code: int = 200, kind: str = ""
     ) -> Response:
         shared = kind == SHARED
-        base = f"{self.browser.config.public_url.rstrip('/')}/v/"
+        base = vault_resource_url(self.browser.config, "")
         body = f"""<div><div class="breadcrumb"><a href="{esc(self.local("/account"))}">Vaults</a> › New vault</div>
 <h1>New vault</h1></div>
 {error_box(error)}
@@ -311,7 +311,7 @@ decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url
 <label class="field" for="vault-name">Name
 <input id="vault-name" type="text" name="name" value="{esc(name)}" maxlength="{NAME_MAX}" required autofocus>
 <span class="small muted">Address:
-<code data-slug-from="vault-name" data-base="{esc(base)}">{esc(base)}…/mcp</code></span>
+<code data-slug-from="vault-name" data-base="{esc(base)}">{esc(base)}…</code></span>
 </label>
 <fieldset class="choice"><legend>Kind</legend>
 <label class="option"><input type="radio" name="kind" value="personal" required{"" if shared else " checked"}>
@@ -335,8 +335,8 @@ references. Every change is kept with who made it.</span></label>
         session = await self.session(request, "/account")
         if isinstance(session, Response):
             return session
-        self.store.accept_invitations(session[0])
-        return await anyio.to_thread.run_sync(self.render_list, session[0])
+        waiting = self.store.accept_invitations(session[0])
+        return await anyio.to_thread.run_sync(self.render_list, session[0], waiting_notice(waiting))
 
     async def new_page(self, request: Request) -> Response:
         session = await self.session(request, "/account/vaults/new")
@@ -528,6 +528,15 @@ references. Every change is kept with who made it.</span></label>
             Route(base + "/delete", endpoint=limited(self.delete), methods=["POST"]),
             *self.shared.routes(base, limited),
         ]
+
+
+def waiting_notice(waiting: list[Waiting]) -> str:
+    lines = "".join(
+        f"<p>You are invited to {esc(item.vault.name)}, but you already reach {esc(item.clash.name)} at the address"
+        f" <code>{esc(item.vault.slug)}</code>. Rename {esc(item.clash.name)}, then open this page again to join.</p>"
+        for item in waiting
+    )
+    return f'<div class="notice">{lines}</div>' if lines else ""
 
 
 async def to_account(request: Request) -> RedirectResponse:

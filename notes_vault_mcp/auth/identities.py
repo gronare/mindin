@@ -277,7 +277,7 @@ class Identities:
             " VALUES(?, ?, 'active', 'registration', ?, ?)",
             (account_id, email, moment, moment),
         )
-        add_first_vault(connection, account_id, email, moment)
+        add_first_vault(connection, account_id, moment)
         created = account_of(connection.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone())
         assert created is not None
         return created

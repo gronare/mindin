@@ -697,7 +697,7 @@ def build_parser() -> argparse.ArgumentParser:
     adding = accounts_sub.add_parser("add-vault", help="give the account another vault")
     adding.add_argument("account", help="the account's email or id")
     adding.add_argument("name", help="the vault's name; the address is made from it unless --slug names one")
-    adding.add_argument("--slug", help="the vault's address, as in /v/<slug>/mcp")
+    adding.add_argument("--slug", help="the vault's slug, as in /mcp?vault=<slug>: one lowercase word")
     adding.add_argument("--preset", choices=PERSONAL_LAYOUTS, help="write this layout now (needs the master key)")
     adding.add_argument(
         "--shared", action="store_true", help="a shared vault: the account and the members it invites, current notes"
@@ -725,7 +725,9 @@ def build_parser() -> argparse.ArgumentParser:
     renaming.add_argument("account", help="the account's email or id")
     renaming.add_argument("vault", help="the vault's slug")
     renaming.add_argument("--name")
-    renaming.add_argument("--slug", help="a new address; clients that use the old /v/<slug>/mcp must change too")
+    renaming.add_argument(
+        "--slug", help="a new slug, one lowercase word; clients that use /mcp?vault=<old slug> must change too"
+    )
     renaming.set_defaults(func=command_accounts)
     deleting = accounts_sub.add_parser(
         "delete", help="destroy the data keys, objects and indexes of every vault, then the account itself"
@@ -865,7 +867,9 @@ def build_parser() -> argparse.ArgumentParser:
     signing_in.add_argument("url", nargs="?", help="the server, e.g. https://vault.example.com; VAULT_SERVER_URL")
     signing_in.add_argument("--name", help="the key's name on the server; the host name when omitted")
     signing_in.add_argument("--no-browser", action="store_true", help="only print the link, never open a browser")
-    signing_in.add_argument("--vault", help="the vault's slug, as in /v/<slug>/mcp; the approval page asks without it")
+    signing_in.add_argument(
+        "--vault", help="the vault's slug, as in /mcp?vault=<slug>; the approval page asks without it"
+    )
     signing_in.set_defaults(func=command_login)
     signing_out = sub.add_parser("logout", help="forget the keys this machine holds for a vault server")
     signing_out.add_argument("url", nargs="?", help="the server; VAULT_SERVER_URL when omitted")

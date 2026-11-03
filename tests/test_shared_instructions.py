@@ -31,10 +31,10 @@ async def test_a_shared_vault_tells_the_agent_what_belongs_there_and_a_personal_
 ):
     ann, bo = await club(site)
     shared_key = key_of(site, "bo@example.com", "bo laptop")
-    personal_key = key_of(site, "bo@example.com", "bo laptop", slug="bo")
+    personal_key = key_of(site, "bo@example.com", "bo laptop", slug="notes")
     async with ann, bo:
-        shared = await instructions_at(site, bo, shared_key, "/v/orchard-club/mcp")
-        personal = await instructions_at(site, bo, personal_key, "/v/bo/mcp")
+        shared = await instructions_at(site, bo, shared_key, "/mcp?vault=orchardclub")
+        personal = await instructions_at(site, bo, personal_key, "/mcp?vault=notes")
     assert shared.startswith("This is Orchard club, a shared vault.")
     assert "they go in the user's personal vault" in shared
     assert "- Areas/ — " in shared and "- Resources/ — " in shared and "Projects/" not in shared
@@ -53,11 +53,13 @@ def test_a_local_vault_keeps_the_instructions_of_its_schema(vault: Vault):
 async def test_the_session_start_text_of_a_shared_vault_never_mentions_the_backlog(site: Hosted):
     ann, bo = await club(site)
     key = key_of(site, "bo@example.com", "bo laptop")
-    personal_key = key_of(site, "bo@example.com", "bo laptop", slug="bo")
+    personal_key = key_of(site, "bo@example.com", "bo laptop", slug="notes")
     async with ann, bo:
         await write(bo, key, "Areas/orchard.md", PRUNING.replace("title: Pruning", "title: Orchard"))
-        shared = await call_tool(bo, key, "context", {"repo": "orchard", "format": "json"}, "/v/orchard-club/mcp")
-        personal = await call_tool(bo, personal_key, "context", {"repo": "orchard", "format": "json"}, "/v/bo/mcp")
+        shared = await call_tool(bo, key, "context", {"repo": "orchard", "format": "json"}, "/mcp?vault=orchardclub")
+        personal = await call_tool(
+            bo, personal_key, "context", {"repo": "orchard", "format": "json"}, "/mcp?vault=notes"
+        )
     shared_text = render_session_start(json.loads(text_of(shared)), "/nowhere")
     personal_text = render_session_start(json.loads(text_of(personal)), "/nowhere")
     assert shared_text.endswith(SHARED_VAULT_HINT)

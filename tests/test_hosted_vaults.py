@@ -24,6 +24,7 @@ from hosted_support import (
 from test_auth_device import decide, poll, start
 from test_auth_hosted import authorize, consent, register
 
+from notes_vault_mcp.auth.database import SqliteDatabase
 from notes_vault_mcp.auth.hosted_access import SupportAccess
 from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
 from notes_vault_mcp.auth.hosted_store import SCHEMA, HostedStore, digest
@@ -98,9 +99,9 @@ async def test_a_key_reaches_only_its_own_vault_of_the_account(site: Hosted):
     orchard = site.key_for("ann@example.com", vault="orchard", name="orchard laptop")
     async with http:
         plain = await call_tool(http, orchard, "read_file", {"path": "Areas/here.md"})
-        bound = await call_tool(http, orchard, "read_file", {"path": "Areas/here.md"}, path="/v/orchard/mcp")
-        refused = await post_mcp(http, orchard, INITIALIZE, path="/v/workshop/mcp")
-        unknown = await post_mcp(http, orchard, INITIALIZE, path="/v/nowhere/mcp")
+        bound = await call_tool(http, orchard, "read_file", {"path": "Areas/here.md"}, path="/mcp?vault=orchard")
+        refused = await post_mcp(http, orchard, INITIALIZE, path="/mcp?vault=workshop")
+        unknown = await post_mcp(http, orchard, INITIALIZE, path="/mcp?vault=nowhere")
     assert "Prune in March" in text_of(plain) and "Prune in March" in text_of(bound)
     assert refused.status_code == 403 and refused.json()["error"] == "wrong_vault"
     assert (unknown.status_code, unknown.json()) == (refused.status_code, refused.json())
@@ -120,7 +121,7 @@ async def test_obsidian_access_mints_a_webdav_key_for_the_connections_own_vault(
     http = await two_vaults(site)
     workshop = site.key_for("ann@example.com", vault="workshop")
     async with http:
-        minted = await call_tool(http, workshop, "obsidian_access", {}, path="/v/workshop/mcp")
+        minted = await call_tool(http, workshop, "obsidian_access", {}, path="/mcp?vault=workshop")
         password = text_of(minted).split("Password: ")[1].split()[0]
         got = await http.get("/dav/vault/Areas/here.md", headers=basic(password))
     assert b"Oil the bed" in got.content
@@ -133,22 +134,24 @@ async def test_obsidian_access_mints_a_webdav_key_for_the_connections_own_vault(
 async def test_a_vault_address_is_its_own_protected_resource(site: Hosted):
     await two_vaults(site)
     async with site.browser() as http:
-        challenged = await http.post("/v/workshop/mcp", json={})
-        metadata = await http.get("/.well-known/oauth-protected-resource/v/workshop/mcp")
-        missing = await http.get("/.well-known/oauth-protected-resource/v/nowhere/mcp")
-        unknown = await http.post("/v/nowhere/mcp", json={})
-        stale = await http.post("/v/nowhere/mcp", json={}, headers={"Authorization": "Bearer frame-token"})
-        known_stale = await http.post("/v/workshop/mcp", json={}, headers={"Authorization": "Bearer frame-token"})
+        challenged = await http.post("/mcp?vault=workshop", json={})
+        metadata = await http.get("/.well-known/oauth-protected-resource/mcp?vault=workshop")
+        server = await http.get("/.well-known/oauth-protected-resource/mcp")
+        missing = await http.get("/.well-known/oauth-protected-resource/mcp?vault=nowhere")
+        unknown = await http.post("/mcp?vault=nowhere", json={})
+        stale = await http.post("/mcp?vault=nowhere", json={}, headers={"Authorization": "Bearer frame-token"})
+        known_stale = await http.post("/mcp?vault=workshop", json={}, headers={"Authorization": "Bearer frame-token"})
     assert challenged.status_code == 401
     challenge = challenged.headers["www-authenticate"]
-    assert 'resource_metadata="http://localhost/.well-known/oauth-protected-resource/v/workshop/mcp"' in challenge
-    assert metadata.json()["resource"] == f"{BASE}/v/workshop/mcp"
+    assert 'resource_metadata="http://localhost/.well-known/oauth-protected-resource/mcp?vault=workshop"' in challenge
+    assert metadata.json()["resource"] == f"{BASE}/mcp?vault=workshop"
+    assert server.json() == {**metadata.json(), "resource": f"{BASE}/mcp"}
     assert metadata.json()["authorization_servers"] == [BASE]
     assert missing.status_code == metadata.status_code
-    assert missing.json() == {**metadata.json(), "resource": f"{BASE}/v/nowhere/mcp"}
+    assert missing.json() == {**metadata.json(), "resource": f"{BASE}/mcp?vault=nowhere"}
     assert missing.headers["cache-control"] == metadata.headers["cache-control"]
     assert unknown.status_code == 401
-    assert unknown.headers["www-authenticate"] == challenge.replace("/v/workshop/", "/v/nowhere/")
+    assert unknown.headers["www-authenticate"] == challenge.replace("vault=workshop", "vault=nowhere")
     assert unknown.json() == challenged.json()
     assert (stale.status_code, stale.json()) == (known_stale.status_code, known_stale.json())
 
@@ -178,22 +181,36 @@ async def oauth(http: httpx2.AsyncClient, resource: str, vault: str = "") -> tup
 async def test_oauth_through_a_vault_address_gets_only_that_vault(site: Hosted):
     http = await two_vaults(site)
     async with http:
-        page, tokens, client_id = await oauth(http, f"{BASE}/v/workshop/mcp")
+        page, tokens, client_id = await oauth(http, f"{BASE}/mcp?vault=workshop")
         access = tokens["access_token"]
-        bound = await call_tool(http, access, "read_file", {"path": "Areas/here.md"}, path="/v/workshop/mcp")
-        elsewhere = await post_mcp(http, access, INITIALIZE, path="/v/orchard/mcp")
+        bound = await call_tool(http, access, "read_file", {"path": "Areas/here.md"}, path="/mcp?vault=workshop")
+        elsewhere = await post_mcp(http, access, INITIALIZE, path="/mcp?vault=orchard")
+        unknown = await post_mcp(http, access, INITIALIZE, path="/mcp?vault=nowhere")
         plain = await post_mcp(http, access, INITIALIZE)
         refreshed = await http.post(
             "/token",
             data={"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"], "client_id": client_id},
         )
         again = await call_tool(
-            http, refreshed.json()["access_token"], "read_file", {"path": "Areas/here.md"}, path="/v/workshop/mcp"
+            http, refreshed.json()["access_token"], "read_file", {"path": "Areas/here.md"}, path="/mcp?vault=workshop"
         )
     assert 'type="radio" name="vault"' not in page.text, "the vault is fixed by the address the client came through"
     assert "Workshop" in page.text
     assert "Oil the bed" in text_of(bound) and "Oil the bed" in text_of(again)
     assert elsewhere.status_code == 401 and plain.status_code == 401
+    assert (unknown.status_code, unknown.json()) == (elsewhere.status_code, elsewhere.json())
+
+
+@pytest.mark.anyio
+async def test_a_client_revokes_an_access_token_it_got_for_a_vault_address(site: Hosted):
+    http = await two_vaults(site)
+    async with http:
+        _, tokens, client_id = await oauth(http, f"{BASE}/mcp?vault=workshop")
+        revoked = await http.post(
+            "/revoke", data={"token": tokens["access_token"], "client_id": client_id, "client_secret": ""}
+        )
+        refused = await post_mcp(http, tokens["access_token"], INITIALIZE, path="/mcp?vault=workshop")
+    assert revoked.status_code == 200 and refused.status_code == 401
 
 
 @pytest.mark.anyio
@@ -206,11 +223,33 @@ async def test_oauth_through_the_server_address_lets_the_user_pick_the_vault(sit
             http, tokens["access_token"], "write_file", {"path": "Areas/new.md", "content": NOTE_BODY}
         )
         listed = await http.get("/account/vaults/workshop")
+        named = await call_tool(
+            http, tokens["access_token"], "read_file", {"path": "Areas/here.md"}, "/mcp?vault=workshop"
+        )
+        elsewhere = await post_mcp(http, tokens["access_token"], INITIALIZE, path="/mcp?vault=orchard")
     assert page.text.count('type="radio" name="vault"') == 2
     assert "Oil the bed" in text_of(read) and not wrote.get("isError")
+    assert "Oil the bed" in text_of(named) and elsewhere.status_code == 401
     assert "Cursor" in listed.text and "Connector" in listed.text and "Disconnect" in listed.text
     orchard = vaults.backend_factory(site.vault_of("ann@example.com", "orchard"))[0]
     assert "Areas/new.md" not in {entry.key for entry in orchard.list_all()}
+
+
+@pytest.mark.anyio
+async def test_a_client_that_drops_the_vault_from_its_resource_gets_the_picker_and_the_vault_it_picks(site: Hosted):
+    http = await two_vaults(site)
+    async with http:
+        challenged = await http.post("/mcp?vault=workshop", json={})
+        page, picked, _ = await oauth(http, f"{BASE}/mcp", vault="workshop")
+        _, other, _ = await oauth(http, f"{BASE}/mcp", vault="orchard")
+        reached = await call_tool(
+            http, picked["access_token"], "read_file", {"path": "Areas/here.md"}, "/mcp?vault=workshop"
+        )
+        refused = await post_mcp(http, other["access_token"], INITIALIZE, path="/mcp?vault=workshop")
+    assert challenged.status_code == 401
+    assert page.text.count('type="radio" name="vault"') == 2
+    assert "Oil the bed" in text_of(reached)
+    assert refused.status_code == 401 and refused.json()["error_description"] == "the token belongs to another vault"
 
 
 @pytest.mark.anyio
@@ -218,16 +257,21 @@ async def test_the_consent_page_refuses_a_vault_the_address_did_not_name(site: H
     http = await two_vaults(site)
     async with http:
         client = await register(http)
-        _, started = await authorize(http, client["client_id"], resource=f"{BASE}/v/workshop/mcp")
+        _, started = await authorize(http, client["client_id"], resource=f"{BASE}/mcp?vault=workshop")
         request_id = query(started.headers["location"])["request"]
         page = await http.get("/login", params={"request": request_id})
         swapped = await http.post(
             "/login",
             data={"request": request_id, "csrf": csrf_of(page.text), "vault": "orchard", "decision": "approve"},
         )
-        _, foreign = await authorize(http, client["client_id"], resource=f"{BASE}/v/nowhere/mcp")
+        _, unknown = await authorize(http, client["client_id"], resource=f"{BASE}/mcp?vault=nowhere")
+        unknown_page = await http.get("/login", params={"request": query(unknown.headers["location"])["request"]})
+        _, extra = await authorize(http, client["client_id"], resource=f"{BASE}/mcp?vault=workshop&other=1")
+        _, path = await authorize(http, client["client_id"], resource=f"{BASE}/v/workshop/mcp")
+    assert 'type="radio" name="vault"' not in page.text and "Workshop" in page.text
     assert swapped.status_code == 200 and "Choose one of your vaults." in swapped.text
-    assert foreign.status_code == 302 and "invalid_target" in foreign.headers["location"]
+    assert unknown_page.status_code == 403 and "does not own" in unknown_page.text
+    assert "invalid_target" in extra.headers["location"] and "invalid_target" in path.headers["location"]
 
 
 @pytest.mark.anyio
@@ -236,22 +280,47 @@ async def test_a_vault_address_of_another_account_is_refused_at_consent(site: Ho
     bo = await site.member("bo@example.com", sub="sub-bo")
     async with bo:
         client = await register(bo)
-        _, started = await authorize(bo, client["client_id"], resource=f"{BASE}/v/workshop/mcp")
+        _, started = await authorize(bo, client["client_id"], resource=f"{BASE}/mcp?vault=workshop")
         page = await bo.get("/login", params={"request": query(started.headers["location"])["request"]})
+        _, unknown = await authorize(bo, client["client_id"], resource=f"{BASE}/mcp?vault=nowhere")
+        unknown_page = await bo.get("/login", params={"request": query(unknown.headers["location"])["request"]})
     assert page.status_code == 403 and "does not own" in page.text
+    assert (unknown_page.status_code, unknown_page.text) == (page.status_code, page.text)
+
+
+@pytest.mark.anyio
+async def test_two_accounts_each_reach_their_own_vault_of_the_same_slug(site: Hosted):
+    ann = await two_vaults(site)
+    bo = await site.member("bo@example.com", sub="sub-bo")
+    site.store.create_vault(site.store.account("bo@example.com").id, "Workshop")
+    bo_key = site.key_for("bo@example.com", vault="workshop")
+    async with ann, bo:
+        written = await call_tool(bo, bo_key, "write_file", {"path": "Areas/here.md", "content": ORCHARD_NOTE})
+        _, ann_tokens, _ = await oauth(ann, f"{BASE}/mcp?vault=workshop")
+        _, bo_tokens, _ = await oauth(bo, f"{BASE}/mcp?vault=workshop")
+        ann_read = await call_tool(
+            ann, ann_tokens["access_token"], "read_file", {"path": "Areas/here.md"}, "/mcp?vault=workshop"
+        )
+        bo_read = await call_tool(
+            bo, bo_tokens["access_token"], "read_file", {"path": "Areas/here.md"}, "/mcp?vault=workshop"
+        )
+        by_key = await call_tool(bo, bo_key, "read_file", {"path": "Areas/here.md"}, "/mcp?vault=workshop")
+    assert not written.get("isError")
+    assert "Oil the bed" in text_of(ann_read)
+    assert "Prune in March" in text_of(bo_read) and "Prune in March" in text_of(by_key)
 
 
 @pytest.mark.anyio
 async def test_disconnecting_a_connector_stops_its_tokens(site: Hosted):
     http = await two_vaults(site)
     async with http:
-        _, tokens, _ = await oauth(http, f"{BASE}/v/workshop/mcp")
+        _, tokens, _ = await oauth(http, f"{BASE}/mcp?vault=workshop")
         page = await http.get("/account/vaults/workshop")
         client_id = page.text.split('name="client" value="')[1].split('"')[0]
         gone = await http.post(
             "/account/vaults/workshop/connections/disconnect", data={"csrf": csrf_of(page.text), "client": client_id}
         )
-        refused = await post_mcp(http, tokens["access_token"], INITIALIZE, path="/v/workshop/mcp")
+        refused = await post_mcp(http, tokens["access_token"], INITIALIZE, path="/mcp?vault=workshop")
         after = await http.get("/account/vaults/workshop")
     assert gone.status_code == 303 and refused.status_code == 401
     assert "Disconnect" not in after.text
@@ -309,9 +378,9 @@ async def test_the_vault_list_shows_each_vault_with_its_address(site: Hosted):
         async with other:
             foreign = await other.get("/account/vaults/workshop")
     assert listed.text.index("Orchard") < listed.text.index("Workshop")
-    assert "…/v/orchard/mcp" in listed.text and "…/v/workshop/mcp" in listed.text
+    assert "…/mcp?vault=orchard" in listed.text and "…/mcp?vault=workshop" in listed.text
     assert "2 notes" in listed.text and "1 key," in listed.text
-    assert f"{BASE}/v/workshop/mcp" in page.text
+    assert f"{BASE}/mcp?vault=workshop" in page.text
     assert "notes-vault-mcp login http://localhost --vault workshop" in page.text
     assert f"{BASE}/dav/" in page.text
     assert foreign.status_code == 404
@@ -397,7 +466,7 @@ async def test_deleting_a_vault_needs_a_recent_sign_in(site: Hosted):
         )
     assert stale.status_code == 403 and "Sign in again" in stale.text
     assert 'value="/account/vaults/workshop"' in stale.text
-    assert site.store.vault_by_slug("workshop") is not None
+    assert site.store.own_vault(site.store.account("ann@example.com").id, "workshop") is not None
 
 
 @pytest.mark.anyio
@@ -450,10 +519,18 @@ async def test_support_access_is_granted_per_vault(site: Hosted, cli_env: None, 
 async def test_the_cli_lists_adds_and_renames_vaults(site: Hosted, cli_env: None, capsys: pytest.CaptureFixture[str]):
     await two_vaults(site)
     assert main(["accounts", "add-vault", "ann@example.com", "Greenhouse", "--preset", "para"]) == 0
-    assert "/v/greenhouse/mcp" in capsys.readouterr().out
-    assert main(["accounts", "add-vault", "ann@example.com", "Orchard"]) == 2
-    assert "taken" in capsys.readouterr().err
+    assert "at /mcp?vault=greenhouse" in capsys.readouterr().out
+    assert main(["accounts", "add-vault", "ann@example.com", "Orchard", "--slug", "orchard"]) == 2
+    assert "already reach the vault Orchard at the address orchard" in capsys.readouterr().err
+    for wrong in ("glass-house", "glass.house", "glass_house", "Glasshouse", "9house", "new", "g" * 33):
+        assert main(["accounts", "add-vault", "ann@example.com", "Shed", "--slug", wrong]) == 2
+        assert "one word of lowercase letters" in capsys.readouterr().err
+        assert main(["accounts", "rename-vault", "ann@example.com", "greenhouse", "--slug", wrong]) == 2
+        assert "one word of lowercase letters" in capsys.readouterr().err
+    assert main(["accounts", "rename-vault", "ann@example.com", "greenhouse", "--slug", "workshop"]) == 2
+    assert "already reach the vault Workshop" in capsys.readouterr().err
     assert main(["accounts", "rename-vault", "ann@example.com", "greenhouse", "--slug", "glasshouse"]) == 0
+    assert "is at /mcp?vault=glasshouse" in capsys.readouterr().out
     assert main(["accounts", "vaults", "ann@example.com"]) == 0
     listed = capsys.readouterr().out.splitlines()
     assert [line.split("  ")[0] for line in listed[-3:]] == ["orchard", "workshop", "glasshouse"]
@@ -517,7 +594,7 @@ async def test_the_migration_keeps_an_existing_vault_where_it_is_and_readable(
         assert connection.execute("SELECT name FROM sqlite_master WHERE name = 'vault_keys'").fetchone() is None
         assert connection.execute("SELECT COUNT(*) FROM vault_data_keys").fetchone()[0] == 1
     vault = store.first_vault(account_id)
-    assert vault is not None and vault.id == account_id and vault.slug == "ann" and len(store.vaults(account_id)) == 1
+    assert vault is not None and vault.id == account_id and vault.slug == "notes" and len(store.vaults(account_id)) == 1
     sealed = SealedVaults(store, VaultKeys(store, keyring))
     backend, _ = sealed.for_vault(vault.id)
     assert {entry.key: backend.get(entry.key)[0] for entry in backend.list()} == notes
@@ -550,11 +627,26 @@ def test_a_migration_that_cannot_move_every_key_changes_nothing(
 
 def test_new_accounts_get_their_first_vault_and_a_free_slug(tmp_path: Path):
     store = HostedStore(tmp_path / "auth")
-    first, _ = store.invite("ann@example.com")
-    second, _ = store.invite("ann@example.org")
-    assert [vault.slug for vault in store.vaults(first.id)] == ["ann"]
-    assert [vault.slug for vault in store.vaults(second.id)] == ["ann-2"]
+    first, _ = store.invite("ann.green@example.com")
+    second, _ = store.invite("ann.green@example.org")
+    assert [vault.slug for vault in store.vaults(first.id)] == ["notes"]
+    assert [vault.slug for vault in store.vaults(second.id)] == ["notes"]
     assert store.first_vault(first.id).id.startswith("vlt_")
+    names = ["Work", "Work shop!", "Work", "Wörk", "2026 plans", "!!!", "New", "Notes", "x" * 40, "x" * 40]
+    made = [store.create_vault(first.id, name).slug for name in names]
+    assert made == ["work", "workshop", "work2", "work3", "plans", "vault", "new2", "notes2", "x" * 32, "x" * 31 + "2"]
+    assert store.create_vault(second.id, "Work").slug == "work"
+
+
+def test_one_account_cannot_own_two_vaults_with_one_slug(tmp_path: Path):
+    store = HostedStore(tmp_path / "auth")
+    ann, _ = store.invite("ann@example.com")
+    with store.connect() as connection, pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            "INSERT INTO vaults(id, account_id, name, slug, created_at, kind) VALUES('vlt_x', ?, 'Twin', 'notes', 1,"
+            " 'personal')",
+            (ann.id,),
+        )
 
 
 @pytest.mark.anyio
@@ -562,3 +654,70 @@ async def test_the_server_root_sends_a_visitor_to_the_account_page(site: Hosted)
     async with site.browser() as http:
         root = await http.get("/")
     assert root.status_code == 303 and root.headers["location"] == "/account"
+
+
+def test_the_migration_gives_every_vault_a_one_word_slug_unique_within_what_each_account_reaches(tmp_path: Path):
+    folder = tmp_path / "auth"
+    folder.mkdir()
+    database = SqliteDatabase(folder / "hosted.sqlite")
+    with database.connect() as connection:
+        connection.executescript(SCHEMA)
+    database.migrate(MIGRATIONS[:2])
+    vaults = [
+        ("v-ann1", "acc-ann", "Personal", "ann-green", 10, "personal"),
+        ("v-ann2", "acc-ann", "Work notes", "work.notes", 11, "personal"),
+        ("v-ann3", "acc-ann", "2024 Archive", "2024", 12, "personal"),
+        ("v-ann4", "acc-ann", "Orchard", "orchard", 13, "shared"),
+        ("v-ann5", "acc-ann", "Work", "work", 14, "personal"),
+        ("v-ann6", "acc-ann", "Work", "work-2", 15, "personal"),
+        ("v-ann7", "acc-ann", "Work", "work-club", 16, "shared"),
+        ("v-bo1", "acc-bo", "Personal", "bo-o", 1, "personal"),
+        ("v-bo2", "acc-bo", "Work", "work-bo", 2, "personal"),
+        ("v-bo3", "acc-bo", "Workbench", "work3", 3, "personal"),
+        ("v-bo4", "acc-bo", "Orchard", "orchard-club", 17, "personal"),
+    ]
+    with database.connect() as connection:
+        for account, email in (("acc-ann", "ann@example.com"), ("acc-bo", "bo@example.com")):
+            connection.execute(
+                "INSERT INTO accounts(id, email, status, status_changed_at, created_at) VALUES(?, ?, 'active', 1, 1)",
+                (account, email),
+            )
+        for row in vaults:
+            connection.execute(
+                "INSERT INTO vaults(id, account_id, name, slug, created_at, kind) VALUES(?, ?, ?, ?, ?, ?)", row
+            )
+        for vault in ("v-ann4", "v-ann7"):
+            connection.execute(
+                "INSERT INTO vault_members(vault_id, account_id, joined_at) VALUES(?, 'acc-bo', 20)", (vault,)
+            )
+        for token, resource in (("old", f"{BASE}/v/work-club/mcp"), ("plain", f"{BASE}/mcp")):
+            connection.execute(
+                "INSERT INTO tokens(token_hash, kind, grant_id, client_id, account_id, scopes, resource, issued_at,"
+                " expires_at, vault_id) VALUES(?, 'refresh', 'g', 'c', 'acc-ann', 'vault:read', ?, 1, 9999999999,"
+                " 'v-ann7')",
+                (token, resource),
+            )
+    store = HostedStore(folder)
+    assert {vault.id: vault.slug for vault in store.vaults("acc-ann")} == {
+        "v-ann1": "notes",
+        "v-ann2": "worknotes",
+        "v-ann3": "archive",
+        "v-ann4": "orchard",
+        "v-ann5": "work",
+        "v-ann6": "work2",
+        "v-ann7": "work4",
+    }
+    assert {vault.id: vault.slug for vault in store.vaults("acc-bo")} == {
+        "v-bo1": "notes",
+        "v-bo2": "work",
+        "v-bo3": "work3",
+        "v-bo4": "orchard2",
+    }
+    for account in ("acc-ann", "acc-bo"):
+        slugs = [vault.slug for vault in store.reachable_vaults(account)]
+        assert len(slugs) == len(set(slugs))
+    with store.connect() as connection:
+        revoked = dict(connection.execute("SELECT token_hash, revoked FROM tokens").fetchall())
+        index = connection.execute("SELECT sql FROM sqlite_master WHERE name = 'vaults_account_slug'").fetchone()[0]
+    assert revoked == {"old": 1, "plain": 0}
+    assert "UNIQUE INDEX" in index and "(account_id, slug)" in index

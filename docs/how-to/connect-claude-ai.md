@@ -2,7 +2,7 @@
 
 Each connector reaches one vault on a [vault server](../install/docker.md).
 
-1. Open `VAULT_PUBLIC_URL/account`, pick the vault, and copy its MCP address: `VAULT_PUBLIC_URL/v/<slug>/mcp`.
+1. Open `VAULT_PUBLIC_URL/account`, pick the vault, and copy its MCP address: `VAULT_PUBLIC_URL/mcp?vault=<slug>`.
 2. In claude.ai, open Settings, Connectors, Add custom connector, and paste the address. Name the connector after the vault.
 3. The browser signs in to the server and asks for read, or read and write. Approve.
 

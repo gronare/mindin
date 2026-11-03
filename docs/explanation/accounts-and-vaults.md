@@ -6,7 +6,7 @@ The vaults live in the configured folder or bucket, one under `VAULT_SUBJECT_PRE
 
 ## Vaults
 
-A new account starts with one vault, named Personal, at an address made from its email. Each person opens `VAULT_PUBLIC_URL/account`, which lists their vaults and makes new ones. A vault has a name and a slug that is unique on the server; its address is `VAULT_PUBLIC_URL/v/<slug>/mcp`. A vault is personal or [shared](shared-vaults.md), chosen when it is made.
+A new account starts with one vault, named Personal, with the slug `notes`. Each person opens `VAULT_PUBLIC_URL/account`, which lists their vaults and makes new ones. A vault has a name and a slug: one word of lowercase letters and digits, starting with a letter, unique among the vaults one account reaches. The server's address is `VAULT_PUBLIC_URL/mcp`, where a client reaches the vault picked when it connects; `VAULT_PUBLIC_URL/mcp?vault=<slug>` reaches that one vault. A vault is personal or [shared](shared-vaults.md), chosen when it is made.
 
 Each vault's page has:
 

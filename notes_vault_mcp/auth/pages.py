@@ -232,8 +232,8 @@ document.querySelectorAll("[data-slug-from]").forEach(function (target) {
   var field = document.getElementById(target.dataset.slugFrom);
   function show() {
     var slug = field.value.normalize("NFKD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
-    target.textContent = target.dataset.base + (slug || "…") + "/mcp";
+      .replace(/[^a-z0-9]+/g, "").replace(/^[0-9]+/, "").slice(0, 32);
+    target.textContent = target.dataset.base + (slug || "vault");
   }
   field.addEventListener("input", show);
   show();

@@ -428,6 +428,20 @@ async def test_a_forwarded_identity_reaches_the_vault_through_a_configured_proxy
 
 
 @pytest.mark.anyio
+async def test_a_forwarded_identity_names_one_of_its_vaults_with_the_vault_parameter(
+    vaults: SubjectVaults, tmp_path: Path, proxy: Proxy
+):
+    async with hosted(vaults, tmp_path, forwarded=forwarded(proxy)) as site, site.browser() as http:
+        site.invite("user1042@example.com")
+        site.store.create_vault(site.store.account("user1042@example.com").id, "Workshop")
+        headers = {"X-Forwarded-Identity": proxy.token("1042"), **mcp_headers()}
+        named = await http.post("/mcp?vault=workshop", headers=headers, content=json.dumps(INITIALIZE))
+        unknown = await http.post("/mcp?vault=nowhere", headers=headers, content=json.dumps(INITIALIZE))
+    assert named.status_code == 200, named.text
+    assert unknown.status_code == 403 and unknown.json()["error"] == "wrong_vault"
+
+
+@pytest.mark.anyio
 async def test_a_forged_or_unentitled_forwarded_identity_is_refused(
     vaults: SubjectVaults, tmp_path: Path, proxy: Proxy
 ):

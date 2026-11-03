@@ -158,7 +158,7 @@ async def test_the_account_downloads_its_whole_vault_as_a_zip(site: Hosted, vaul
     key = site.key_for("ann@example.com")
     async with http:
         await http.put("/dav/vault/Bilagor/bild.png", content=bytes(range(256)), headers=basic(key))
-        response = await http.get("/account/vaults/ann/export")
+        response = await http.get("/account/vaults/notes/export")
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/zip"
     assert "attachment" in response.headers["content-disposition"]
@@ -171,7 +171,7 @@ async def test_the_account_downloads_its_whole_vault_as_a_zip(site: Hosted, vaul
 @pytest.mark.anyio
 async def test_export_needs_a_session(site: Hosted):
     async with site.browser() as http:
-        response = await http.get("/account/vaults/ann/export")
+        response = await http.get("/account/vaults/notes/export")
     assert response.status_code == 303
     assert response.headers["location"].startswith("/signin")
 
@@ -185,9 +185,11 @@ def zipped(files: dict[str, bytes]) -> bytes:
 
 
 async def upload(http: httpx2.AsyncClient, archive: bytes) -> httpx2.Response:
-    csrf = csrf_of((await http.get("/account/vaults/ann")).text)
+    csrf = csrf_of((await http.get("/account/vaults/notes")).text)
     return await http.post(
-        "/account/vaults/ann/import", data={"csrf": csrf}, files={"archive": ("vault.zip", archive, "application/zip")}
+        "/account/vaults/notes/import",
+        data={"csrf": csrf},
+        files={"archive": ("vault.zip", archive, "application/zip")},
     )
 
 
@@ -226,7 +228,7 @@ async def test_the_upload_needs_the_pages_csrf_token(site: Hosted):
     http = await site.member("ann@example.com", sub="sub-ann")
     async with http:
         response = await http.post(
-            "/account/vaults/ann/import",
+            "/account/vaults/notes/import",
             data={"csrf": "wrong"},
             files={"archive": ("v.zip", zipped({}), "application/zip")},
         )
@@ -251,13 +253,13 @@ async def test_support_opens_a_vault_only_under_a_live_grant_and_every_access_is
         assert main(["support", "files", "ann@example.com", *support]) == 1
         assert "refused" in capsys.readouterr().err
         assert "Nobody from support has opened your vaults" in (await http.get("/account/settings")).text
-        assert (await post_account(http, "/account/support", vault="ann", duration="day")).status_code == 303
+        assert (await post_account(http, "/account/support", vault="notes", duration="day")).status_code == 303
         assert main(["support", "files", "ann@example.com", *support]) == 0
         assert "Areas/secret.md" in capsys.readouterr().out.splitlines()
         assert main(["support", "read", "ann@example.com", "Areas/secret.md", *support]) == 0
         assert "Hemligt" in capsys.readouterr().out
         page = (await http.get("/account/settings")).text
-        assert (await post_account(http, "/account/support/end", vault="ann")).status_code == 303
+        assert (await post_account(http, "/account/support/end", vault="notes")).status_code == 303
         assert main(["support", "read", "ann@example.com", "Areas/secret.md", *support]) == 1
     assert "Personal: open to support until" in page
     assert page.count("ticket 4711") == 2

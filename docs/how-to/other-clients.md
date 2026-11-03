@@ -38,7 +38,7 @@ docker run --rm -i -e S3_ENDPOINT -e S3_ACCESS_KEY -e S3_SECRET_KEY -e S3_BUCKET
 
 ## Clients that connect to a URL
 
-An MCP client that speaks OAuth takes the vault's address on a server, `VAULT_PUBLIC_URL/v/<slug>/mcp`, as a remote server and signs in through the browser.
+An MCP client that speaks OAuth takes the server's address, `VAULT_PUBLIC_URL/mcp`, or one vault's, `VAULT_PUBLIC_URL/mcp?vault=<slug>`, as a remote server and signs in through the browser.
 
 `VAULT_PUBLIC_URL/mcp` works for every client too: a key reaches the vault it was made for, and a client signed in through the browser asks which vault it gets.
 

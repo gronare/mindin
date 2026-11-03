@@ -6,14 +6,21 @@ import sqlite3
 import time
 import unicodedata
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 from notes_vault_mcp.auth.database import add_column, has_table
 
+if TYPE_CHECKING:
+    from notes_vault_mcp.auth import AuthConfig
+
 VAULT_ID_PREFIX = "vlt_"
-SLUG_MAX = 40
-SLUG_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?")
+SLUG_MAX = 32
+SLUG_RE = re.compile(r"[a-z][a-z0-9]{0,31}")
 RESERVED_SLUGS = frozenset({"new"})
 FIRST_VAULT_NAME = "Personal"
+FIRST_VAULT_SLUG = "notes"
+FALLBACK_SLUG = "vault"
 NAME_MAX = 64
 PERSONAL = "personal"
 SHARED = "shared"
@@ -129,9 +136,13 @@ def vault_of(row: sqlite3.Row | None) -> Vault | None:
     )
 
 
+def vault_resource_url(config: AuthConfig, slug: str) -> str:
+    return f"{config.resource_url}?vault={quote(slug, safe='')}"
+
+
 def slugify(text: str) -> str:
     folded = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").lower()
-    return re.sub(r"[^a-z0-9]+", "-", folded).strip("-")[:SLUG_MAX].strip("-")
+    return re.sub(r"[^a-z0-9]+", "", folded).lstrip("0123456789")[:SLUG_MAX]
 
 
 def clean_name(raw: str) -> str:
@@ -142,17 +153,43 @@ def valid_slug(slug: str) -> bool:
     return bool(SLUG_RE.fullmatch(slug)) and slug not in RESERVED_SLUGS
 
 
-def slug_taken(connection: sqlite3.Connection, slug: str) -> bool:
-    return connection.execute("SELECT 1 FROM vaults WHERE slug = ?", (slug,)).fetchone() is not None
-
-
-def free_slug(connection: sqlite3.Connection, base: str) -> str:
-    stem = (slugify(base) or "vault")[: SLUG_MAX - 4].strip("-") or "vault"
+def free_slug(taken: set[str], base: str) -> str:
+    stem = slugify(base) or FALLBACK_SLUG
     candidate, number = stem, 1
-    while not valid_slug(candidate) or slug_taken(connection, candidate):
+    while not valid_slug(candidate) or candidate in taken:
         number += 1
-        candidate = f"{stem}-{number}"
+        candidate = stem[: SLUG_MAX - len(str(number))] + str(number)
     return candidate
+
+
+def holders(connection: sqlite3.Connection, vault_id: str) -> list[str]:
+    rows = connection.execute(
+        "SELECT account_id FROM vaults WHERE id = ? UNION SELECT account_id FROM vault_members WHERE vault_id = ?",
+        (vault_id, vault_id),
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
+def reached(connection: sqlite3.Connection, account_ids: list[str]) -> list[Vault]:
+    if not account_ids:
+        return []
+    marks = ", ".join("?" for _ in account_ids)
+    rows = connection.execute(
+        f"SELECT * FROM vaults WHERE account_id IN ({marks}) OR (kind = 'shared' AND id IN"
+        f" (SELECT vault_id FROM vault_members WHERE account_id IN ({marks}))) ORDER BY created_at, rowid",
+        (*account_ids, *account_ids),
+    ).fetchall()
+    return [vault for vault in map(vault_of, rows) if vault is not None]
+
+
+def taken_slugs(connection: sqlite3.Connection, account_ids: list[str], other_than: str = "") -> set[str]:
+    return {vault.slug for vault in reached(connection, account_ids) if vault.id != other_than}
+
+
+def clash(connection: sqlite3.Connection, account_ids: list[str], slug: str, other_than: str = "") -> Vault | None:
+    return next(
+        (vault for vault in reached(connection, account_ids) if vault.slug == slug and vault.id != other_than), None
+    )
 
 
 def insert_vault(
@@ -176,8 +213,8 @@ def new_vault_id() -> str:
     return VAULT_ID_PREFIX + secrets.token_urlsafe(16)
 
 
-def add_first_vault(connection: sqlite3.Connection, account_id: str, email: str, created_at: int) -> None:
-    slug = free_slug(connection, email.partition("@")[0])
+def add_first_vault(connection: sqlite3.Connection, account_id: str, created_at: int) -> None:
+    slug = free_slug(taken_slugs(connection, [account_id]), FIRST_VAULT_SLUG)
     insert_vault(connection, new_vault_id(), account_id, FIRST_VAULT_NAME, slug, created_at)
 
 
@@ -192,13 +229,12 @@ def to_vaults(connection: sqlite3.Connection) -> None:
     for table, column, declaration in VAULT_COLUMNS:
         add_column(connection, table, column, declaration)
     unvaulted = connection.execute(
-        "SELECT id, email, created_at FROM accounts WHERE id NOT IN (SELECT account_id FROM vaults) ORDER BY rowid"
+        "SELECT id, created_at FROM accounts WHERE id NOT IN (SELECT account_id FROM vaults) ORDER BY rowid"
     ).fetchall()
     for row in unvaulted:
-        slug = free_slug(connection, row["email"].partition("@")[0])
         connection.execute(
             "INSERT INTO vaults(id, account_id, name, slug, created_at) VALUES(?, ?, ?, ?, ?)",
-            (row["id"], row["id"], FIRST_VAULT_NAME, slug, row["created_at"]),
+            (row["id"], row["id"], FIRST_VAULT_NAME, "-" + row["id"], row["created_at"]),
         )
     connection.execute("UPDATE api_keys SET vault_id = account_id WHERE vault_id IS NULL")
     connection.execute("UPDATE tokens SET vault_id = account_id WHERE vault_id IS NULL")
@@ -246,7 +282,45 @@ def to_shared(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
-MIGRATIONS = (to_vaults, to_shared)
+ACCOUNT_SLUG_VAULTS = """CREATE TABLE vaults_by_account (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'personal' CHECK (kind IN ('personal', 'shared'))
+)"""
+
+
+def to_account_slugs(connection: sqlite3.Connection) -> None:
+    connection.execute(ACCOUNT_SLUG_VAULTS)
+    connection.execute(
+        "INSERT INTO vaults_by_account(id, account_id, name, slug, created_at, kind)"
+        " SELECT id, account_id, name, slug, created_at, kind FROM vaults ORDER BY rowid"
+    )
+    connection.execute("DROP TABLE vaults")
+    connection.execute("ALTER TABLE vaults_by_account RENAME TO vaults")
+    connection.execute("CREATE INDEX IF NOT EXISTS vaults_account ON vaults(account_id)")
+    rewrite_slugs(connection)
+    connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS vaults_account_slug ON vaults(account_id, slug)")
+    connection.execute("UPDATE tokens SET revoked = 1 WHERE resource LIKE '%/v/%'")
+
+
+def rewrite_slugs(connection: sqlite3.Connection) -> None:
+    rows = connection.execute("SELECT * FROM vaults ORDER BY created_at, rowid").fetchall()
+    every = [vault for vault in map(vault_of, rows) if vault is not None]
+    first: dict[str, str] = {}
+    for vault in every:
+        first.setdefault(vault.account_id, vault.id)
+    for vault in every:
+        if valid_slug(vault.slug):
+            continue
+        base = FIRST_VAULT_SLUG if first[vault.account_id] == vault.id else vault.name
+        slug = free_slug(taken_slugs(connection, holders(connection, vault.id), vault.id), base)
+        connection.execute("UPDATE vaults SET slug = ? WHERE id = ?", (slug, vault.id))
+
+
+MIGRATIONS = (to_vaults, to_shared, to_account_slugs)
 
 
 def reaches(connection: sqlite3.Connection, vault: Vault, account_id: str) -> bool:
@@ -260,25 +334,37 @@ def reaches(connection: sqlite3.Connection, vault: Vault, account_id: str) -> bo
     return found is not None
 
 
-def accept_invitations(connection: sqlite3.Connection, account_id: str, emails: tuple[str, ...]) -> int:
+@dataclass(frozen=True)
+class Waiting:
+    vault: Vault
+    clash: Vault
+
+
+def accept_invitations(connection: sqlite3.Connection, account_id: str, emails: tuple[str, ...]) -> list[Waiting]:
     if not emails:
-        return 0
+        return []
     marks = ", ".join("?" for _ in emails)
     rows = connection.execute(
-        "SELECT vault_invitations.vault_id FROM vault_invitations"
-        " JOIN vaults ON vaults.id = vault_invitations.vault_id"
-        f" WHERE vault_invitations.email IN ({marks}) AND vaults.account_id != ?",
+        "SELECT DISTINCT vaults.* FROM vault_invitations JOIN vaults ON vaults.id = vault_invitations.vault_id"
+        f" WHERE vault_invitations.email IN ({marks}) AND vaults.account_id != ? ORDER BY vaults.created_at",
         (*emails, account_id),
     ).fetchall()
     moment = int(time.time())
-    for row in rows:
+    waiting: list[Waiting] = []
+    for vault in [vault for vault in map(vault_of, rows) if vault is not None]:
+        found = clash(connection, [account_id], vault.slug, vault.id)
+        if found is not None:
+            waiting.append(Waiting(vault, found))
+            continue
         connection.execute(
             "INSERT INTO vault_members(vault_id, account_id, joined_at) VALUES(?, ?, ?)"
             " ON CONFLICT (vault_id, account_id) DO NOTHING",
-            (row["vault_id"], account_id, moment),
+            (vault.id, account_id, moment),
         )
-    connection.execute(f"DELETE FROM vault_invitations WHERE email IN ({marks})", emails)
-    return len(rows)
+        connection.execute(
+            f"DELETE FROM vault_invitations WHERE vault_id = ? AND email IN ({marks})", (vault.id, *emails)
+        )
+    return waiting
 
 
 def invited(connection: sqlite3.Connection, emails: tuple[str, ...]) -> bool:

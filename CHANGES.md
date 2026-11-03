@@ -19,6 +19,7 @@ What each notes-vault-mcp release brings, one line per change, as you would tell
 - A note's age counts calendar days in local time, so a note from five days back reads "5 days" also just after midnight.
 - A vault server's root address opens the account page instead of answering not found.
 - The access log leaves out query strings, so sign-in and invitation links never land in it.
+- An unknown vault address answers like a known one the caller cannot reach.
 
 ## 0.12.0
 

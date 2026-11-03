@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import anyio
 import httpx2
@@ -354,6 +354,10 @@ class Target:
     metadata_url: str
     path: str
     vault: Vault | None = None
+    missing: bool = False
+
+
+NO_VAULT = Vault(id="", account_id="", name="", slug="", created_at=0)
 
 
 class HostedGuard:
@@ -372,26 +376,23 @@ class HostedGuard:
         self.vault_paths = re.compile(re.escape(protected.removesuffix("/mcp")) + r"/v/([^/]+)/mcp(/.*)?")
         self.forwarded = forwarded
 
-    def target(self, path: str) -> Target | None | Response:
+    def target(self, path: str) -> Target | None:
         if path == self.protected or path.startswith(self.protected + "/"):
             return Target(self.provider.config.resource_url, self.metadata_url, path)
         matched = self.vault_paths.fullmatch(path)
         if matched is None:
             return None
-        vault = self.provider.store.vault_by_slug(matched.group(1))
-        if vault is None:
-            return JSONResponse({"error": "not_found", "error_description": "there is no such vault"}, 404)
-        resource = self.provider.vault_resource(vault)
+        slug = matched.group(1)
+        vault = self.provider.store.vault_by_slug(slug)
+        resource = vault_resource_url(self.provider.config, slug)
         metadata_url = str(build_resource_metadata_url(URL.validate_python(resource)))
-        return Target(resource, metadata_url, self.protected + (matched.group(2) or ""), vault)
+        path = self.protected + (matched.group(2) or "")
+        return Target(resource, metadata_url, path, vault or NO_VAULT, vault is None)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         found = self.target(scope.get("path", "")) if scope["type"] == "http" else None
         if found is None:
             await self.app(scope, receive, send)
-            return
-        if isinstance(found, Response):
-            await found(scope, receive, send)
             return
         token = bearer(scope)
         verdict = (
@@ -399,6 +400,8 @@ class HostedGuard:
             if token
             else self.through_proxy(scope, found)
         )
+        if found.missing and verdict.access is not None:
+            verdict = Verdict(None, 401, "invalid_token", "the token's vault is gone")
         if verdict.access is None:
             await self.refuse(send, verdict, found)
             return
@@ -460,7 +463,7 @@ def bearer(scope: Scope) -> str:
 
 
 def vault_resource_url(config: AuthConfig, slug: str) -> str:
-    return f"{config.public_url.rstrip('/')}/v/{slug}/mcp"
+    return f"{config.public_url.rstrip('/')}/v/{quote(slug, safe='')}/mcp"
 
 
 def metadata(config: AuthConfig) -> dict[str, Any]:
@@ -641,11 +644,8 @@ def build_hosted_app(
         return await browser.consent_submit(request, provider.mint_code)
 
     async def vault_metadata(request: Request) -> Response:
-        vault = store.vault_by_slug(request.path_params["slug"])
-        if vault is None:
-            return JSONResponse({"error": "not_found"}, status_code=404)
         document = ProtectedResourceMetadata(
-            resource=URL.validate_python(provider.vault_resource(vault)),
+            resource=URL.validate_python(vault_resource_url(auth, request.path_params["slug"])),
             authorization_servers=[URL.validate_python(auth.issuer)],
             scopes_supported=list(SCOPES),
         )

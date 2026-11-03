@@ -103,7 +103,7 @@ async def test_a_key_reaches_only_its_own_vault_of_the_account(site: Hosted):
         unknown = await post_mcp(http, orchard, INITIALIZE, path="/v/nowhere/mcp")
     assert "Prune in March" in text_of(plain) and "Prune in March" in text_of(bound)
     assert refused.status_code == 403 and refused.json()["error"] == "wrong_vault"
-    assert unknown.status_code == 404
+    assert (unknown.status_code, unknown.json()) == (refused.status_code, refused.json())
 
 
 @pytest.mark.anyio
@@ -136,12 +136,21 @@ async def test_a_vault_address_is_its_own_protected_resource(site: Hosted):
         challenged = await http.post("/v/workshop/mcp", json={})
         metadata = await http.get("/.well-known/oauth-protected-resource/v/workshop/mcp")
         missing = await http.get("/.well-known/oauth-protected-resource/v/nowhere/mcp")
+        unknown = await http.post("/v/nowhere/mcp", json={})
+        stale = await http.post("/v/nowhere/mcp", json={}, headers={"Authorization": "Bearer frame-token"})
+        known_stale = await http.post("/v/workshop/mcp", json={}, headers={"Authorization": "Bearer frame-token"})
     assert challenged.status_code == 401
     challenge = challenged.headers["www-authenticate"]
     assert 'resource_metadata="http://localhost/.well-known/oauth-protected-resource/v/workshop/mcp"' in challenge
     assert metadata.json()["resource"] == f"{BASE}/v/workshop/mcp"
     assert metadata.json()["authorization_servers"] == [BASE]
-    assert missing.status_code == 404
+    assert missing.status_code == metadata.status_code
+    assert missing.json() == {**metadata.json(), "resource": f"{BASE}/v/nowhere/mcp"}
+    assert missing.headers["cache-control"] == metadata.headers["cache-control"]
+    assert unknown.status_code == 401
+    assert unknown.headers["www-authenticate"] == challenge.replace("/v/workshop/", "/v/nowhere/")
+    assert unknown.json() == challenged.json()
+    assert (stale.status_code, stale.json()) == (known_stale.status_code, known_stale.json())
 
 
 async def oauth(http: httpx2.AsyncClient, resource: str, vault: str = "") -> tuple[httpx2.Response, dict, str]:

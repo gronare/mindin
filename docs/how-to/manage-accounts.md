@@ -21,7 +21,7 @@ notes-vault-mcp accounts activate ann@example.com
 notes-vault-mcp accounts delete ann@example.com --yes
 ```
 
-`accounts delete` destroys every vault's key first, then their files, indexes, keys, connections and the account's ways in. It is refused while the account owns a [shared vault](../explanation/shared-vaults.md) that has other members; hand each one over or delete it first. People can also delete their own account on the account page.
+`accounts delete` destroys every vault's key first, then their files, indexes, keys, connections and the account's ways in. It is refused while the account owns a [shared vault](../explanation/shared-vaults.md) that has other members; hand each one over or delete it first. People can also delete their own account on the Account page.
 
 ## Give an account more vaults
 
@@ -31,15 +31,15 @@ notes-vault-mcp accounts add-vault ann@example.com "Workshop" --slug workshop --
 notes-vault-mcp accounts rename-vault ann@example.com workshop --name "Shed" --slug shed
 ```
 
-`--preset` picks the vault's [layout](../explanation/notes-and-layouts.md#layouts). People make their own vaults on the account page too.
+A slug is one word of lowercase letters and digits, starting with a letter; without `--slug`, it is made from the name. `--preset` picks the vault's [layout](../explanation/notes-and-layouts.md#layouts). People make their own vaults on the Vaults page too.
 
 ## Share a vault
 
 ```sh
-notes-vault-mcp accounts add-vault ann@example.com "Orchard club" --shared
-notes-vault-mcp accounts add-member ann@example.com orchard-club bo@example.com
-notes-vault-mcp accounts members ann@example.com orchard-club              # owner, members, invitations
-notes-vault-mcp accounts remove-member ann@example.com orchard-club bo@example.com
+notes-vault-mcp accounts add-vault ann@example.com "Orchard club" --slug orchard --shared
+notes-vault-mcp accounts add-member ann@example.com orchard bo@example.com
+notes-vault-mcp accounts members ann@example.com orchard              # owner, members, invitations
+notes-vault-mcp accounts remove-member ann@example.com orchard bo@example.com
 ```
 
 With SMTP set up, `add-member` sends the address one email with a sign-in link. `remove-member` withdraws an invitation, or removes a member and revokes their keys to the vault. The owner does the same on the vault's page. See [Shared vaults](../explanation/shared-vaults.md).

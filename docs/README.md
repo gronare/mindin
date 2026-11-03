@@ -14,7 +14,7 @@ Installing:
 - [Search by meaning](install/semantic-search.md): the `-semantic` image, the model from Hugging Face, memory.
 - [Install on Kubernetes](install/kubernetes.md): the manifests in `deploy/k8s/`.
 - [Run a server without Docker](install/without-docker.md): the Python package behind your own TLS.
-- [Behind a reverse proxy](how-to/reverse-proxy.md): another proxy in place of Caddy, and the `Host` header.
+- [Behind a reverse proxy](how-to/reverse-proxy.md): another proxy in place of Caddy, the `Host` header and the client's address.
 
 Connecting:
 

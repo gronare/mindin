@@ -19,8 +19,4 @@ It also blocks, in any directory, once you have written three messages since the
 
 Once a day it writes the [period pages](command-line.md#changelog) for every repo the session-start hook has seen, as `changelog --all` does.
 
-| Variable | Effect |
-| --- | --- |
-| `VAULT_STOP_HOOK=off` | Silences the hook. A tool that drives agent sessions and writes the log itself sets it in the sessions it starts. |
-| `VAULT_STOP_HOOK_PROMPTS` | How many messages it waits for, default `3`; `off` turns that check off. |
-| `VAULT_STOP_HOOK_COMMITS=off` | Turns off the commit and stale-note checks alone, for sessions whose log another tool writes. |
+`VAULT_STOP_HOOK`, `VAULT_STOP_HOOK_COMMITS` and `VAULT_STOP_HOOK_PROMPTS` turn these checks off or tune them; see [Configuration](configuration.md#hooks).

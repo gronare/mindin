@@ -36,15 +36,36 @@ kinds:
   howto: "steps that are known to work; nothing chosen, nothing open"
 ```
 
-## Other settings
+## Folders
 
-- `language` and `other_languages`, as ISO codes (`language: sv`, `other_languages: [en]`). Changing them rebuilds the index.
-- The tag vocabulary, and whether it is strict.
-- Synonym groups, which search expands (`bokning` finds `booking`).
-- `stale_after_days`, default `30`.
-- The search weights, including `stemmed_weight` (default `0.5`).
-- The task section headings per language.
-- The repo log's file and line formats.
+```yaml
+folders:
+  Areas: { kind: system, weight: 3.0, description: "One living note per system or subsystem." }
+  Archive: { kind: archive, weight: 0.3, searched: false, description: "History." }
+```
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `kind` | `reference` | `system`, `reference`, `task`, `log` or `archive`: which tools write there. |
+| `weight` | `1.0` | How much a note in the folder weighs in search, 0 or more. |
+| `searched` | `true` | `false` hides the folder from search unless asked for. |
+| `description` | | The folder's line in the server's instructions. |
+
+`root_description` is the vault root's line in the same list. `backlog.folder` names which folder of kind `task` holds the backlog when there are several.
+
+## Other keys
+
+| Key | Built-in default | Meaning |
+| --- | --- | --- |
+| `language` | `en` | The vault's language, as an ISO code. Picks the stemmer and the task headings. |
+| `other_languages` | `[]` | More languages to stem, such as `[sv]`. Changing either rebuilds the index. |
+| `tags.vocabulary` | `[]` | The vault's tags, named in the server's instructions. |
+| `tags.strict` | `false` | `true` refuses a write with a tag outside the vocabulary, and `lint` reports such tags. |
+| `synonyms` | `[]` | Groups of words search treats as one, such as `[[bokning, booking]]`. |
+| `stale_after_days` | `30` | When an open task note counts as stale. |
+| `search.recency_half_life_days` | `90` | How fast an old note's rank decays. |
+| `search.title_weight`, `summary_weight`, `tags_weight`, `body_weight`, `stem_weight` | `10.0`, `5.0`, `3.0`, `1.0`, `20.0` | How much a match in the title, summary, tags, body and file name weighs. |
+| `search.stemmed_weight` | `0.5` | How much a match on a word's stem alone weighs, so the exact form ranks first. |
 
 ## Repo log
 
@@ -71,6 +92,6 @@ task:
 
 ## When the schema does not hold
 
-The schema is checked when it is loaded. A schema that does not hold leaves the vault on its preset, and `context`, `lint` and the account page list each problem, for example `folders.Inbox.kind 'todo' is not one of: system, reference, task, log, archive`. A running server picks up an edited schema on its next refresh.
+The schema is checked when it is loaded. A schema that does not hold leaves the vault on its preset, and `context`, `lint` and the vault's page on a server list each problem, for example `folders.Inbox.kind 'todo' is not one of: system, reference, task, log, archive`. A running server picks up an edited schema on its next refresh.
 
-A vault whose schema names a preset this version does not ship is read as written, over the empty custom schema, and `context`, `lint` and the account page say so; `init` keeps that schema until `--preset <name> --force` switches it.
+A vault whose schema names a preset this version does not ship is read as written, over the empty custom schema, and `context`, `lint` and the vault's page say so; `init` keeps that schema until `--preset <name> --force` switches it.

@@ -54,9 +54,9 @@ New accounts are by invitation; see [Manage accounts](../how-to/manage-accounts.
 
 ## 6. Sign in
 
-Open `https://vault.example.com/account`, enter the invited address and follow the link in the email. Your account starts with one vault. Add a passkey on the account page to sign in without email next time.
+Open `https://vault.example.com/account`, enter the invited address and follow the link in the email. Your account starts with one vault, Personal, with the slug `notes`. Add a passkey on the Account page (`/account/settings`) to sign in without email next time.
 
-The vault's page shows its MCP address, `https://vault.example.com/mcp?vault=<slug>`. Next: [connect claude.ai](../how-to/connect-claude-ai.md), or [sign a machine in](../how-to/sign-in-a-machine.md) for Claude Code and the CLI.
+Open the vault from the Vaults page: its page shows its MCP address, `https://vault.example.com/mcp?vault=notes`. Next: [connect claude.ai](../how-to/connect-claude-ai.md), or [sign a machine in](../how-to/sign-in-a-machine.md) for Claude Code and the CLI.
 
 ## What lives where
 

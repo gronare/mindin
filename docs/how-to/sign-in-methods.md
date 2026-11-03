@@ -35,8 +35,8 @@ The proxy's email counts as verified. The header is ignored unless these setting
 
 ## Passkeys
 
-Sign in once another way, then use "Add a passkey" on the account page. After that, "Sign in with a passkey" needs nothing else.
+Sign in once another way, then use "Add a passkey" on the Account page (`/account/settings`). After that, "Sign in with a passkey" needs nothing else.
 
 ## Several ways into one account
 
-An account can have several ways in. A sign-in whose verified email matches an account joins it, so a person can start with an email link and later use GitHub or a passkey. The account page lists every way in and removes any but the last.
+An account can have several ways in. A sign-in whose verified email matches an account joins it, so a person can start with an email link and later use GitHub or a passkey. The Account page lists every way in and removes any but the last.

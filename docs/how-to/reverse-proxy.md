@@ -21,4 +21,4 @@ Set `VAULT_FORWARDED_ALLOW_IPS` to the addresses your proxies connect from, as I
 - With several proxies in a row, list every one of them, and make each pass `X-Forwarded-For` on to the next, adding the address it received the request from. A proxy that drops or replaces the header from the hop before it hands the server that hop's address instead of the client's.
 - The Docker example sets it to `*`, which trusts every peer: only Caddy can reach the server there, since its port is not published.
 
-To check it, sign in from another network and read the server's log: each request line starts with the client's address. When it shows a proxy's address instead, a hop is missing from the list or does not pass the header on.
+To check it, sign in from another network and read the server's log: each request line starts with the client's address, and leaves out the query string, where sign-in links carry their tokens. When it shows a proxy's address instead, a hop is missing from the list or does not pass the header on.

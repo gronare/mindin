@@ -10,7 +10,7 @@ A shared vault holds only the current state of things: system notes in `Areas/`,
 
 The owner invites an email on the vault's page, or with [`accounts add-member`](../how-to/manage-accounts.md#share-a-vault). With SMTP set up the address gets one email with a sign-in link. Signing in through it, or any other way with that verified address, makes the person a member, and makes them an account when they have none, also under `VAULT_REGISTRATION=invite`. A pending invitation can be withdrawn.
 
-Members sign in with their own account and make their own keys and connections to the vault; it shows under Shared on their vaults page. Removing a member, or a member leaving, stops their keys, tokens and signed-in computers for that vault on their next request. The owner can make a member the owner instead, and deletes the vault for everyone. Support access to a shared vault is the owner's to grant.
+Members sign in with their own account and make their own keys and connections to the vault; it shows under Shared on their Vaults page. Removing a member, or a member leaving, stops their keys, tokens and signed-in computers for that vault on their next request. The owner can make a member the owner instead, and deletes the vault for everyone. Support access to a shared vault is the owner's to grant.
 
 ## History
 

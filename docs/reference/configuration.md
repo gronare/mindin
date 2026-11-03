@@ -43,12 +43,12 @@ These apply to `serve --transport http`. `--host` defaults to `127.0.0.1` and `-
 | `VAULT_REGISTRATION` | no | `invite` | `invite`: only invited addresses get an account. `open`: any verified email does. |
 | `VAULT_PASSKEYS` | no | `on` | `on` or `off`. |
 | `VAULT_HTTP_STATELESS` | no | `off` | `on` keeps no MCP session on the server between requests, so a restart drops no session a client holds. Each request then stands alone: the server sends nothing to a client outside the answer to a request. |
-| `VAULT_INDEX_SNAPSHOTS` | no | `off` | `on` keeps a sealed copy of each vault's search index beside the vault in the folder or bucket, written when the vault goes idle, when the server shuts down, and at most once per `VAULT_INDEX_SNAPSHOT_MINUTES` while new notes are embedded, and only when the index changed since the last copy. A server whose `VAULT_CACHE_DIR` lacks a vault's index starts from that copy and indexes or embeds only the notes that changed since. Deleting the vault deletes the copy. |
+| `VAULT_INDEX_SNAPSHOTS` | no | `off` | `on` keeps a sealed copy of each vault's search index in the folder or bucket, under `<prefix>/indexes/<vault id>/`, written when the vault goes idle, when the server shuts down, and at most once per `VAULT_INDEX_SNAPSHOT_MINUTES` while new notes are embedded, and only when the index changed since the last copy. A server whose `VAULT_CACHE_DIR` lacks a vault's index starts from that copy and indexes or embeds only the notes that changed since. Deleting the vault deletes the copy. |
 | `VAULT_INDEX_SNAPSHOT_MINUTES` | no | `10` | The least time between two copies of one vault's index while it is in use. |
 | `VAULT_ALLOWED_HOSTS` | no | | Extra `Host` header values the MCP endpoint answers, space or comma separated. See [Behind a reverse proxy](../how-to/reverse-proxy.md). |
-| `VAULT_FORWARDED_ALLOW_IPS` | no | `127.0.0.1,::1`; `*` in the Docker example | The addresses of your reverse proxies, as IP addresses or CIDR ranges, comma separated. The server takes the client's address from `X-Forwarded-For` only on requests from these, and limits sign-in attempts per client address. `*` trusts every peer. See [The client's address](../how-to/reverse-proxy.md#the-clients-address). |
-| `VAULT_AUTH_DIR` | no | `VAULT_CACHE_DIR/auth`; `/data/auth` in the image | Where `hosted.sqlite` lives. |
-| `VAULT_SUBJECT_PREFIX` | no | `users` | Where the vaults live in the folder or bucket: `<prefix>/<vault id>/`, or `<prefix>/<account id>/` for an account's original vault. |
+| `VAULT_FORWARDED_ALLOW_IPS` | no | `127.0.0.1,::1`; `*` in the Docker example | The addresses of your reverse proxies, as IP addresses or CIDR ranges, comma separated. The server takes the client's address from `X-Forwarded-For` only on requests from these, and counts its rate limits per client address. `*` trusts every peer. See [The client's address](../how-to/reverse-proxy.md#the-clients-address). |
+| `VAULT_AUTH_DIR` | no | `VAULT_CACHE_DIR/auth`; `/data/auth` in the image | Where `hosted.sqlite` lives: the accounts, vaults, keys, tokens and rate-limit counts. |
+| `VAULT_SUBJECT_PREFIX` | no | `users` | Where the vaults live in the folder or bucket: `<prefix>/<vault id>/`. See [What is stored](../install/storage.md#what-is-stored). |
 
 The server loads the extensions installed beside it, from the Python entry point group `notes_vault_mcp.extensions`.
 
@@ -95,7 +95,7 @@ At least one of `VAULT_SMTP_HOST`, `VAULT_GITHUB_CLIENT_ID`, `VAULT_OIDC_ISSUER`
 | `VAULT_SEMANTIC` | no | off | `on`, `1`, `true` or `yes` adds search by meaning. |
 | `VAULT_SEMANTIC_MODEL` | no | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | The fastembed model. |
 | `VAULT_EMBED_URL` | no | | `tcp://host:port` of an `embed-worker` that this server sends its sections and queries to, instead of starting its own model process. The server then needs `numpy` but not `fastembed`. See [The model in its own process](../install/semantic-search.md#the-model-in-its-own-process). |
-| `VAULT_EMBED_TOKEN` | with `embed-worker --listen` beyond `127.0.0.1` or `::1` | | The secret an `embed-worker` asks of every request. Set the same value on the worker and on the server whose `VAULT_EMBED_URL` points at it. |
+| `VAULT_EMBED_TOKEN` | with `embed-worker --listen` on an address other than loopback | | The secret an `embed-worker` asks of every request. Set the same value on the worker and on the server whose `VAULT_EMBED_URL` points at it. |
 | `VAULT_EMBED_BATCH` | no | `16` | Sections the model process runs through the model at once. Fewer lowers its peak memory during a first sync. |
 | `VAULT_EMBED_THREADS` | no | half the usable cores, at most `4` | Threads the model runs on. The usable cores count a container's CPU limit (cgroup v2 `cpu.max`); ONNX Runtime on its own takes every physical core of the node. |
 | `VAULT_EMBED_MAX_TOKENS` | no | `256` | Tokens of a section the model reads. Prose sections stay under it; a section of links or code is cut there instead of padding its batch to 512. |
@@ -106,8 +106,8 @@ Read by their bare name only. [Hooks](hooks.md) describes the checks.
 
 | Variable | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `VAULT_STOP_HOOK` | no | on | `off` silences the stop hook. |
-| `VAULT_STOP_HOOK_COMMITS` | no | on | `off` turns off the stop hook's checks for unlogged commits and stale notes, and keeps the message check. |
+| `VAULT_STOP_HOOK` | no | on | `off` silences the stop hook, for sessions started by a tool that writes the log itself. |
+| `VAULT_STOP_HOOK_COMMITS` | no | on | `off` turns off the stop hook's checks for unlogged commits and stale notes, and keeps the message check, for sessions whose log another tool writes. |
 | `VAULT_STOP_HOOK_PROMPTS` | no | `3` | How many messages you write after the agent's last vault write before the stop hook asks it to save them; `off` turns that check off. |
 
 ## Terminal and Claude Code

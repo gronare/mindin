@@ -66,7 +66,7 @@ Measured on an M2 Pro with a vault of 500 notes in 3,300 sections:
 | --- | --- | --- |
 | Disk | 1 GB for the model, about 4 KB per section in the index (14 MB here) | 250 MB for the model, about 2 KB per section (7 MB here) |
 | Shared process | 1.1 to 1.7 GB just after it starts, about 500 MB once the system has paged out what searches do not touch | About 900 MB just after it starts, about 160 MB later |
-| Each server | About 35 MB more than searching by words | About 25 MB more |
+| Each session's MCP server | About 35 MB more than searching by words | About 25 MB more |
 | First sync | About four minutes (14 sections a second) | About a minute (60 sections a second) |
 | Query | About 23 ms, against 11 ms by words alone; about 50 ms each with six sessions searching at once | About 20 ms; about 33 ms with six at once |
 
@@ -93,7 +93,7 @@ VAULT_EMBED_TOKEN=<the same secret>
 - **Note text crosses the network unencrypted.** Every section the server embeds and every query reaches the worker in plaintext, also from a [sealed](../explanation/encryption.md) vault. Run the worker only on a private network: one host, a WireGuard link, or a cluster network that a NetworkPolicy closes to everything but the server. Nothing in the worker encrypts the connection.
 - **The token is required beyond loopback.** `--listen` defaults to `127.0.0.1:7400`, where `VAULT_EMBED_TOKEN` is optional. On any other address the worker refuses to start without one, and answers no request that lacks it.
 - **The worker runs until stopped.** It loads the model before it accepts connections, stays up while idle and stops on `SIGTERM`; a server cannot stop or restart it. It takes `VAULT_SEMANTIC_MODEL`, or `--model`, and keeps the model in its own `VAULT_CACHE_DIR/models`.
-- **The server names the worker's model.** A server whose `VAULT_SEMANTIC_MODEL` differs from the worker's gets no vectors, logs the mismatch once and searches by words. A server of another notes-vault-mcp version uses the worker as long as the model matches.
+- **The server names the worker's model.** A server whose `VAULT_SEMANTIC_MODEL` differs from the worker's gets no vectors, logs the mismatch once and searches by words. A server of another notes-vault-mcp version uses the worker as long as the model and the worker's protocol match.
 - **Without `VAULT_EMBED_URL`** the server starts its own model process, as above.
 
 The server then needs `numpy` but not `fastembed` or the model files, and its memory stays near searching by words; the worker's machine needs the memory listed above.

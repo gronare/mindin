@@ -9,7 +9,7 @@ A server's vaults are read with two things together, and with neither alone:
 
 Back up the vaults' storage as well: the folder in `VAULT_PATH` or the bucket. The search indexes under `VAULT_CACHE_DIR` are rebuilt from the vaults and need no backup.
 
-Each person can also download a vault as a zip from its page at any time.
+Each person can also download a personal vault as a zip from its page at any time.
 
 ## Rotate the master key
 

@@ -21,7 +21,7 @@ Each note is split at its headings, and each section gets a vector. The vectors 
 
 ### The shared model process
 
-The model runs in one background process per machine, shared by every server and command that uses the same `VAULT_CACHE_DIR`, however many sessions are open.
+The model runs in one background process per machine, shared by every session and command that uses the same `VAULT_CACHE_DIR`.
 
 - The first one that needs it starts it. It keeps running when that session ends, and exits by itself once nobody has asked it anything for five minutes. The next search starts it again, waiting under a second.
 - An HTTP server keeps it loaded for as long as the server runs, so its first search after a quiet spell finds by meaning too.

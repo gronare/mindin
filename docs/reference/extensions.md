@@ -50,7 +50,7 @@ Every hook has a default that does nothing, so a class overrides only what it ne
 | `deletion` | The `SelfDeletion` that erases an account and its vaults. |
 | `smtp_factory` | The SMTP client factory to hand `Mailer`, or `None` for `smtplib`. |
 | `routes` | Starlette routes to add. Put them under `config.path_prefix`. |
-| `account_sections` | Functions `(account, csrf) -> html` that add a section to the account page. |
+| `account_sections` | Functions `(account, csrf) -> html` that add a section to the Account page (`/account/settings`). |
 | `vault_sections` | Functions `(account, vault, csrf) -> html` that add a section to a vault's page. |
 | `health_checks` | Functions `() -> bool` that `/ready` runs; any that returns `False` or raises makes it answer 503 and name the check. |
 
@@ -62,7 +62,7 @@ Escape everything a section prints with `esc`, and wrap a route that takes a for
 
 ## The change bus
 
-A `ChangeBus` carries `Change(vault_id, kind, origin)` messages. The server publishes one after each write, layout change or vault deletion, and calls `listen` once with the function that applies a change it receives: `write` marks the vault's index stale, `schema` reloads its layout, `gone` drops the vault and its local index, `all` marks every open vault stale. A change whose `origin` is this server's own is ignored. Without a bus, an open vault notices writes made outside the server by re-reading its listing.
+A `ChangeBus` (`publish`, `listen`, `close`) carries `Change(vault_id, kind, origin)` messages. The server publishes one after each write, layout change or vault deletion, and calls `listen` once with the function that applies a change it receives: `write` marks the vault's index stale, `schema` reloads its layout, `gone` drops the vault and its local index, `all` marks every open vault stale. A change carrying the server's own `origin` is ignored, so a bus may hand the server its own changes back. Without a bus, an open vault notices writes made to its storage outside the server by re-reading its listing.
 
 ## Names
 

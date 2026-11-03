@@ -24,7 +24,7 @@ On S3, a conditional `write_file` sends its condition with the PUT; see [Storage
 
 The `init` tool sets up only a vault without a schema, so an MCP client cannot change the rules that check its own writes.
 
-A server also serves `claim`, `release`, `changelog`, `lint_and_park` and `view` to a machine signed in with [`login`](../how-to/sign-in-a-machine.md), for the [task and log commands](agent-commands.md), `changelog`, `lint --write --park-stale` and the terminal output of the [command line](command-line.md) that run through it; connectors never see them.
+A server also serves `claim`, `release`, `snapshot`, `changelog`, `lint_and_park` and `view` to a machine signed in with [`login`](../how-to/sign-in-a-machine.md), for the [task, log and snapshot commands](agent-commands.md), `changelog`, `lint --write --park-stale` and the terminal output of the [command line](command-line.md) that run through it. Connectors and keys made on a vault's page never see them.
 
 Over HTTP, a connection carries `vault:read` or `vault:read vault:write`. A write tool called on a read-only connection fails with an error saying so, rather than half-writing.
 

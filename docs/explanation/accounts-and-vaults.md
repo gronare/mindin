@@ -6,9 +6,9 @@ The vaults live in the configured folder or bucket, one under `VAULT_SUBJECT_PRE
 
 ## Vaults
 
-A new account starts with one vault, named Personal, with the slug `notes`. Each person opens `VAULT_PUBLIC_URL/account`, which lists their vaults and makes new ones. A vault has a name and a slug: one word of lowercase letters and digits, starting with a letter, unique among the vaults one account reaches. The server's address is `VAULT_PUBLIC_URL/mcp`, where a client reaches the vault picked when it connects; `VAULT_PUBLIC_URL/mcp?vault=<slug>` reaches that one vault. A vault is personal or [shared](shared-vaults.md), chosen when it is made.
+A new account starts with one vault, named Personal, with the slug `notes`. Each person opens the Vaults page, `VAULT_PUBLIC_URL/account`, which lists their vaults and makes new ones. A vault has a name and a slug: one word of lowercase letters and digits, starting with a letter, unique among the vaults one account reaches. The server's address is `VAULT_PUBLIC_URL/mcp`, where a client reaches the vault picked when it connects; `VAULT_PUBLIC_URL/mcp?vault=<slug>` reaches that one vault. A vault is personal or [shared](shared-vaults.md), chosen when it is made.
 
-Each vault's page has:
+Each personal vault's page has:
 
 - **Connect.** The vault's MCP address, the `login` line for a computer, and the WebDAV address.
 - **Connections and keys.** Every connector, signed-in computer and key that reaches this vault, with when it was last used; disconnect, sign out or revoke each one, and make a key.
@@ -28,9 +28,9 @@ Every connection reaches one vault, the one it was made for, and asks for read o
 | A client that only takes a header | A key made on the vault's page, sent as `Authorization: Bearer nvm_...`. See [Other clients](../how-to/other-clients.md#clients-that-only-take-a-header). |
 | Obsidian's Remotely Save | WebDAV at `VAULT_PUBLIC_URL/dav/` with a key from the vault's page. See [Obsidian](../how-to/obsidian.md). |
 
-## The account page
+## The Account page
 
-The account page shows who the person is, their [ways in](../how-to/sign-in-methods.md#several-ways-into-one-account), and:
+The Account page, `VAULT_PUBLIC_URL/account/settings`, shows who the person is, their [ways in](../how-to/sign-in-methods.md#several-ways-into-one-account), and:
 
 - **Support access.** The person can let the server's staff open one vault for a limited time; see [Support access](../how-to/support-access-and-import.md).
 - **Deletion.** The account deletes itself after a sign-in within the last ten minutes and its email typed out: every vault's key goes first, then their files, indexes, keys, connections and the ways in. It is refused while the account owns a shared vault that has other members.

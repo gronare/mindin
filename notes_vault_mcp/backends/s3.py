@@ -117,7 +117,7 @@ class S3Backend:
                 return self.put_bytes(key, data, content_type, condition)
             except ClientError as exc:
                 code = exc.response["Error"]["Code"]
-                if code in CONFLICT_CODES:
+                if code in CONFLICT_CODES or (code in MISSING_CODES and expected_version != MUST_NOT_EXIST):
                     raise VersionConflict(f"{key} changed since it was read (expected {expected_version})") from exc
                 if code not in UNSUPPORTED_CODES:
                     raise

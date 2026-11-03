@@ -248,3 +248,21 @@ def test_local_create_only_put_refuses_an_existing_key(vault_dir: Path):
     with pytest.raises(VersionConflict):
         backend.put("Areas/orchard.md", "clobber", expected_version=MUST_NOT_EXIST)
     backend.put("Areas/brand-new.md", "fresh", expected_version=MUST_NOT_EXIST)
+
+
+def test_s3_put_over_a_version_of_a_key_deleted_meanwhile_conflicts(s3_backend: S3Backend):
+    _, version = s3_backend.get("Areas/orchard.md")
+    s3_backend.delete("Areas/orchard.md")
+    with pytest.raises(VersionConflict):
+        s3_backend.put("Areas/orchard.md", "mine", expected_version=version)
+    with pytest.raises(NotFound):
+        s3_backend.get("Areas/orchard.md")
+
+
+def test_s3_put_over_a_version_answered_with_no_such_key_conflicts(s3_backend: S3Backend, monkeypatch):
+    def missing(**kwargs):
+        raise ClientError({"Error": {"Code": "NoSuchKey", "Message": "gone"}}, "PutObject")
+
+    monkeypatch.setattr(s3_backend.client, "put_object", missing)
+    with pytest.raises(VersionConflict):
+        s3_backend.put("Areas/orchard.md", "mine", expected_version="an-old-etag")

@@ -6,7 +6,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from notes_vault_mcp.backends import SCHEMA_KEY, Entry, NotFound, VaultBackend, VaultError
+from notes_vault_mcp.backends import SCHEMA_KEY, Entry, NotFound, VaultBackend, VaultError, delete_checked
 from notes_vault_mcp.frontmatter import FrontmatterError, parse
 from notes_vault_mcp.presets import SHARED_PRESET
 
@@ -168,6 +168,12 @@ class SharedBackend:
     def delete(self, key: str) -> None:
         before = self.previous(key) if recorded(key) else None
         self.inner.delete(key)
+        if before is not None:
+            self.recorder.record(current_actor(), "deleted", key, before, None)
+
+    def delete_checked(self, key: str, expected_version: str) -> None:
+        before = self.previous(key) if recorded(key) else None
+        delete_checked(self.inner, key, expected_version)
         if before is not None:
             self.recorder.record(current_actor(), "deleted", key, before, None)
 

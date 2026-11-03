@@ -94,6 +94,40 @@ def test_closing_a_note_keeps_what_was_appended_while_it_closed(vault: Vault, ot
     assert key not in {entry.key for entry in other.backend.list()}
 
 
+class MeddledDelete:
+    """A backend that lets another writer in just before the first delete of `key`."""
+
+    def __init__(self, inner: Any, key: str, meddle: Callable[[], None]) -> None:
+        self.inner = inner
+        self.key = key
+        self.meddle = meddle
+
+    def _before(self, key: str) -> None:
+        if key == self.key and self.meddle is not None:
+            meddle, self.meddle = self.meddle, None
+            meddle()
+
+    def delete(self, key: str) -> None:
+        self._before(key)
+        self.inner.delete(key)
+
+    def delete_checked(self, key: str, expected_version: str) -> None:
+        self._before(key)
+        self.inner.delete_checked(key, expected_version)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.inner, name)
+
+
+def test_closing_a_note_keeps_an_append_that_landed_just_before_the_delete(vault: Vault, other: Vault):
+    key = "Projects/orchard-fresh.md"
+    vault.backend = MeddledDelete(vault.backend, key, lambda: notes.append(other, key, "Last words."))
+    archived = notes.close(vault, key)
+    assert archived != key and "Last words." in body(other, archived)
+    assert key not in {entry.key for entry in other.backend.list()}
+    assert [entry.key for entry in other.backend.list() if "orchard-fresh" in entry.key] == [archived]
+
+
 def test_two_backlog_ideas_with_one_title_get_two_notes(vault: Vault, other: Vault):
     folder = vault.schema.backlog_folder
     taken: list[str] = []

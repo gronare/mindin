@@ -126,6 +126,12 @@ class LocalBackend:
         except FileNotFoundError as exc:
             raise NotFound(key) from exc
 
+    def delete_checked(self, key: str, expected_version: str) -> None:
+        with CHECKED_WRITES:
+            if self.current_version(key) != expected_version:
+                raise VersionConflict(f"{key} changed since it was read (expected {expected_version})")
+            self.delete(key)
+
     def move(self, src: str, dst: str) -> None:
         source = self._path(src)
         target = self._path(dst)

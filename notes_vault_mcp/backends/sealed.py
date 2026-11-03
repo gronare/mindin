@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM, AESSIV
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from notes_vault_mcp.backends import Entry, NotFound, VaultBackend, VaultError, is_vault_key
+from notes_vault_mcp.backends import Entry, NotFound, VaultBackend, VaultError, delete_checked, is_vault_key
 
 MAGIC = b"nvm1"
 NONCE_BYTES = 12
@@ -190,6 +190,14 @@ class SealedBackend:
         except NotFound:
             self._changed()
             raise NotFound(key) from None
+        except BaseException:
+            self._changed()
+            raise
+        self._wrote(key, None)
+
+    def delete_checked(self, key: str, expected_version: str) -> None:
+        try:
+            delete_checked(self.inner, self.object_key(key), expected_version)
         except BaseException:
             self._changed()
             raise

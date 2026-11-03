@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from notes_vault_mcp.backends import Entry, VaultBackend
+from notes_vault_mcp.backends import Entry, VaultBackend, delete_checked
 
 Kind = Literal["write", "schema", "gone", "all"]
 Listener = Callable[["Change"], None]
@@ -158,6 +158,10 @@ class Announcing:
 
     def delete(self, key: str) -> None:
         self.inner.delete(key)
+        self.changed()
+
+    def delete_checked(self, key: str, expected_version: str) -> None:
+        delete_checked(self.inner, key, expected_version)
         self.changed()
 
     def move(self, src: str, dst: str) -> None:

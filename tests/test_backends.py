@@ -7,7 +7,7 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from notes_vault_mcp.backends import FETCH_WORKERS, MUST_NOT_EXIST, NotFound, VersionConflict
+from notes_vault_mcp.backends import FETCH_WORKERS, MUST_NOT_EXIST, NotFound, VersionConflict, delete_checked
 from notes_vault_mcp.backends.local import LocalBackend
 from notes_vault_mcp.backends.s3 import S3Backend
 
@@ -266,3 +266,73 @@ def test_s3_put_over_a_version_answered_with_no_such_key_conflicts(s3_backend: S
     monkeypatch.setattr(s3_backend.client, "put_object", missing)
     with pytest.raises(VersionConflict):
         s3_backend.put("Areas/orchard.md", "mine", expected_version="an-old-etag")
+
+
+def test_s3_checked_delete_sends_if_match_and_refuses_a_changed_key(s3_backend: S3Backend, monkeypatch):
+    _, version = s3_backend.get("Areas/orchard.md")
+    sent: list[dict] = []
+    original = s3_backend.client.delete_object
+
+    def conditional(**kwargs):
+        sent.append(kwargs)
+        if kwargs.get("IfMatch") != f'"{s3_backend.current_version("Areas/orchard.md")}"':
+            raise ClientError({"Error": {"Code": "PreconditionFailed", "Message": "no"}}, "DeleteObject")
+        return original(**kwargs)
+
+    monkeypatch.setattr(s3_backend.client, "delete_object", conditional)
+    with pytest.raises(VersionConflict):
+        s3_backend.delete_checked("Areas/orchard.md", "an-old-etag")
+    assert s3_backend.get("Areas/orchard.md")[1] == version
+    s3_backend.delete_checked("Areas/orchard.md", version)
+    assert [call["IfMatch"] for call in sent] == ['"an-old-etag"', f'"{version}"']
+    with pytest.raises(NotFound):
+        s3_backend.get("Areas/orchard.md")
+
+
+def test_s3_without_conditional_deletes_checks_the_etag_first(s3_backend: S3Backend, monkeypatch):
+    original = s3_backend.client.delete_object
+
+    def refusing(**kwargs):
+        if "IfMatch" in kwargs:
+            raise ClientError({"Error": {"Code": "NotImplemented", "Message": "no"}}, "DeleteObject")
+        return original(**kwargs)
+
+    monkeypatch.setattr(s3_backend.client, "delete_object", refusing)
+    _, version = s3_backend.get("Areas/orchard.md")
+    with pytest.raises(VersionConflict):
+        s3_backend.delete_checked("Areas/orchard.md", "an-old-etag")
+    s3_backend.delete_checked("Areas/orchard.md", version)
+    with pytest.raises(NotFound):
+        s3_backend.get("Areas/orchard.md")
+
+
+def test_local_checked_delete_refuses_a_changed_file(vault_dir: Path):
+    backend = LocalBackend(vault_dir)
+    _, old = backend.get("Areas/orchard.md")
+    backend.put("Areas/orchard.md", "changed meanwhile")
+    _, new = backend.get("Areas/orchard.md")
+    with pytest.raises(VersionConflict):
+        backend.delete_checked("Areas/orchard.md", old)
+    backend.delete_checked("Areas/orchard.md", new)
+    with pytest.raises(NotFound):
+        backend.get("Areas/orchard.md")
+
+
+def test_a_backend_without_checked_deletes_still_refuses_a_changed_file(vault_dir: Path):
+    class Plain:
+        def __init__(self, inner: LocalBackend) -> None:
+            self.inner = inner
+
+        def get_bytes(self, key: str) -> tuple[bytes, str]:
+            return self.inner.get_bytes(key)
+
+        def delete(self, key: str) -> None:
+            self.inner.delete(key)
+
+    plain = Plain(LocalBackend(vault_dir))
+    _, version = plain.inner.get("Areas/orchard.md")
+    with pytest.raises(VersionConflict):
+        delete_checked(plain, "Areas/orchard.md", "an-old-version")
+    delete_checked(plain, "Areas/orchard.md", version)
+    with pytest.raises(NotFound):
+        plain.inner.get("Areas/orchard.md")

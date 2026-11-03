@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from notes_vault_mcp.backends import MUST_NOT_EXIST, SCHEMA_KEY, NotFound, VersionConflict
+from notes_vault_mcp.backends import MUST_NOT_EXIST, SCHEMA_KEY, NotFound, VersionConflict, delete_checked
 from notes_vault_mcp.frontmatter import (
     CLAIM_KEY,
     FRONTMATTER_RE,
@@ -323,21 +323,15 @@ def close(vault: Vault, path: str, merged_into: str | None = None, status: str |
                 lost |= {destination}
             continue
         if not archived:
-            if _version_of(vault, path) != read_version:
+            try:
+                delete_checked(vault.backend, path, read_version)
+            except VersionConflict:
                 vault.backend.delete(destination)
                 continue
-            vault.backend.delete(path)
             vault.index.remove(path)
         _reindex(vault, destination, out, version)
         return destination
     raise VersionConflict(f"{path} kept changing while it was being closed; try again")
-
-
-def _version_of(vault: Vault, key: str) -> str | None:
-    try:
-        return _read(vault, key)[1]
-    except NotFound:
-        return None
 
 
 def _area_link(area: str | None, repo: str) -> str:

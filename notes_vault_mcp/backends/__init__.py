@@ -56,6 +56,21 @@ class VaultBackend(Protocol):
     def mkdir(self, key: str) -> None: ...
 
 
+def delete_checked(backend: VaultBackend, key: str, expected_version: str) -> None:
+    checked = getattr(backend, "delete_checked", None)
+    if checked is not None:
+        checked(key, expected_version)
+        return
+    try:
+        current = backend.get_bytes(key)[1]
+    except NotFound:
+        current = None
+    if current != expected_version:
+        raise VersionConflict(f"{key} changed since it was read (expected {expected_version})")
+    # A write landing between this check and the delete is lost: only a backend with delete_checked closes that window.
+    backend.delete(key)
+
+
 def is_vault_key(key: str) -> bool:
     if key == SCHEMA_KEY:
         return True

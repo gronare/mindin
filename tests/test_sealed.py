@@ -270,3 +270,13 @@ def test_a_failed_write_drops_the_cached_listing(tmp_path: Path):
         sealed.put("Areas/orchard.md", "stale", expected_version="not-the-version")
     sealed.list_all()
     assert counting.listings == 1
+
+
+def test_a_checked_delete_refuses_a_changed_file_and_removes_an_unchanged_one(sealed: SealedBackend):
+    old = sealed.put("Areas/orchard.md", "first")
+    new = sealed.put("Areas/orchard.md", "second")
+    with pytest.raises(VersionConflict):
+        sealed.delete_checked("Areas/orchard.md", old)
+    assert sealed.get("Areas/orchard.md")[0] == "second"
+    sealed.delete_checked("Areas/orchard.md", new)
+    assert sealed.list_all() == []

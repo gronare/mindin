@@ -32,6 +32,7 @@ class S3Backend:
     ) -> None:
         self.bucket = bucket
         self.conditional_puts = True
+        self.conditional_deletes = True
         self.prefix = prefix.strip("/") + "/" if prefix.strip("/") else ""
         self.client = boto3.client(
             "s3",
@@ -145,6 +146,24 @@ class S3Backend:
 
     def delete(self, key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=self._object_key(key))
+
+    def delete_checked(self, key: str, expected_version: str) -> None:
+        if self.conditional_deletes:
+            try:
+                key_name = self._object_key(key)
+                self.client.delete_object(Bucket=self.bucket, Key=key_name, IfMatch=f'"{expected_version}"')
+                return
+            except ClientError as exc:
+                code = exc.response["Error"]["Code"]
+                if code in CONFLICT_CODES or code in MISSING_CODES:
+                    raise VersionConflict(f"{key} changed since it was read (expected {expected_version})") from exc
+                if code not in UNSUPPORTED_CODES:
+                    raise
+                self.conditional_deletes = False
+                log.warning("notes-vault-mcp: this S3 server refuses conditional deletes; checking the etag first")
+        if self.current_version(key) != expected_version:
+            raise VersionConflict(f"{key} changed since it was read (expected {expected_version})")
+        self.delete(key)
 
     def move(self, src: str, dst: str) -> None:
         try:

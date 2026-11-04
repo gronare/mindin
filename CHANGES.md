@@ -5,6 +5,12 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+
+### Fixed
+
+## 0.14.0
+
+### What's new
 - Renamed from notes-vault-mcp to mindin: the package, the command and the image are `mindin`. The `notes-vault-mcp` package and command keep working and run mindin, the image is published under both names, and `~/.config/notes-vault-mcp` and `~/.cache/notes-vault-mcp` move to `mindin` on the first run, so no machine is signed out or indexed again. Extensions register in the `mindin.extensions` entry point group and import from `mindin.extension_api`.
 - `mindin setup` asks where the vault lives, a folder, an S3 bucket or a vault server, and saves it for every command and client on the machine; `--folder`, `--s3` and `--server` do it from a script. The environment still wins, and the Claude Code plugin's settings are read when mindin has none. `status` names which one decided in `source`.
 - `curl -fsSL https://github.com/gronare/mindin/releases/latest/download/install.sh | sh` installs mindin with uv, runs `setup` and offers to add the vault to Claude Code, Codex and Cursor.

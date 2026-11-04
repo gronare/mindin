@@ -2,7 +2,7 @@
 
 ## Clients that start a stdio server
 
-Any client that starts a stdio MCP server works. Codex:
+Any client that starts a stdio MCP server works. On a machine where [`mindin setup`](../reference/command-line.md#setting-up-a-machine) saved the vault, the client starts `mindin` with no settings; the [install script](../../README.md#install) offers to add it to Codex and Cursor. To pass the vault in the client's own config instead, Codex:
 
 ```sh
 codex mcp add vault --env VAULT_PATH=$HOME/vault -- uvx mindin
@@ -51,4 +51,4 @@ The key reaches only its vault; another vault's address refuses it. Keys are sho
 
 ## kebbie
 
-[kebbie](https://kebbie.dev) uses the vault for each task's note, through the [task and log commands](../reference/agent-commands.md). For a vault server, [sign the machine in](sign-in-a-machine.md) once; the commands read `VAULT_SERVER_URL` from the environment or from the Claude Code plugin's settings.
+[kebbie](https://kebbie.dev) uses the vault for each task's note, through the [task and log commands](../reference/agent-commands.md). For a vault server, [sign the machine in](sign-in-a-machine.md) once; the commands find the vault as [every command](../reference/command-line.md#where-commands-find-the-vault) does, so on a machine set up with `mindin setup` kebbie needs nothing else.

@@ -105,7 +105,7 @@ case "$draft" in
   *) fail "$slug has no GitHub release $tag" ;;
 esac
 assets=$(gh release view "$tag" --repo "$slug" --json assets -q '.assets[].name')
-for asset in compose.yml Caddyfile example.env; do
-  printf '%s\n' "$assets" | grep -qx "$asset" || fail "the GitHub release $tag lacks $asset, which docs/install/docker.md fetches"
+for asset in compose.yml Caddyfile example.env install.sh; do
+  printf '%s\n' "$assets" | grep -qx "$asset" || fail "the GitHub release $tag lacks $asset, which the install docs fetch"
 done
 echo "release: mindin $version is published: https://github.com/$slug/releases/tag/$tag"

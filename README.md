@@ -6,6 +6,14 @@ Memory for Claude and coding agents, kept as markdown notes you own, with a sche
 
 ## Install
 
+```sh
+curl -fsSL https://github.com/gronare/mindin/releases/latest/download/install.sh | sh
+```
+
+It installs the `mindin` command with [uv](https://docs.astral.sh/uv/), asks where your vault lives (a folder, an S3 bucket or a vault server), and offers to add the vault to Claude Code, Codex and Cursor; it changes nothing in them without a yes. mindin was called notes-vault-mcp: the `notes-vault-mcp` package and command still work, and install and run mindin.
+
+### A vault server
+
 A vault server with Docker Compose, for claude.ai, Claude Desktop, mobile and every machine you work on. You need a domain pointing at the machine, ports 80 and 443 open, and an SMTP account for sign-in links.
 
 ```sh
@@ -19,11 +27,7 @@ docker compose exec vault mindin accounts invite you@example.com
 
 Then open `https://VAULT_HOST/account` and sign in. [Install with Docker](https://github.com/gronare/mindin/blob/main/docs/install/docker.md) walks through each step.
 
-Only Claude Code on one machine, with a local folder:
-
-```sh
-claude mcp add vault -s user -e VAULT_PATH=$HOME/vault -- uvx mindin
-```
+Without the script, on one machine: `uv tool install mindin`, then `mindin setup`.
 
 ## Use
 

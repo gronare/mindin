@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import tomllib
 from importlib import metadata
 from pathlib import Path
 
-from mindin.cli import main
+from mindin import cli
+from mindin.cli import about, build_parser, main
 from mindin.server import VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +14,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def shim() -> dict:
     return tomllib.loads((ROOT / "shim" / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+
+
+def test_about_answers_the_contract_kebbie_reads(capsys):
+    assert main(["about", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "name": "mindin",
+        "version": cli.package_version(),
+        "contract": 1,
+        "capabilities": ["tasks", "claims", "log", "snapshot", "read"],
+        "former_names": ["notes-vault-mcp"],
+    }
+
+
+def test_about_lists_only_the_commands_the_parser_has():
+    parser = build_parser()
+    commands = parser._subparsers._group_actions[0].choices
+    del commands["snapshot"]
+    del commands["task"]._subparsers._group_actions[0].choices["claim"]
+    assert about(parser)["capabilities"] == ["tasks", "log", "read"]
 
 
 def test_the_former_name_runs_mindins_command():

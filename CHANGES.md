@@ -6,6 +6,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 
 ### What's new
 - Renamed from notes-vault-mcp to mindin: the package, the command and the image are `mindin`. The `notes-vault-mcp` package and command keep working and run mindin, the image is published under both names, and `~/.config/notes-vault-mcp` and `~/.cache/notes-vault-mcp` move to `mindin` on the first run, so no machine is signed out or indexed again. Extensions register in the `mindin.extensions` entry point group and import from `mindin.extension_api`.
+- `mindin about --json` tells a tool the name, version, contract and the commands this install has.
 
 ### Fixed
 

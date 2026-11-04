@@ -39,7 +39,7 @@ perl -pi -e 's/"mindin(\[semantic\])?==[^"]*"/"mindin$1=='"$version"'"/g' shim/p
 perl -pi -e 's/^VERSION = "[^"]*"/VERSION = "'"$version"'"/' mindin/server.py
 perl -pi -e 's/"version": "[^"]*"/"version": "'"$version"'"/' server.json
 perl -0pi -e 's/(\[\[package\]\]\nname = "mindin"\nversion = )"[^"]*"/$1"'"$version"'"/' uv.lock
-perl -pi -e 's/^(# \{"configured": true, "version": )"[^"]*"/$1"'"$version"'"/' docs/reference/agent-commands.md
+perl -pi -e 's/^(# \{.*?"version": )"[^"]*"/$1"'"$version"'"/' docs/reference/agent-commands.md
 # shellcheck disable=SC2086
 perl -pi -e 's#(\Q'"$image"'\E):v[0-9][0-9.]*(-semantic)?$#$1:'"$tag"'$2#' $pinned
 
@@ -49,7 +49,7 @@ expect shim/pyproject.toml "\"mindin==$version\"" 1
 expect shim/pyproject.toml "\"mindin[semantic]==$version\"" 1
 expect mindin/server.py "VERSION = \"$version\"" 1
 expect server.json "\"version\": \"$version\"" 2
-expect docs/reference/agent-commands.md "\"version\": \"$version\"" 2
+expect docs/reference/agent-commands.md "\"version\": \"$version\"" 3
 expect docs/install/semantic-search.md "$image:$tag-semantic" 1
 for file in deploy/k8s/deployment.yaml deploy/docker/compose.yml; do expect "$file" "$image:$tag" 1; done
 stale=$(grep -rnE "$image:v[0-9]|\"version\": \"[0-9]" README.md docs deploy | grep -vF -e "$image:$tag" -e "\"version\": \"$version\"" || true)

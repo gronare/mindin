@@ -11,7 +11,7 @@ from pathlib import Path
 from mindin import __version__, changelog, credentials, hooks, human, notes, provision, tasks, views
 from mindin.auth import auth_config
 from mindin.backends import NotFound
-from mindin.config import ConfigError, adopt_plugin_config, cache_dir, env, local_root, s3_settings
+from mindin.config import FORMER_NAMES, ConfigError, adopt_plugin_config, cache_dir, env, local_root, s3_settings
 from mindin.embedding import keep_warm
 from mindin.extensions import installed
 from mindin.frontmatter import parse
@@ -615,6 +615,52 @@ def command_vault(args: argparse.Namespace) -> int:
     return 0
 
 
+CONTRACT = 1
+CAPABILITIES = {
+    "tasks": ("task",),
+    "claims": ("task", "claim"),
+    "log": ("log",),
+    "snapshot": ("snapshot",),
+    "read": ("read",),
+}
+
+
+def subcommands(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return dict(action.choices)
+    return {}
+
+
+def has_command(parser: argparse.ArgumentParser, path: tuple[str, ...]) -> bool:
+    for name in path:
+        found = subcommands(parser).get(name)
+        if found is None:
+            return False
+        parser = found
+    return True
+
+
+def about(parser: argparse.ArgumentParser) -> dict:
+    return {
+        "name": "mindin",
+        "version": package_version(),
+        "contract": CONTRACT,
+        "capabilities": [name for name, path in CAPABILITIES.items() if has_command(parser, path)],
+        "former_names": list(FORMER_NAMES),
+    }
+
+
+def command_about(args: argparse.Namespace) -> int:
+    found = about(build_parser())
+    if args.json:
+        print(json.dumps(found))
+        return 0
+    print(f"{found['name']} {found['version']}, formerly {', '.join(found['former_names'])}")
+    print(f"commands for tools: {', '.join(found['capabilities'])} (contract {found['contract']})")
+    return 0
+
+
 def add_plain(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--plain", action="store_true", help="the plain output a pipe gets, also in a terminal")
 
@@ -892,6 +938,10 @@ def build_parser() -> argparse.ArgumentParser:
     asking = sub.add_parser("whoami", help="the account and access of the stored key (JSON out)")
     asking.add_argument("url", nargs="?", help="the server; VAULT_SERVER_URL when omitted")
     asking.set_defaults(func=command_whoami)
+
+    telling = sub.add_parser("about", help="the name, version and commands for tools of this mindin")
+    telling.add_argument("--json", action="store_true", help="answer JSON, for tools that read it")
+    telling.set_defaults(func=command_about)
 
     status = sub.add_parser("status", help="whether a vault is configured (JSON out, never fails, never writes)")
     status.add_argument(

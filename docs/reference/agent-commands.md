@@ -27,6 +27,8 @@ mindin status
 # {"configured": true, "version": "0.13.0", "backend": "s3", "writable": null}
 mindin status --probe
 # {"configured": true, "version": "0.13.0", "backend": "s3", "writable": true}
+mindin about --json
+# {"name": "mindin", "version": "0.13.0", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "read"], "former_names": ["notes-vault-mcp"]}
 ```
 
 ## task open
@@ -62,3 +64,12 @@ Every answer carries an `etag`; with `--since <etag>` the answer is only `{"unch
 ## status
 
 `status` never fails: with no vault configured it prints `"configured": false, "backend": null` and exits 0. Through a server it answers `"backend": "server"` with the `server` and whether this machine is `signed_in`. It is read-only and leaves `writable` null; `--probe` measures it by writing and deleting `.vault/write-probe`.
+
+## about
+
+`about --json` tells a tool which mindin it found and what it can ask of it:
+
+- `name` is always `mindin`, also when run as `notes-vault-mcp`.
+- `contract` is the version of these commands' JSON; it changes only when an answer changes shape.
+- `capabilities` lists the commands this install has: `tasks` (`task`), `claims` (`task claim`), `log`, `snapshot` and `read`.
+- `former_names` lists the names the package and command had before.

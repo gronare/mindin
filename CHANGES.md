@@ -6,6 +6,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 
 ### What's new
 - The install script answers at `curl -fsSL https://mindin.dev/install.sh | sh`, and mindin.dev is the package's homepage.
+- The Claude Code plugin runs `mindin` itself instead of the `notes-vault-mcp` package, like a fresh install.
 
 ### Fixed
 

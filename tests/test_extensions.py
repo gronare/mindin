@@ -12,10 +12,10 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 from starlette.routing import Route
 
-from notes_vault_mcp import cli, extension_api, extensions
-from notes_vault_mcp.auth.hosted_store import Account, HostedStore
-from notes_vault_mcp.extensions import Access, Extension, Server, Subcommands
-from notes_vault_mcp.vault import SubjectVaults
+from mindin import cli, extension_api, extensions
+from mindin.auth.hosted_store import Account, HostedStore
+from mindin.extensions import Access, Extension, Server, Subcommands
+from mindin.vault import SubjectVaults
 
 
 class Ledger(Extension):

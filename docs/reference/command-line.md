@@ -1,23 +1,23 @@
 # Command line
 
-`notes-vault-mcp --help` and `notes-vault-mcp <command> --help` print every option. The commands for tools that drive agents (`task`, `log`, `snapshot`, `status`) are in [Agent commands](agent-commands.md).
+`mindin --help` and `mindin <command> --help` print every option. The commands for tools that drive agents (`task`, `log`, `snapshot`, `status`) are in [Agent commands](agent-commands.md).
 
 ## Vault and search
 
 ```sh
-notes-vault-mcp serve --transport stdio          # the default, also with no subcommand
-notes-vault-mcp serve --transport http --host 0.0.0.0 --port 8765
-notes-vault-mcp init [--preset default|para|simple|journal|custom] [--force]
-notes-vault-mcp sync [--rebuild]                 # refresh the index; --rebuild reads every note again
-notes-vault-mcp embed-worker [--listen 127.0.0.1:7400] [--model <name>]  # the model in its own process
-notes-vault-mcp search "bokning" --limit 5       # the same ranking, from a shell
-notes-vault-mcp context [--path ~/projects/myapp] # what a session in this repo starts with
-notes-vault-mcp read Projects/myapp-idea.md [--body] [--raw]
-notes-vault-mcp lint [--kind orphans] [--write Log/lint.md] [--park-stale]
-notes-vault-mcp backlog [--area myapp] [--priority high] [--paths] [--all]
-notes-vault-mcp changelog myapp 2026-08 --repo-path ~/projects/myapp [--write]
-notes-vault-mcp changelog --all                  # this month, and last month during its first week
-notes-vault-mcp hook session-start | stop        # the Claude Code hooks, JSON on stdin
+mindin serve --transport stdio          # the default, also with no subcommand
+mindin serve --transport http --host 0.0.0.0 --port 8765
+mindin init [--preset default|para|simple|journal|custom] [--force]
+mindin sync [--rebuild]                 # refresh the index; --rebuild reads every note again
+mindin embed-worker [--listen 127.0.0.1:7400] [--model <name>]  # the model in its own process
+mindin search "bokning" --limit 5       # the same ranking, from a shell
+mindin context [--path ~/projects/myapp] # what a session in this repo starts with
+mindin read Projects/myapp-idea.md [--body] [--raw]
+mindin lint [--kind orphans] [--write Log/lint.md] [--park-stale]
+mindin backlog [--area myapp] [--priority high] [--paths] [--all]
+mindin changelog myapp 2026-08 --repo-path ~/projects/myapp [--write]
+mindin changelog --all                  # this month, and last month during its first week
+mindin hook session-start | stop        # the Claude Code hooks, JSON on stdin
 ```
 
 `serve --host` defaults to `127.0.0.1` and `--port` to `8765`. `embed-worker` is described in [Search by meaning](../install/semantic-search.md#the-model-in-its-own-process). Through a server, `sync` only says that the server keeps the index.
@@ -25,10 +25,10 @@ notes-vault-mcp hook session-start | stop        # the Claude Code hooks, JSON o
 ## Signing in to a server
 
 ```sh
-notes-vault-mcp login [<url>] [--vault <slug>] [--name laptop] [--no-browser]
-notes-vault-mcp whoami [<url>]
-notes-vault-mcp logout [<url>] [--vault <slug>]
-notes-vault-mcp vault list | use <slug> [--dir <folder>] [--url <url>] | drop --dir <folder> [--url <url>]
+mindin login [<url>] [--vault <slug>] [--name laptop] [--no-browser]
+mindin whoami [<url>]
+mindin logout [<url>] [--vault <slug>]
+mindin vault list | use <slug> [--dir <folder>] [--url <url>] | drop --dir <folder> [--url <url>]
 ```
 
 Without `<url>` or `--url` they take `VAULT_SERVER_URL`. See [Sign a machine in](../how-to/sign-in-a-machine.md).
@@ -36,17 +36,17 @@ Without `<url>` or `--url` they take `VAULT_SERVER_URL`. See [Sign a machine in]
 ## On the server's machine
 
 ```sh
-notes-vault-mcp accounts list | invite <email> | suspend <account> | activate <account>
-notes-vault-mcp accounts delete <account> --yes
-notes-vault-mcp accounts vaults <account>
-notes-vault-mcp accounts add-vault <account> <name> [--slug <slug>] [--preset <layout> | --shared]
-notes-vault-mcp accounts rename-vault <account> <slug> [--name <name>] [--slug <slug>]
-notes-vault-mcp accounts members <owner> <slug>
-notes-vault-mcp accounts add-member | remove-member <owner> <slug> <email>
-notes-vault-mcp accounts import <account> [--vault <slug>] (--from-path <dir> | --from-s3-bucket <bucket> [--from-s3-prefix <prefix>] [--from-s3-endpoint <url>] [--from-s3-region <region>]) --operator <name> --reason <text>
-notes-vault-mcp support files <account> [--vault <slug>] --operator <name> --reason <text>
-notes-vault-mcp support read <account> <path> [--vault <slug>] --operator <name> --reason <text>
-notes-vault-mcp master-key generate | status | rewrap
+mindin accounts list | invite <email> | suspend <account> | activate <account>
+mindin accounts delete <account> --yes
+mindin accounts vaults <account>
+mindin accounts add-vault <account> <name> [--slug <slug>] [--preset <layout> | --shared]
+mindin accounts rename-vault <account> <slug> [--name <name>] [--slug <slug>]
+mindin accounts members <owner> <slug>
+mindin accounts add-member | remove-member <owner> <slug> <email>
+mindin accounts import <account> [--vault <slug>] (--from-path <dir> | --from-s3-bucket <bucket> [--from-s3-prefix <prefix>] [--from-s3-endpoint <url>] [--from-s3-region <region>]) --operator <name> --reason <text>
+mindin support files <account> [--vault <slug>] --operator <name> --reason <text>
+mindin support read <account> <path> [--vault <slug>] --operator <name> --reason <text>
+mindin master-key generate | status | rewrap
 ```
 
 See [Manage accounts](../how-to/manage-accounts.md), [Support access and import](../how-to/support-access-and-import.md) and [Back up and rotate keys](../how-to/back-up-and-rotate.md).

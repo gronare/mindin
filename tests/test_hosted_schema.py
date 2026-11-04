@@ -4,10 +4,10 @@ import json
 import sqlite3
 from pathlib import Path
 
-from notes_vault_mcp.auth.hosted_access import SupportAccess
-from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey, VaultKeys
-from notes_vault_mcp.auth.hosted_store import SCHEMA, HostedStore
-from notes_vault_mcp.auth.identities import Identities
+from mindin.auth.hosted_access import SupportAccess
+from mindin.auth.hosted_keys import Keyring, MasterKey, VaultKeys
+from mindin.auth.hosted_store import SCHEMA, HostedStore
+from mindin.auth.identities import Identities
 
 FIXTURE = Path(__file__).parent / "fixtures" / "hosted_schema.json"
 LEGACY_TABLES = """

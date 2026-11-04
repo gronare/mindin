@@ -5,7 +5,7 @@
 Any client that starts a stdio MCP server works. Codex:
 
 ```sh
-codex mcp add vault --env VAULT_PATH=$HOME/vault -- uvx notes-vault-mcp
+codex mcp add vault --env VAULT_PATH=$HOME/vault -- uvx mindin
 ```
 
 Cursor (`.cursor/mcp.json`), Claude Desktop's local config and most other clients take the same shape:
@@ -15,7 +15,7 @@ Cursor (`.cursor/mcp.json`), Claude Desktop's local config and most other client
   "mcpServers": {
     "vault": {
       "command": "uvx",
-      "args": ["notes-vault-mcp"],
+      "args": ["mindin"],
       "env": { "VAULT_PATH": "/home/me/vault" }
     }
   }
@@ -25,7 +25,7 @@ Cursor (`.cursor/mcp.json`), Claude Desktop's local config and most other client
 For a bucket, pass the `S3_*` settings in place of `VAULT_PATH` ([Storage](../install/storage.md)). For a vault server, [sign the machine in](sign-in-a-machine.md) and pass `VAULT_SERVER_URL`:
 
 ```sh
-codex mcp add vault --env VAULT_SERVER_URL=https://vault.example.com -- uvx notes-vault-mcp
+codex mcp add vault --env VAULT_SERVER_URL=https://vault.example.com -- uvx mindin
 ```
 
 The server's instructions carry the vault schema's rules, so a client without the CLAUDE.md snippet that [`init`](claude-code.md#without-the-plugin) prints still picks kinds and statuses the same way.
@@ -33,7 +33,7 @@ The server's instructions carry the vault schema's rules, so a client without th
 The container image runs the same stdio server:
 
 ```sh
-docker run --rm -i -e S3_ENDPOINT -e S3_ACCESS_KEY -e S3_SECRET_KEY -e S3_BUCKET ghcr.io/gronare/notes-vault-mcp:latest
+docker run --rm -i -e S3_ENDPOINT -e S3_ACCESS_KEY -e S3_SECRET_KEY -e S3_BUCKET ghcr.io/gronare/mindin:latest
 ```
 
 ## Clients that connect to a URL

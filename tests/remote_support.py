@@ -13,12 +13,12 @@ import uvicorn
 from cimd_support import MetadataHost
 from hosted_support import Clock, FakeIdentityProvider, hosted_config
 
-from notes_vault_mcp.auth import MACHINE_KEY_PURPOSE
-from notes_vault_mcp.auth.hosted import build_hosted_app
-from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey
-from notes_vault_mcp.auth.hosted_store import HostedStore
-from notes_vault_mcp.backends import VaultBackend
-from notes_vault_mcp.vault import SubjectVaults
+from mindin.auth import MACHINE_KEY_PURPOSE
+from mindin.auth.hosted import build_hosted_app
+from mindin.auth.hosted_keys import Keyring, MasterKey
+from mindin.auth.hosted_store import HostedStore
+from mindin.backends import VaultBackend
+from mindin.vault import SubjectVaults
 
 EMAIL = "ann@example.com"
 SUB = "sub-ann"

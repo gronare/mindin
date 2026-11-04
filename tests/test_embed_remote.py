@@ -11,12 +11,12 @@ import numpy
 import pytest
 from fake_models import concept_vector
 
-from notes_vault_mcp import embed_worker
-from notes_vault_mcp.cli import main
-from notes_vault_mcp.config import ConfigError
-from notes_vault_mcp.embed_worker import LENGTH, Worker, read_message, write_message
-from notes_vault_mcp.embedding import EmbeddingError, RemoteEmbedder, configured_embedder, embed_address
-from notes_vault_mcp.vault import open_vault
+from mindin import embed_worker
+from mindin.cli import main
+from mindin.config import ConfigError
+from mindin.embed_worker import LENGTH, Worker, read_message, write_message
+from mindin.embedding import EmbeddingError, RemoteEmbedder, configured_embedder, embed_address
+from mindin.vault import open_vault
 
 LOADER = "fake_models:concept_model"
 Start = Callable[..., tuple[str, int]]

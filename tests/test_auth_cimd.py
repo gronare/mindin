@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from cimd_support import MetadataHost
 
-from notes_vault_mcp.auth.cimd import (
+from mindin.auth.cimd import (
     MAX_DOCUMENT_BYTES,
     ClientMetadataError,
     ClientMetadataFetcher,

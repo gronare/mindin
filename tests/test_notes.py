@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from notes_vault_mcp import notes
-from notes_vault_mcp.backends import NotFound, VersionConflict
-from notes_vault_mcp.frontmatter import FrontmatterError, parse
-from notes_vault_mcp.vault import Vault
+from mindin import notes
+from mindin.backends import NotFound, VersionConflict
+from mindin.frontmatter import FrontmatterError, parse
+from mindin.vault import Vault
 
 ORCHARD = str(Path("~/projects/orchard").expanduser())
 

@@ -2,19 +2,19 @@
 
 An extension is a Python package installed beside the server that adds to it: tables in the account store, pages, routes, readiness checks, CLI commands, or a limit on what an account may do. The server finds it through an entry point and calls its hooks while it starts.
 
-Import everything an extension builds on from `notes_vault_mcp.extension_api`. The names there stay put between releases; the modules they come from may move.
+Import everything an extension builds on from `mindin.extension_api`. The names there stay put between releases; the modules they come from may move.
 
 ## Register the package
 
-Name a factory that returns an `Extension` in the `notes_vault_mcp.extensions` entry point group:
+Name a factory that returns an `Extension` in the `mindin.extensions` entry point group:
 
 ```toml
-[project.entry-points."notes_vault_mcp.extensions"]
+[project.entry-points."mindin.extensions"]
 orchard = "orchard_extension:Orchard"
 ```
 
 ```python
-from notes_vault_mcp.extension_api import Extension, Server
+from mindin.extension_api import Extension, Server
 
 
 class Orchard(Extension):
@@ -66,7 +66,7 @@ A `ChangeBus` (`publish`, `listen`, `close`) carries `Change(vault_id, kind, ori
 
 ## Names
 
-`notes_vault_mcp.extension_api` exports:
+`mindin.extension_api` exports:
 
 - Hooks and the server: `Extension`, `Server`, `Access`, `Section`, `VaultSection`, `HealthCheck`, `Subcommands`.
 - The account store: `Database`, `Connection`, `HostedStore`, `Account`, `Vault`, `Identities`, `STORE_VERSION`, `rewrite_slugs`, `has_table`, `account_of`, `digest`, `scope_label`, `MACHINE_KEY_PURPOSE`, `INVITATION_TTL`.

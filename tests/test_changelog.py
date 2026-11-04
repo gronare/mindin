@@ -9,10 +9,10 @@ from pathlib import Path
 import pytest
 from test_cli_hooks import feed, head_sha, make_repo
 
-from notes_vault_mcp import changelog, hooks
-from notes_vault_mcp.cli import main
-from notes_vault_mcp.frontmatter import parse
-from notes_vault_mcp.vault import Vault
+from mindin import changelog, hooks
+from mindin.cli import main
+from mindin.frontmatter import parse
+from mindin.vault import Vault
 
 THIS_MONTH = date.today().strftime("%Y-%m")
 
@@ -61,7 +61,7 @@ def test_write_page_keeps_prose_outside_the_markers_and_refreshes_the_block(vaul
     page = vault_dir / "Log/orchard-2026-08.md".replace("2026-08", THIS_MONTH)
     frontmatter, body = parse(page.read_text(encoding="utf-8"))
     assert frontmatter["status"] == "active"
-    from notes_vault_mcp.frontmatter import dump
+    from mindin.frontmatter import dump
 
     page.write_text(dump(frontmatter, "## Sammanfattning\n\nEn månad av prosa.\n\n" + body), encoding="utf-8")
     vault.index.sync(force=True)

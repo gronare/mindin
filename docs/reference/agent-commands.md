@@ -3,29 +3,29 @@
 For a tool that drives coding agents and records the facts itself at fixed points (start, push, done, reset) instead of relying on the agent to call the MCP tools. Each prints one JSON object on stdout and exits 0; a failure exits non-zero with one line on stderr. Every write goes through the same path as the MCP tools: schema validation, the `updated` stamp and the index. They find the vault as the [other commands](command-line.md#where-commands-find-the-vault) do.
 
 ```sh
-notes-vault-mcp task open --name "Fix login" --cwd ~/wt/wt1.myapp [--branch fix-login]
+mindin task open --name "Fix login" --cwd ~/wt/wt1.myapp [--branch fix-login]
 # {"path": "Projects/myapp-fix-login.md", "created": true, "repo": "myapp", "area": "myapp"}
-notes-vault-mcp task open --note Projects/myapp-idea.md --cwd ~/wt/wt1.myapp
+mindin task open --note Projects/myapp-idea.md --cwd ~/wt/wt1.myapp
 # {"path": "Projects/myapp-idea.md", "created": false, "repo": "myapp", "area": "myapp"}
-notes-vault-mcp task check Projects/myapp-fix-login.md --need problem,solution,decisions
+mindin task check Projects/myapp-fix-login.md --need problem,solution,decisions
 # {"missing": ["solution", "decisions"]}
-notes-vault-mcp task close Projects/myapp-fix-login.md        # {"path": "Archive/myapp-fix-login.md"}
-notes-vault-mcp task backlog Projects/myapp-fix-login.md --priority medium   # {"path": "Projects/…"}
-notes-vault-mcp task claim Projects/myapp-idea.md --machine mac --task fix-login --repo myapp [--force]
+mindin task close Projects/myapp-fix-login.md        # {"path": "Archive/myapp-fix-login.md"}
+mindin task backlog Projects/myapp-fix-login.md --priority medium   # {"path": "Projects/…"}
+mindin task claim Projects/myapp-idea.md --machine mac --task fix-login --repo myapp [--force]
 # {"path": "Projects/myapp-idea.md", "claimed": true, "claim": {"machine": "mac", "task": "fix-login", "repo": "myapp", "since": "2026-10-23T09:12:00Z"}, "replaced": null}
-notes-vault-mcp task release Projects/myapp-idea.md [--machine mac]
+mindin task release Projects/myapp-idea.md [--machine mac]
 # {"path": "Projects/myapp-idea.md", "released": true, "claim": null}
-notes-vault-mcp task release --machine mac --task fix-login
+mindin task release --machine mac --task fix-login
 # {"paths": ["Projects/myapp-renamed.md"], "released": true}
-notes-vault-mcp log append --cwd ~/wt/wt1.myapp --line "Login fixed" --commit abc1234 --commit def5678 [--branch fix-login]
+mindin log append --cwd ~/wt/wt1.myapp --line "Login fixed" --commit abc1234 --commit def5678 [--branch fix-login]
 # {"path": "Log/myapp-log.md"}
-notes-vault-mcp log path --repo myapp                         # {"path": "Log/myapp-log.md"}
-notes-vault-mcp log path --repo myapp --repo docs            # {"myapp": "Log/myapp-log.md", "docs": "Log/docs-log.md"}
-notes-vault-mcp snapshot --json [--since ETAG]               # the board's notes and logs in one answer
-notes-vault-mcp read Projects/myapp-idea.md [--body]          # the note as stored in a pipe, or only its text after the frontmatter
-notes-vault-mcp status
+mindin log path --repo myapp                         # {"path": "Log/myapp-log.md"}
+mindin log path --repo myapp --repo docs            # {"myapp": "Log/myapp-log.md", "docs": "Log/docs-log.md"}
+mindin snapshot --json [--since ETAG]               # the board's notes and logs in one answer
+mindin read Projects/myapp-idea.md [--body]          # the note as stored in a pipe, or only its text after the frontmatter
+mindin status
 # {"configured": true, "version": "0.13.0", "backend": "s3", "writable": null}
-notes-vault-mcp status --probe
+mindin status --probe
 # {"configured": true, "version": "0.13.0", "backend": "s3", "writable": true}
 ```
 

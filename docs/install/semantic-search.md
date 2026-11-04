@@ -13,7 +13,7 @@ The `-semantic` image tag carries the extra; the plain tag leaves it out. Create
 ```yaml
 services:
   vault:
-    image: ghcr.io/gronare/notes-vault-mcp:v0.13.0-semantic
+    image: ghcr.io/gronare/mindin:v0.13.0-semantic
     environment:
       VAULT_SEMANTIC: "on"
     mem_limit: 3g
@@ -31,10 +31,10 @@ Set the image in `deploy/k8s/deployment.yaml` to the `-semantic` tag, add `VAULT
 claude mcp add vault -s user \
   -e VAULT_PATH=$HOME/vault \
   -e VAULT_SEMANTIC=on \
-  -- uvx --from 'notes-vault-mcp[semantic]' notes-vault-mcp
+  -- uvx --from 'mindin[semantic]' mindin
 ```
 
-Any client works the same way: run `notes-vault-mcp[semantic]` and set `VAULT_SEMANTIC=on`.
+Any client works the same way: run `mindin[semantic]` and set `VAULT_SEMANTIC=on`.
 
 ## The model and Hugging Face
 
@@ -72,14 +72,14 @@ Measured on an M2 Pro with a vault of 500 notes in 3,300 sections:
 
 On a server the model process runs in the server's container, and the first sync is when it uses the most memory: loading mpnet peaks near 2 GB by itself, and embedding stays at about that peak with the defaults of `VAULT_EMBED_BATCH` and `VAULT_EMBED_MAX_TOKENS`. Give the container a memory limit of at least 3 GiB with mpnet; below that the kernel kills the process, and the server with it, while it embeds. A restarted server goes on from the notes that already carry vectors. Lowering `VAULT_EMBED_BATCH` lowers the peak; see [Configuration](../reference/configuration.md#search-by-meaning).
 
-`notes-vault-mcp sync` embeds whatever is pending and says how many notes carry vectors; `sync --rebuild` computes them all again.
+`mindin sync` embeds whatever is pending and says how many notes carry vectors; `sync --rebuild` computes them all again.
 
 ## The model in its own process
 
 The model can run as a process of its own, outside the server. The server then restarts in seconds and stays near the memory of searching by words, because it never loads the model; the model stays loaded across server restarts. Run the model:
 
 ```sh
-VAULT_EMBED_TOKEN=<a long random secret> notes-vault-mcp embed-worker --listen 10.0.0.5:7400
+VAULT_EMBED_TOKEN=<a long random secret> mindin embed-worker --listen 10.0.0.5:7400
 ```
 
 and point the server at it:
@@ -93,7 +93,7 @@ VAULT_EMBED_TOKEN=<the same secret>
 - **Note text crosses the network unencrypted.** Every section the server embeds and every query reaches the worker in plaintext, also from a [sealed](../explanation/encryption.md) vault. Run the worker only on a private network: one host, a WireGuard link, or a cluster network that a NetworkPolicy closes to everything but the server. Nothing in the worker encrypts the connection.
 - **The token is required beyond loopback.** `--listen` defaults to `127.0.0.1:7400`, where `VAULT_EMBED_TOKEN` is optional. On any other address the worker refuses to start without one, and answers no request that lacks it.
 - **The worker runs until stopped.** It loads the model before it accepts connections, stays up while idle and stops on `SIGTERM`; a server cannot stop or restart it. It takes `VAULT_SEMANTIC_MODEL`, or `--model`, and keeps the model in its own `VAULT_CACHE_DIR/models`.
-- **The server names the worker's model.** A server whose `VAULT_SEMANTIC_MODEL` differs from the worker's gets no vectors, logs the mismatch once and searches by words. A server of another notes-vault-mcp version uses the worker as long as the model and the worker's protocol match.
+- **The server names the worker's model.** A server whose `VAULT_SEMANTIC_MODEL` differs from the worker's gets no vectors, logs the mismatch once and searches by words. A server of another mindin version uses the worker as long as the model and the worker's protocol match.
 - **Without `VAULT_EMBED_URL`** the server starts its own model process, as above.
 
 The server then needs `numpy` but not `fastembed` or the model files, and its memory stays near searching by words; the worker's machine needs the memory listed above.

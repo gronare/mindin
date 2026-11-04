@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 from hosted_support import hosted
 
-from notes_vault_mcp.auth.hosted_ready import Cached, account_store_check
-from notes_vault_mcp.extensions import Extension, Server
-from notes_vault_mcp.vault import SubjectVaults
+from mindin.auth.hosted_ready import Cached, account_store_check
+from mindin.extensions import Extension, Server
+from mindin.vault import SubjectVaults
 
 
 class Checks(Extension):

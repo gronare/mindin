@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "notes-vault-mcp"
+version = "0.13.0"
+description = "The former name of mindin: installs mindin and keeps the notes-vault-mcp command working."
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Carl Green", email = "carl.green@gronare.se" }]
+dependencies = ["mindin==0.13.0"]
+
+[project.optional-dependencies]
+semantic = ["mindin[semantic]==0.13.0"]
+
+[project.urls]
+Homepage = "https://github.com/gronare/mindin"
+Repository = "https://github.com/gronare/mindin"
+
+[project.scripts]
+notes-vault-mcp = "mindin.cli:main"
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true

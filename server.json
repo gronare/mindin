@@ -1,19 +1,19 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.gronare/notes-vault-mcp",
-  "title": "Notes Vault",
+  "name": "io.github.gronare/mindin",
+  "title": "mindin",
   "description": "Indexed search, schema-checked writes and session hooks for a markdown notes vault",
   "version": "0.13.0",
   "repository": {
-    "url": "https://github.com/gronare/notes-vault-mcp",
+    "url": "https://github.com/gronare/mindin",
     "source": "github"
   },
-  "websiteUrl": "https://github.com/gronare/notes-vault-mcp",
+  "websiteUrl": "https://github.com/gronare/mindin",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
-      "identifier": "notes-vault-mcp",
+      "identifier": "mindin",
       "version": "0.13.0",
       "runtimeHint": "uvx",
       "transport": { "type": "stdio" },
@@ -74,7 +74,7 @@
           "isRequired": false,
           "isSecret": false,
           "format": "filepath",
-          "default": "~/.cache/notes-vault-mcp"
+          "default": "~/.cache/mindin"
         },
         {
           "name": "VAULT_SCHEMA",

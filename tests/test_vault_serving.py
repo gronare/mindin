@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys, delete_vault
-from notes_vault_mcp.auth.hosted_snapshots import IndexSnapshots
-from notes_vault_mcp.auth.hosted_store import HostedStore
-from notes_vault_mcp.backends import SCHEMA_KEY
-from notes_vault_mcp.changes import Announcing, Change, LocalBus
-from notes_vault_mcp.vault import SubjectVaults, Vault
+from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys, delete_vault
+from mindin.auth.hosted_snapshots import IndexSnapshots
+from mindin.auth.hosted_store import HostedStore
+from mindin.backends import SCHEMA_KEY
+from mindin.changes import Announcing, Change, LocalBus
+from mindin.vault import SubjectVaults, Vault
 
 FRONT = "date: 2026-09-01\nupdated: 2026-09-01\ntags: [workshop]\nstatus: active\n"
 LATHE = f"---\ntitle: Lathe\n{FRONT}---\n\nThe lathe wants oil before turning.\n"
@@ -105,7 +105,7 @@ def test_a_write_succeeds_at_once_whatever_the_bus_does(
 
 
 def test_a_full_change_queue_drops_changes_instead_of_waiting(sealed: SealedVaults, vault_id: str, tmp_path: Path):
-    from notes_vault_mcp.changes import Publisher
+    from mindin.changes import Publisher
 
     bus = StuckBus()
     publisher = Publisher(bus, capacity=1)

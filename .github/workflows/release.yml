@@ -13,8 +13,11 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME#v}"
           package=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)
-          server=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' notes_vault_mcp/server.py)
+          server=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' mindin/server.py)
           if [ "$package" != "$tag" ] || [ "$server" != "$tag" ]; then echo "::error::pyproject.toml says $package, server.py says $server, the tag says $tag"; exit 1; fi
+          former=$(sed -n 's/^version = "\(.*\)"/\1/p' shim/pyproject.toml | head -1)
+          pinned=$(grep -c "\"mindin\(\[semantic\]\)\?==$tag\"" shim/pyproject.toml || true)
+          if [ "$former" != "$tag" ] || [ "$pinned" != 2 ]; then echo "::error::shim/pyproject.toml says $former and pins mindin==$tag $pinned times, the tag says $tag"; exit 1; fi
       - name: CHANGES.md says what the version brings
         run: sh scripts/release-notes.sh "${GITHUB_REF_NAME#v}"
       - uses: astral-sh/setup-uv@v6
@@ -32,7 +35,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
-      - run: uv build
+      - run: uv build --out-dir dist
+      - name: Build the former name, which installs mindin of the same version
+        run: uv build shim --out-dir dist
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   ghcr:
@@ -53,18 +58,22 @@ jobs:
           context: .
           push: true
           tags: |
+            ghcr.io/gronare/mindin:${{ github.ref_name }}
+            ghcr.io/gronare/mindin:latest
             ghcr.io/gronare/notes-vault-mcp:${{ github.ref_name }}
             ghcr.io/gronare/notes-vault-mcp:latest
-          labels: io.modelcontextprotocol.server.name=io.github.gronare/notes-vault-mcp
+          labels: io.modelcontextprotocol.server.name=io.github.gronare/mindin
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           build-args: EXTRAS=--extra semantic
           tags: |
+            ghcr.io/gronare/mindin:${{ github.ref_name }}-semantic
+            ghcr.io/gronare/mindin:latest-semantic
             ghcr.io/gronare/notes-vault-mcp:${{ github.ref_name }}-semantic
             ghcr.io/gronare/notes-vault-mcp:latest-semantic
-          labels: io.modelcontextprotocol.server.name=io.github.gronare/notes-vault-mcp
+          labels: io.modelcontextprotocol.server.name=io.github.gronare/mindin
 
   registry:
     needs: [pypi, ghcr]
@@ -112,18 +121,18 @@ jobs:
       - name: Point the vault plugin at this release
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          if grep -q "notes-vault-mcp==${VERSION}\"" plugins/vault/.mcp.json; then
+          if grep -qE "(mindin|notes-vault-mcp)==${VERSION}\"" plugins/vault/.mcp.json; then
             echo "the plugin already pins ${VERSION}"
             exit 0
           fi
-          sed -i -E "s/notes-vault-mcp==[0-9.]+/notes-vault-mcp==${VERSION}/g" plugins/vault/.mcp.json plugins/vault/hooks/hooks.json
+          sed -i -E "s/(mindin|notes-vault-mcp)==[0-9.]+/\1==${VERSION}/g" plugins/vault/.mcp.json plugins/vault/hooks/hooks.json
           PLUGIN="$(jq -r '.version' plugins/vault/.claude-plugin/plugin.json | awk -F. '{print $1"."$2"."$3+1}')"
           jq --arg v "$PLUGIN" '.version = $v' plugins/vault/.claude-plugin/plugin.json > plugin.json.tmp
           mv plugin.json.tmp plugins/vault/.claude-plugin/plugin.json
-          git config user.name "notes-vault-mcp release"
-          git config user.email "release@notes-vault-mcp.invalid"
+          git config user.name "mindin release"
+          git config user.email "release@mindin.invalid"
           git add plugins/vault/.mcp.json plugins/vault/hooks/hooks.json plugins/vault/.claude-plugin/plugin.json
-          git commit -m "vault ${PLUGIN}: the server and the hooks pin notes-vault-mcp==${VERSION}"
+          git commit -m "vault ${PLUGIN}: the server and the hooks pin ${VERSION}"
           git push origin HEAD:main
 
   release:
@@ -147,7 +156,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          title="notes-vault-mcp ${GITHUB_REF_NAME#v}"
+          title="mindin ${GITHUB_REF_NAME#v}"
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file release-notes.md --title "$title" --draft=false --latest
           else

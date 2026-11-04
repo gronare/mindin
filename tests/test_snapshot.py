@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from notes_vault_mcp import notes, provision, tasks
-from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.cli import main
-from notes_vault_mcp.snapshot import build_snapshot, log_lines
-from notes_vault_mcp.vault import Vault, open_vault
+from mindin import notes, provision, tasks
+from mindin.backends.local import LocalBackend
+from mindin.cli import main
+from mindin.snapshot import build_snapshot, log_lines
+from mindin.vault import Vault, open_vault
 
 LOG = "Log/orchard-log.md"
 

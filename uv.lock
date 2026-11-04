@@ -877,6 +877,60 @@ wheels = [
 ]
 
 [[package]]
+name = "mindin"
+version = "0.13.0"
+source = { editable = "." }
+dependencies = [
+    { name = "boto3" },
+    { name = "cryptography" },
+    { name = "httpx2" },
+    { name = "mcp" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "pyyaml" },
+    { name = "snowballstemmer" },
+    { name = "webauthn" },
+]
+
+[package.optional-dependencies]
+semantic = [
+    { name = "fastembed" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "moto" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.34.0" },
+    { name = "cryptography", specifier = ">=50.0.2" },
+    { name = "fastembed", marker = "extra == 'semantic'", specifier = ">=0.7" },
+    { name = "httpx2", specifier = ">=2.5" },
+    { name = "mcp", specifier = ">=2.2" },
+    { name = "numpy", marker = "extra == 'semantic'", specifier = ">=1.26" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "snowballstemmer", specifier = ">=3.1.1" },
+    { name = "webauthn", specifier = ">=3.0.1" },
+]
+provides-extras = ["semantic"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "moto", specifier = ">=5.0" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.6" },
+]
+
+[[package]]
 name = "mmh3"
 version = "5.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1041,60 +1095,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/17/27/671bc2fbff0f86a8fcd6882ee56de69b5f80f71ba089eb663d10eca28726/moto-5.2.4.tar.gz", hash = "sha256:1a467004562034a09717c3f1ed533337a81ead573ed5d2d40cad648b5ec17e00", size = 9228741, upload-time = "2026-10-11T18:41:16.538Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6d/00/5729790afc2ee0ac52567c2388452918dfabb383d3afbf613f9136ee5ee2/moto-5.2.4-py3-none-any.whl", hash = "sha256:b75cf0a0063315bab6a4c3606f475ee118f3c329c8d5477a2447e699bdf13155", size = 7195856, upload-time = "2026-10-11T18:41:12.892Z" },
-]
-
-[[package]]
-name = "notes-vault-mcp"
-version = "0.13.0"
-source = { editable = "." }
-dependencies = [
-    { name = "boto3" },
-    { name = "cryptography" },
-    { name = "httpx2" },
-    { name = "mcp" },
-    { name = "pyjwt", extra = ["crypto"] },
-    { name = "pyyaml" },
-    { name = "snowballstemmer" },
-    { name = "webauthn" },
-]
-
-[package.optional-dependencies]
-semantic = [
-    { name = "fastembed" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "moto" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "boto3", specifier = ">=1.34.0" },
-    { name = "cryptography", specifier = ">=50.0.2" },
-    { name = "fastembed", marker = "extra == 'semantic'", specifier = ">=0.7" },
-    { name = "httpx2", specifier = ">=2.5" },
-    { name = "mcp", specifier = ">=2.2" },
-    { name = "numpy", marker = "extra == 'semantic'", specifier = ">=1.26" },
-    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "snowballstemmer", specifier = ">=3.1.1" },
-    { name = "webauthn", specifier = ">=3.0.1" },
-]
-provides-extras = ["semantic"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "moto", specifier = ">=5.0" },
-    { name = "numpy", specifier = ">=1.26" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "ruff", specifier = ">=0.6" },
 ]
 
 [[package]]

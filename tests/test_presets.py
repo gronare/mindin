@@ -6,14 +6,14 @@ import pytest
 import yaml
 from mcp.client import Client
 
-from notes_vault_mcp import notes, provision
-from notes_vault_mcp.backends import SCHEMA_KEY
-from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.presets import PRESETS, preset_data
-from notes_vault_mcp.schema import NoHome, Schema, instructions, load_schema, schema_problems, unknown_preset
-from notes_vault_mcp.search import search
-from notes_vault_mcp.server import build_server
-from notes_vault_mcp.vault import Vault
+from mindin import notes, provision
+from mindin.backends import SCHEMA_KEY
+from mindin.backends.local import LocalBackend
+from mindin.presets import PRESETS, preset_data
+from mindin.schema import NoHome, Schema, instructions, load_schema, schema_problems, unknown_preset
+from mindin.search import search
+from mindin.server import build_server
+from mindin.vault import Vault
 
 WITH_TASKS = {"default", "para", "simple", "journal"}
 WITH_LOG = {"default", "para", "journal"}
@@ -135,7 +135,7 @@ def test_journal_files_days_by_year_and_work_beside_them(tmp_path: Path):
 def test_a_vault_on_a_preset_this_version_does_not_ship_is_read_as_written(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ):
-    from notes_vault_mcp.cli import main
+    from mindin.cli import main
 
     retired = (
         "version: 1\npreset: lyt\nfolders:\n  Efforts/On: { kind: task }\n  Calendar/Logs: { kind: log }\n"
@@ -381,7 +381,7 @@ async def test_write_file_refuses_the_schema_and_says_how_to_change_it(vault: Va
 
 
 def test_cli_init_preset_switches_with_force_and_keeps_without(vault: Vault, vault_dir: Path, capsys):
-    from notes_vault_mcp.cli import main
+    from mindin.cli import main
 
     assert main(["init", "--preset", "journal"]) == 0
     assert provision.preset_of((vault_dir / ".vault" / "schema.yml").read_text()) == "default"

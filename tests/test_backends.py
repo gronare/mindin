@@ -7,9 +7,9 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from notes_vault_mcp.backends import FETCH_WORKERS, MUST_NOT_EXIST, NotFound, VersionConflict, delete_checked
-from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.backends.s3 import S3Backend
+from mindin.backends import FETCH_WORKERS, MUST_NOT_EXIST, NotFound, VersionConflict, delete_checked
+from mindin.backends.local import LocalBackend
+from mindin.backends.s3 import S3Backend
 
 BUCKET = "vault-test"
 ENDPOINT = "https://s3.amazonaws.com"
@@ -147,7 +147,7 @@ def test_local_list_all_includes_directories_and_non_notes(vault_dir: Path):
 
 
 def test_local_delete_removes_an_empty_directory_and_refuses_a_full_one(vault_dir: Path):
-    from notes_vault_mcp.backends import VaultError
+    from mindin.backends import VaultError
 
     backend = LocalBackend(vault_dir)
     backend.put_bytes("Tmp/a/b.txt", b"x")
@@ -163,7 +163,7 @@ def test_local_delete_removes_an_empty_directory_and_refuses_a_full_one(vault_di
 
 
 def test_make_subject_backend_nests_the_subject_under_the_prefix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    from notes_vault_mcp.backends import make_subject_backend
+    from mindin.backends import make_subject_backend
 
     monkeypatch.setenv("VAULT_PATH", str(tmp_path))
     for name in ("S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_BUCKET"):
@@ -176,7 +176,7 @@ def test_make_subject_backend_nests_the_subject_under_the_prefix(tmp_path: Path,
 
 
 def test_make_subject_backend_extends_the_s3_prefix(monkeypatch: pytest.MonkeyPatch):
-    from notes_vault_mcp.backends import make_subject_backend
+    from mindin.backends import make_subject_backend
 
     monkeypatch.delenv("VAULT_PATH", raising=False)
     monkeypatch.setenv("S3_ENDPOINT", ENDPOINT)
@@ -239,7 +239,7 @@ def test_s3_without_conditional_puts_falls_back_to_checking_the_etag_and_says_so
             s3_backend.put("Areas/orchard.md", "clobber", expected_version=MUST_NOT_EXIST)
     assert s3_backend.get("Areas/orchard.md")[0] == "again"
     assert [record.message for record in caplog.records].count(
-        "notes-vault-mcp: this S3 server refuses conditional PUTs; checking the etag before each write"
+        "mindin: this S3 server refuses conditional PUTs; checking the etag before each write"
     ) == 1
 
 

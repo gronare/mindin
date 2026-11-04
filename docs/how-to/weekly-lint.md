@@ -3,7 +3,7 @@
 A weekly `lint` keeps `active` meaning active: it writes the report as a note and parks the task notes nobody has touched.
 
 ```sh
-notes-vault-mcp lint --write Log/lint.md --park-stale
+mindin lint --write Log/lint.md --park-stale
 ```
 
 Schedule that line with cron, a systemd timer or a CI job, with the same vault settings your clients use.

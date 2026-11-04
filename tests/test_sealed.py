@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 from pathlib import Path
 
@@ -7,11 +8,11 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from notes_vault_mcp.backends import MUST_NOT_EXIST, NotFound, VaultError, VersionConflict
-from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.backends.s3 import S3Backend
-from notes_vault_mcp.backends.sealed import LISTING_TTL, MAX_PATH_BYTES, SealedBackend, Unreadable
-from notes_vault_mcp.vault import SubjectVaults, open_vault
+from mindin.backends import MUST_NOT_EXIST, NotFound, VaultError, VersionConflict
+from mindin.backends.local import LocalBackend
+from mindin.backends.s3 import S3Backend
+from mindin.backends.sealed import LISTING_TTL, MAX_PATH_BYTES, SealedBackend, Unreadable
+from mindin.vault import SubjectVaults, open_vault
 
 BUCKET = "sealed-test"
 NOTE = "---\ntitle: Kvartalsplan\n---\n\nTopphemlig kvartalsplan.\n"
@@ -280,3 +281,17 @@ def test_a_checked_delete_refuses_a_changed_file_and_removes_an_unchanged_one(se
     assert sealed.get("Areas/orchard.md")[0] == "second"
     sealed.delete_checked("Areas/orchard.md", new)
     assert sealed.list_all() == []
+
+
+def test_the_key_contexts_keep_the_former_name_so_existing_vaults_stay_readable():
+    from mindin.auth.hosted_history import history_key
+    from mindin.auth.hosted_keys import MasterKey, _wrap_context
+
+    key = bytes(range(32))
+    sealed = SealedBackend(None, key)
+    assert MasterKey(key).key_id == "95eebe68f89ddf3a"
+    assert _wrap_context("v1", "k1") == b"notes-vault-mcp wrap v1|v1|k1"
+    assert history_key(key).hex() == "936e129df25ad95fe950df8e0b0c0378875808a44c0fca2e098ea8e8290ee97c"
+    assert sealed.object_key("Areas/orchard.md") == "67Q9me9hupb49upXE9eVw9wauxET-17aoc7XjmoZkks"
+    blob = base64.b64decode("bnZtMeoALf19pS/mWkbbd+cSPxr+iaxQpVG+ZufEUnrRW2Rgv+4/aX2M")
+    assert sealed.unseal("Areas/orchard.md", blob) == b"# Orchard\n"

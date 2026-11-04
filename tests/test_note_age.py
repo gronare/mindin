@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
-from notes_vault_mcp.index import Note
-from notes_vault_mcp.search import age_days
+from mindin.index import Note
+from mindin.search import age_days
 
 
 def test_a_note_dated_five_days_back_is_five_days_old_just_after_midnight():

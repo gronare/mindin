@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from mcp.client import Client
 
-from notes_vault_mcp.server import build_server
-from notes_vault_mcp.vault import Vault
+from mindin.server import build_server
+from mindin.vault import Vault
 
 TOOL_NAMES = {
     "search",
@@ -112,3 +112,9 @@ async def test_init_keeps_what_exists_and_writes_the_rest(vault: Vault):
         forced = await client.call_tool("init", {"force": True})
     assert "wrote Log.base" in first and "kept .vault/schema.yml" in first
     assert forced.is_error and "already has a layout" in forced.content[0].text
+
+
+@pytest.mark.anyio
+async def test_the_server_introduces_itself_as_mindin(vault: Vault):
+    async with Client(build_server(vault)) as client:
+        assert client.server_info.name == "mindin"

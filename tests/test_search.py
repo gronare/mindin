@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from notes_vault_mcp.schema import Schema, instructions
-from notes_vault_mcp.search import SearchResult, render, search
-from notes_vault_mcp.vault import Vault
+from mindin.schema import Schema, instructions
+from mindin.search import SearchResult, render, search
+from mindin.vault import Vault
 
 
 def keys(result) -> list[str]:

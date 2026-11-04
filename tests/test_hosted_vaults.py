@@ -24,17 +24,17 @@ from hosted_support import (
 from test_auth_device import decide, poll, start
 from test_auth_hosted import authorize, consent, register
 
-from notes_vault_mcp.auth.database import SqliteDatabase
-from notes_vault_mcp.auth.hosted_access import SupportAccess
-from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
-from notes_vault_mcp.auth.hosted_store import SCHEMA, HostedStore, digest
-from notes_vault_mcp.auth.hosted_vaults import MIGRATIONS
-from notes_vault_mcp.auth.hosted_web import RECENT_SIGN_IN
-from notes_vault_mcp.backends import make_subject_backend
-from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.backends.sealed import SealedBackend, Unreadable, new_data_key
-from notes_vault_mcp.cli import main
-from notes_vault_mcp.vault import SubjectVaults
+from mindin.auth.database import SqliteDatabase
+from mindin.auth.hosted_access import SupportAccess
+from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
+from mindin.auth.hosted_store import SCHEMA, HostedStore, digest
+from mindin.auth.hosted_vaults import MIGRATIONS
+from mindin.auth.hosted_web import RECENT_SIGN_IN
+from mindin.backends import make_subject_backend
+from mindin.backends.local import LocalBackend
+from mindin.backends.sealed import SealedBackend, Unreadable, new_data_key
+from mindin.cli import main
+from mindin.vault import SubjectVaults
 
 FRONT = "date: 2026-09-01\nupdated: 2026-09-01\nstatus: active\n"
 ORCHARD_NOTE = f"---\ntitle: Apple trees\n{FRONT}tags: [orchard]\n---\n\nPrune in March.\n"
@@ -381,7 +381,7 @@ async def test_the_vault_list_shows_each_vault_with_its_address(site: Hosted):
     assert "…/mcp?vault=orchard" in listed.text and "…/mcp?vault=workshop" in listed.text
     assert "2 notes" in listed.text and "1 key," in listed.text
     assert f"{BASE}/mcp?vault=workshop" in page.text
-    assert "notes-vault-mcp login http://localhost --vault workshop" in page.text
+    assert "mindin login http://localhost --vault workshop" in page.text
     assert f"{BASE}/dav/" in page.text
     assert foreign.status_code == 404
 
@@ -611,7 +611,7 @@ async def test_the_migration_keeps_an_existing_vault_where_it_is_and_readable(
 def test_a_migration_that_cannot_move_every_key_changes_nothing(
     storage: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    from notes_vault_mcp.auth import hosted_vaults
+    from mindin.auth import hosted_vaults
 
     keyring = Keyring(MasterKey.generate())
     legacy_store(tmp_path / "auth", keyring, {})

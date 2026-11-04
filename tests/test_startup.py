@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from notes_vault_mcp import index as index_module
-from notes_vault_mcp.index import Index
-from notes_vault_mcp.server import build_server
-from notes_vault_mcp.vault import Vault, open_vault
+from mindin import index as index_module
+from mindin.index import Index
+from mindin.server import build_server
+from mindin.vault import Vault, open_vault
 
 NOTE = "---\ntitle: Probe\ndate: 2026-08-01\nupdated: 2026-08-01\ntags: [orchard]\nstatus: active\n---\n\nrad\n"
 

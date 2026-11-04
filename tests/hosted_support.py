@@ -18,11 +18,11 @@ from cimd_support import MetadataHost
 from forwarded_support import _keys
 from login_support import GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, FakeGithub, FakeSmtp
 
-from notes_vault_mcp.auth import AuthConfig, GithubConfig, OidcConfig, SmtpConfig
-from notes_vault_mcp.auth.hosted import build_hosted_app
-from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey
-from notes_vault_mcp.auth.hosted_store import HostedStore
-from notes_vault_mcp.auth.identities import Identities
+from mindin.auth import AuthConfig, GithubConfig, OidcConfig, SmtpConfig
+from mindin.auth.hosted import build_hosted_app
+from mindin.auth.hosted_keys import Keyring, MasterKey
+from mindin.auth.hosted_store import HostedStore
+from mindin.auth.identities import Identities
 
 BASE = "http://localhost"
 IDP = "https://id.example.test"

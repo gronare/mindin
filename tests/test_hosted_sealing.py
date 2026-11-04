@@ -15,17 +15,17 @@ import pytest
 from hosted_support import NOTE_BODY, Hosted, call_tool, csrf_of, hosted, hosted_config, key_for_subject, text_of
 from moto import mock_aws
 
-from notes_vault_mcp.auth.hosted import build_hosted_app
-from notes_vault_mcp.auth.hosted_access import SupportAccess
-from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
-from notes_vault_mcp.auth.hosted_store import HostedStore
-from notes_vault_mcp.auth.hosted_transfer import export_zip
-from notes_vault_mcp.backends import VaultError
-from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.backends.sealed import MAGIC, SealedBackend, Unreadable
-from notes_vault_mcp.cli import main
-from notes_vault_mcp.config import ConfigError
-from notes_vault_mcp.vault import SingleVault, SubjectVaults, Vault
+from mindin.auth.hosted import build_hosted_app
+from mindin.auth.hosted_access import SupportAccess
+from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
+from mindin.auth.hosted_store import HostedStore
+from mindin.auth.hosted_transfer import export_zip
+from mindin.backends import VaultError
+from mindin.backends.local import LocalBackend
+from mindin.backends.sealed import MAGIC, SealedBackend, Unreadable
+from mindin.cli import main
+from mindin.config import ConfigError
+from mindin.vault import SingleVault, SubjectVaults, Vault
 
 BUCKET = "hosted-vaults"
 ENDPOINT = "https://s3.amazonaws.com"
@@ -415,7 +415,7 @@ def test_import_is_refused_without_the_accounts_grant(
 async def test_the_data_key_is_shredded_before_any_object_is_deleted(
     site: Hosted, vaults: SubjectVaults, monkeypatch: pytest.MonkeyPatch
 ):
-    from notes_vault_mcp.auth.hosted_keys import delete_account
+    from mindin.auth.hosted_keys import delete_account
 
     await site.member("ann@example.com", sub="sub-ann")
     vaults.for_subject(site.vault_of("ann@example.com"))

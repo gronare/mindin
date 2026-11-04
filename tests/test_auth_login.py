@@ -9,10 +9,10 @@ from forwarded_support import ISSUER, TYP, Proxy
 from hosted_support import BASE, INITIALIZE, Hosted, csrf_of, hosted, query
 from login_support import Authenticator
 
-from notes_vault_mcp.auth import ForwardedConfig
-from notes_vault_mcp.auth.hosted_store import HostedStore, now
-from notes_vault_mcp.auth.identities import Identities, Proof
-from notes_vault_mcp.vault import SubjectVaults
+from mindin.auth import ForwardedConfig
+from mindin.auth.hosted_store import HostedStore, now
+from mindin.auth.identities import Identities, Proof
+from mindin.vault import SubjectVaults
 
 WEBAUTHN = "https://www.w3.org/TR/webauthn-3/"
 GITHUB_OAUTH = "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps"

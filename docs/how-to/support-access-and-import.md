@@ -7,8 +7,8 @@ Each command names who runs it and why, and refuses without the grant. `--vault 
 ## Read a vault
 
 ```sh
-notes-vault-mcp support files ann@example.com --vault workshop --operator sam --reason "lost note"
-notes-vault-mcp support read ann@example.com Areas/home.md --vault workshop --operator sam --reason "lost note"
+mindin support files ann@example.com --vault workshop --operator sam --reason "lost note"
+mindin support read ann@example.com Areas/home.md --vault workshop --operator sam --reason "lost note"
 ```
 
 ## Import a plaintext vault
@@ -16,8 +16,8 @@ notes-vault-mcp support read ann@example.com Areas/home.md --vault workshop --op
 `accounts import` seals every file of a plaintext vault, from a folder or a bucket, into one of the account's personal vaults:
 
 ```sh
-notes-vault-mcp accounts import ann@example.com --from-path ~/old-vault --operator sam --reason "move in"
-notes-vault-mcp accounts import ann@example.com --from-s3-bucket old-vault --from-s3-prefix ann \
+mindin accounts import ann@example.com --from-path ~/old-vault --operator sam --reason "move in"
+mindin accounts import ann@example.com --from-s3-bucket old-vault --from-s3-prefix ann \
   --operator sam --reason "move in"
 ```
 

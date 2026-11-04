@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from notes_vault_mcp import notes
-from notes_vault_mcp.cli import main
-from notes_vault_mcp.vault import Vault
+from mindin import notes
+from mindin.cli import main
+from mindin.vault import Vault
 
 DAY = timedelta(days=1)
 
@@ -106,7 +106,7 @@ def test_lint_in_a_pipe_prints_the_report_as_before(vault: Vault, capsys):
 
 
 def in_a_terminal(monkeypatch: pytest.MonkeyPatch, width: int = 100, color: bool = False) -> None:
-    monkeypatch.setattr("notes_vault_mcp.terminal.stdout_is_terminal", lambda: True)
+    monkeypatch.setattr("mindin.terminal.stdout_is_terminal", lambda: True)
     monkeypatch.setenv("COLUMNS", str(width))
     monkeypatch.setenv("TERM", "xterm-256color")
     if color:
@@ -137,8 +137,8 @@ def test_search_in_a_narrow_terminal_cuts_rows_but_never_a_path(vault: Vault, mo
 
 
 def test_a_note_found_by_meaning_is_marked(monkeypatch):
-    from notes_vault_mcp.human import render_search
-    from notes_vault_mcp.terminal import terminal
+    from mindin.human import render_search
+    from mindin.terminal import terminal
 
     in_a_terminal(monkeypatch)
     row = {"key": "Resources/frost-trap.md", "title": "Frost cracks the grafts", "kind": "trap", "area": "[[orchard]]"}
@@ -187,7 +187,7 @@ def test_backlog_in_a_terminal_has_one_row_per_item(vault: Vault, monkeypatch, c
     )
     with_paths = run(capsys, "backlog", "--paths").splitlines()
     assert with_paths[0].endswith("today  Projects/orchard-graft-the-pear-rootstock.md")
-    assert with_paths[-1] == "2 items · notes-vault-mcp read <path> opens one · --area orchard filters"
+    assert with_paths[-1] == "2 items · mindin read <path> opens one · --area orchard filters"
     assert run(capsys, "backlog", "--plain") == BACKLOG
 
 
@@ -249,7 +249,7 @@ def test_every_finding_kind_the_linter_writes_has_a_name_and_an_explanation():
     import inspect
     import re
 
-    from notes_vault_mcp.human import LINT_KINDS, lint_kind_named
+    from mindin.human import LINT_KINDS, lint_kind_named
 
     written = set(re.findall(r'findings\.add\(\s*"(\w+)"', inspect.getsource(notes)))
     assert written and written <= set(LINT_KINDS)

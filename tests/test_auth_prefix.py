@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from hosted_support import Hosted, hosted, query
 
-from notes_vault_mcp.vault import SubjectVaults
+from mindin.vault import SubjectVaults
 
 PUBLIC_URL = "http://localhost/vault"
 

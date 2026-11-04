@@ -7,8 +7,8 @@ import httpx2
 import pytest
 from hosted_support import BASE, IDP, Hosted, call_tool, csrf_of, hosted, query, text_of, vault_choice_of
 
-from notes_vault_mcp.auth.device import DEVICE_GRANT, USER_CODE_ALPHABET
-from notes_vault_mcp.vault import SubjectVaults
+from mindin.auth.device import DEVICE_GRANT, USER_CODE_ALPHABET
+from mindin.vault import SubjectVaults
 
 RFC_8628 = "https://www.rfc-editor.org/rfc/rfc8628"
 

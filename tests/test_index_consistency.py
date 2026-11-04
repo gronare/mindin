@@ -7,11 +7,11 @@ import pytest
 from mcp.client import Client
 from test_notes import VALID, body_of
 
-from notes_vault_mcp import notes
-from notes_vault_mcp.backends import NotFound
-from notes_vault_mcp.index import Index
-from notes_vault_mcp.server import build_server
-from notes_vault_mcp.vault import Vault
+from mindin import notes
+from mindin.backends import NotFound
+from mindin.index import Index
+from mindin.server import build_server
+from mindin.vault import Vault
 
 NO_AREA = "---\ntitle: Utan area\ndate: 2026-08-01\nupdated: 2026-08-01\ntags: [x]\nstatus: active\n---\n\nKropp.\n"
 
@@ -182,7 +182,7 @@ async def test_a_tool_error_never_carries_the_vault_root(vault: Vault, vault_dir
 
 
 def test_an_idle_vault_is_never_closed_while_a_request_is_using_it(storage: Path, tmp_path: Path):
-    from notes_vault_mcp.vault import SubjectVaults
+    from mindin.vault import SubjectVaults
 
     now = [0.0]
     vaults = SubjectVaults(cache=tmp_path / "cache", idle_seconds=10, clock=lambda: now[0])

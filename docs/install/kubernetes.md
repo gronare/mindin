@@ -2,7 +2,7 @@
 
 `deploy/k8s/` in the repository holds plain manifests: a Deployment with a PersistentVolumeClaim mounted at `/data`, a Service on port 8765, an Ingress, and an example Secret with the settings. The Secret's example keeps the vaults in an S3 bucket; see [Storage](storage.md).
 
-1. Copy the example Secret and fill it in. Make the master key with `notes-vault-mcp master-key generate`, or with `docker run --rm ghcr.io/gronare/notes-vault-mcp:latest master-key generate`.
+1. Copy the example Secret and fill it in. Make the master key with `mindin master-key generate`, or with `docker run --rm ghcr.io/gronare/mindin:latest master-key generate`.
 
    ```sh
    cp deploy/k8s/secret.example.yaml secret.yaml
@@ -17,7 +17,7 @@
 
    ```sh
    kubectl apply -f secret.yaml -f deploy/k8s/deployment.yaml -f deploy/k8s/service.yaml -f deploy/k8s/ingress.yaml
-   kubectl exec deploy/notes-vault-mcp -- notes-vault-mcp accounts invite you@example.com
+   kubectl exec deploy/notes-vault-mcp -- mindin accounts invite you@example.com
    ```
 
 4. Open `VAULT_PUBLIC_URL/account` and sign in.

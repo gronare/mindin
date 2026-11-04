@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = ROOT / "notes_vault_mcp"
+PACKAGE = ROOT / "mindin"
 EVERYWHERE = re.compile(
     r"billing|handoff|/v1/admin|--plans\b|VAULT_PLAN|\bplan_(status|until|set_at|kind)\b|\badmin[ _-](token|api)\b"
     r"|subscri(be|ption)|stripe|\bpaid\b|\binvited_at\b|(?<!actions)/checkout"
@@ -34,7 +34,7 @@ def prose() -> list[Path]:
 def scanned() -> list[Path]:
     tests = [path for path in files_under(ROOT / "tests") if path != Path(__file__).resolve()]
     top = [ROOT / name for name in ("README.md", "CHANGES.md", "server.json", "pyproject.toml", "Dockerfile")]
-    folders = (PACKAGE, ROOT / "docs", ROOT / "deploy", ROOT / "scripts", ROOT / ".github")
+    folders = (PACKAGE, ROOT / "docs", ROOT / "deploy", ROOT / "scripts", ROOT / ".github", ROOT / "shim")
     return [*(path for folder in folders for path in files_under(folder)), *tests, *top]
 
 
@@ -53,10 +53,10 @@ def test_the_public_package_keeps_to_the_vault(path: Path):
 
 def test_the_scan_reaches_every_tracked_folder():
     names = {path.relative_to(ROOT).parts[0] for path in scanned()}
-    assert {"notes_vault_mcp", "docs", "deploy", "scripts", ".github", "tests", "README.md", "CHANGES.md"} <= names
+    assert {"mindin", "docs", "deploy", "scripts", ".github", "shim", "tests", "README.md", "CHANGES.md"} <= names
 
 
 def test_the_guard_catches_what_it_names():
     assert EVERYWHERE.search("pip install vault-service") and EVERYWHERE.search("registry.gronare.com/x")
     assert IN_PROSE.search("run several servers behind one address") and not IN_PROSE.search("one replica")
-    assert not EVERYWHERE.search("ghcr.io/gronare/notes-vault-mcp") and not EVERYWHERE.search("actions/checkout@v4")
+    assert not EVERYWHERE.search("ghcr.io/gronare/mindin") and not EVERYWHERE.search("actions/checkout@v4")

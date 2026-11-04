@@ -17,15 +17,15 @@ For a vault server, give its address at install, then sign the machine in and re
 claude plugin install vault@gronare --config vault_server_url=https://vault.example.com
 ```
 
-Run `/vault:login` (or [`notes-vault-mcp login`](sign-in-a-machine.md)), then reconnect with `/mcp`, plugin:vault:vault, Reconnect. The hooks use the same key.
+Run `/vault:login` (or [`mindin login`](sign-in-a-machine.md)), then reconnect with `/mcp`, plugin:vault:vault, Reconnect. The hooks use the same key.
 
 ## Without the plugin
 
 Add the server, here for a local folder:
 
 ```sh
-claude mcp add vault -s user -e VAULT_PATH=$HOME/vault -- uvx notes-vault-mcp
-VAULT_PATH=$HOME/vault uvx notes-vault-mcp init
+claude mcp add vault -s user -e VAULT_PATH=$HOME/vault -- uvx mindin
+VAULT_PATH=$HOME/vault uvx mindin init
 ```
 
 For a bucket, pass `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `S3_BUCKET` in place of `VAULT_PATH` ([Storage](../install/storage.md)); for a server, `VAULT_SERVER_URL` after [signing the machine in](sign-in-a-machine.md). With no vault configured, the server exits with one line saying so.
@@ -38,10 +38,10 @@ Then add the hooks to your Claude Code settings:
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "VAULT_PATH=$HOME/vault uvx notes-vault-mcp hook session-start" }] }
+      { "hooks": [{ "type": "command", "command": "VAULT_PATH=$HOME/vault uvx mindin hook session-start" }] }
     ],
     "Stop": [
-      { "hooks": [{ "type": "command", "command": "VAULT_PATH=$HOME/vault uvx notes-vault-mcp hook stop" }] }
+      { "hooks": [{ "type": "command", "command": "VAULT_PATH=$HOME/vault uvx mindin hook stop" }] }
     ]
   }
 }

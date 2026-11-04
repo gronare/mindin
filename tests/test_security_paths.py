@@ -10,16 +10,16 @@ from hosted_support import first_vault_id, hosted_config, key_for_subject
 from moto import mock_aws
 from test_notes import VALID
 
-from notes_vault_mcp import notes
-from notes_vault_mcp.auth.hosted import build_hosted_app
-from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey
-from notes_vault_mcp.auth.hosted_store import ApiKeyCredentials, HostedStore
-from notes_vault_mcp.backends import NotFound, VaultError, make_subject_backend
-from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.backends.s3 import S3Backend
-from notes_vault_mcp.dav import _clean
-from notes_vault_mcp.server import _listing
-from notes_vault_mcp.vault import SubjectVaults, subject_key
+from mindin import notes
+from mindin.auth.hosted import build_hosted_app
+from mindin.auth.hosted_keys import Keyring, MasterKey
+from mindin.auth.hosted_store import ApiKeyCredentials, HostedStore
+from mindin.backends import NotFound, VaultError, make_subject_backend
+from mindin.backends.local import LocalBackend
+from mindin.backends.s3 import S3Backend
+from mindin.dav import _clean
+from mindin.server import _listing
+from mindin.vault import SubjectVaults, subject_key
 
 OBSIDIAN_SECRET = ".obsidian/plugins/remotely-save/data.json"
 PLUGIN_CODE = ".obsidian/plugins/evil/main.js"
@@ -181,7 +181,7 @@ def test_note_key_reads_the_schema_and_bases_but_writes_only_notes():
 
 
 def test_lint_write_refuses_a_path_outside_the_note_set(vault, vault_dir: Path, capsys):
-    from notes_vault_mcp.cli import main
+    from mindin.cli import main
 
     assert main(["lint", "--write", ".obsidian/workspace.json"]) == 2
     assert capsys.readouterr().err.count("\n") == 1
@@ -375,7 +375,7 @@ async def test_dav_put_refuses_a_declared_body_over_the_cap(vault_id: str, dav: 
 
 @pytest.mark.anyio
 async def test_dav_put_refuses_a_streamed_body_over_the_cap(vaults: SubjectVaults, tmp_path: Path, storage: Path):
-    from notes_vault_mcp.dav import WebDav
+    from mindin.dav import WebDav
 
     secret = key_for_subject(tmp_path / "auth", "user1042@example.com", "1042")
     tokens = ApiKeyCredentials(HostedStore(tmp_path / "auth"))
@@ -389,8 +389,8 @@ async def test_dav_put_refuses_a_streamed_body_over_the_cap(vaults: SubjectVault
 
 
 def test_the_cache_and_auth_directories_are_private(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    from notes_vault_mcp.auth import auth_dir
-    from notes_vault_mcp.config import cache_dir
+    from mindin.auth import auth_dir
+    from mindin.config import cache_dir
 
     existing = tmp_path / "cache"
     existing.mkdir(mode=0o755)

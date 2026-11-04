@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.embedding import SharedEmbedder, extra_installed, model_name
-from notes_vault_mcp.schema import load_schema
-from notes_vault_mcp.search import search
-from notes_vault_mcp.vault import Vault
+from mindin.backends.local import LocalBackend
+from mindin.embedding import SharedEmbedder, extra_installed, model_name
+from mindin.schema import load_schema
+from mindin.search import search
+from mindin.vault import Vault
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("VAULT_TEST_SEMANTIC_MODEL") or not extra_installed(),

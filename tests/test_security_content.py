@@ -3,11 +3,11 @@ from __future__ import annotations
 import pytest
 from test_notes import body_of
 
-from notes_vault_mcp import notes
-from notes_vault_mcp.frontmatter import FrontmatterError, dump, parse, tags_of
-from notes_vault_mcp.index import note_from_text
-from notes_vault_mcp.search import QueryError, search, terms_of
-from notes_vault_mcp.vault import Vault
+from mindin import notes
+from mindin.frontmatter import FrontmatterError, dump, parse, tags_of
+from mindin.index import note_from_text
+from mindin.search import QueryError, search, terms_of
+from mindin.vault import Vault
 
 HEAD = "---\ntitle: Note\ndate: 2026-08-01\nupdated: 2026-08-01\ntags: [orchard]\nstatus: active\n"
 
@@ -66,7 +66,7 @@ def test_a_scalar_tags_value_is_a_lint_finding(vault: Vault, vault_dir):
 def test_a_note_that_cannot_be_read_into_a_row_is_indexed_as_invalid_and_the_sync_goes_on(
     vault: Vault, vault_dir, monkeypatch: pytest.MonkeyPatch
 ):
-    from notes_vault_mcp import index
+    from mindin import index
 
     real = index.note_from_text
 
@@ -230,7 +230,7 @@ def test_a_non_iso_since_is_refused_or_ignored(vault: Vault):
 async def test_a_non_iso_since_is_a_tool_error(vault: Vault):
     from mcp.client import Client
 
-    from notes_vault_mcp.server import build_server
+    from mindin.server import build_server
 
     async with Client(build_server(vault)) as client:
         result = await client.call_tool("search", {"query": "orchard", "since": "yesterday"})

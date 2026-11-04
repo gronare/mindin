@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from hosted_support import BASE, Hosted, call_tool, hosted, open_session, post_mcp, sse_payload, text_of
 
-from notes_vault_mcp.auth import MACHINE_KEY_PURPOSE
-from notes_vault_mcp.server import MACHINE_TOOLS, build_server
-from notes_vault_mcp.vault import SubjectVaults, Vault
+from mindin.auth import MACHINE_KEY_PURPOSE
+from mindin.server import MACHINE_TOOLS, build_server
+from mindin.vault import SubjectVaults, Vault
 
 CLAIM = {"path": "Projects/x.md", "machine": "m", "task": "t"}
 

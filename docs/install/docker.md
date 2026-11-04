@@ -12,8 +12,8 @@ You need:
 
 ```sh
 mkdir notes-vault && cd notes-vault
-curl -fsSL -O https://github.com/gronare/notes-vault-mcp/releases/latest/download/compose.yml -O https://github.com/gronare/notes-vault-mcp/releases/latest/download/Caddyfile
-curl -fsSL -o .env https://github.com/gronare/notes-vault-mcp/releases/latest/download/example.env
+curl -fsSL -O https://github.com/gronare/mindin/releases/latest/download/compose.yml -O https://github.com/gronare/mindin/releases/latest/download/Caddyfile
+curl -fsSL -o .env https://github.com/gronare/mindin/releases/latest/download/example.env
 ```
 
 `compose.yml` runs the server image and Caddy. `Caddyfile` sends every request for `VAULT_HOST` to the server on port 8765. `.env` holds the settings, with the ones you must edit at the top.
@@ -47,7 +47,7 @@ The server refuses to start without the master key, without a sign-in method, or
 ## 5. Invite yourself
 
 ```sh
-docker compose exec vault notes-vault-mcp accounts invite you@example.com
+docker compose exec vault mindin accounts invite you@example.com
 ```
 
 New accounts are by invitation; see [Manage accounts](../how-to/manage-accounts.md).
@@ -75,7 +75,7 @@ Back up `/data/auth` together with the master key; see [Back up and rotate keys]
 Each release's `compose.yml` names that release's image. Fetch it again and restart:
 
 ```sh
-curl -fsSL -O https://github.com/gronare/notes-vault-mcp/releases/latest/download/compose.yml
+curl -fsSL -O https://github.com/gronare/mindin/releases/latest/download/compose.yml
 docker compose up -d
 ```
 

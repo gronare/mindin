@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from notes_vault_mcp.auth.hosted_store import HostedStore
-from notes_vault_mcp.auth.identities import Identities, Proof
-from notes_vault_mcp.cli import main
+from mindin.auth.hosted_store import HostedStore
+from mindin.auth.identities import Identities, Proof
+from mindin.cli import main
 
 
 @pytest.fixture

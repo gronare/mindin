@@ -9,15 +9,15 @@ import httpx2
 import pytest
 from hosted_support import BASE, INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_session, post_mcp, query, text_of
 
-from notes_vault_mcp.auth import MACHINE_KEY_PURPOSE
-from notes_vault_mcp.auth.database import SqliteDatabase
-from notes_vault_mcp.auth.hosted_access import SupportAccess
-from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
-from notes_vault_mcp.auth.hosted_store import HostedStore, MembershipError, VaultNameError
-from notes_vault_mcp.auth.hosted_vaults import MIGRATIONS, Vault
-from notes_vault_mcp.backends import SCHEMA_KEY
-from notes_vault_mcp.cli import main
-from notes_vault_mcp.vault import SubjectVaults
+from mindin.auth import MACHINE_KEY_PURPOSE
+from mindin.auth.database import SqliteDatabase
+from mindin.auth.hosted_access import SupportAccess
+from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
+from mindin.auth.hosted_store import HostedStore, MembershipError, VaultNameError
+from mindin.auth.hosted_vaults import MIGRATIONS, Vault
+from mindin.backends import SCHEMA_KEY
+from mindin.cli import main
+from mindin.vault import SubjectVaults
 
 WRITE = ["vault:read", "vault:write"]
 FRONT = "date: 2026-09-01\nupdated: 2026-09-01\nstatus: active\n"
@@ -507,7 +507,7 @@ def test_the_shell_makes_a_shared_vault_and_manages_its_members(
     assert main(["accounts", "add-member", "ann@example.com", "workshop", "bo@example.com"]) == 0
     assert main(["accounts", "add-member", "ann@example.com", "ann", "bo@example.com"]) == 1
     with store.connect() as connection:
-        from notes_vault_mcp.auth.hosted_vaults import accept_invitations
+        from mindin.auth.hosted_vaults import accept_invitations
 
         accept_invitations(connection, bo.id, ("bo@example.com",))
     assert main(["accounts", "members", "ann@example.com", "workshop"]) == 0
@@ -535,7 +535,7 @@ def test_the_shell_makes_a_shared_vault_and_manages_its_members(
 def test_the_migration_adds_shared_vaults_and_leaves_a_personal_vault_as_it_was(storage: Path, tmp_path: Path):
     from test_hosted_vaults import ORCHARD_NOTE, legacy_store
 
-    from notes_vault_mcp.auth.hosted_vaults import to_vaults
+    from mindin.auth.hosted_vaults import to_vaults
 
     keyring = Keyring(MasterKey.generate())
     account_id, _ = legacy_store(tmp_path / "auth", keyring, {"Areas/trees.md": ORCHARD_NOTE})

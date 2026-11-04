@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from forwarded_support import Proxy
 
-from notes_vault_mcp.vault import SubjectVaults, Vault, open_vault
+from mindin.vault import SubjectVaults, Vault, open_vault
 
 FIXTURE_VAULT = Path(__file__).parent / "fixtures" / "vault"
 TOKEN_RE = re.compile(r"@@(TODAY|D(\d+))@@")
@@ -28,6 +28,7 @@ def away_from_the_users_own_config(tmp_path_factory: pytest.TempPathFactory, mon
     (home / ".claude").mkdir()
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / ".claude"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    monkeypatch.setenv("VAULT_CACHE_DIR", str(home / ".cache"))
     monkeypatch.delenv("VAULT_SERVER_URL", raising=False)
 
 

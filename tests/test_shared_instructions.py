@@ -7,10 +7,10 @@ import pytest
 from hosted_support import INITIALIZE, Hosted, call_tool, hosted, post_mcp, sse_payload, text_of
 from test_shared_vaults import PRUNING, club, key_of, write
 
-from notes_vault_mcp.hooks import SHARED_VAULT_HINT, VAULT_HINT, render_session_start
-from notes_vault_mcp.schema import instructions
-from notes_vault_mcp.server import build_server
-from notes_vault_mcp.vault import SubjectVaults, Vault
+from mindin.hooks import SHARED_VAULT_HINT, VAULT_HINT, render_session_start
+from mindin.schema import instructions
+from mindin.server import build_server
+from mindin.vault import SubjectVaults, Vault
 
 
 @pytest.fixture

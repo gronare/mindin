@@ -26,7 +26,7 @@ An empty value counts as not set.
 | `S3_PREFIX` | no | empty | Key prefix inside the bucket. |
 | `S3_REGION` | no | `us-east-1` | Region the requests are signed for. |
 | `VAULT_SERVER_URL` | one of | | On a client machine: the vault server the machine [signed in to](../how-to/sign-in-a-machine.md). The stdio server, the hooks and the commands work through it. Wins over `VAULT_PATH` and `S3_*`. |
-| `VAULT_CACHE_DIR` | no | `~/.cache/notes-vault-mcp`; `/data/cache` in the image | The search indexes, the model for search by meaning, and the model process's socket and log. |
+| `VAULT_CACHE_DIR` | no | `~/.cache/mindin`; `/data/cache` in the image | The search indexes, the model for search by meaning, and the model process's socket and log. |
 | `VAULT_SCHEMA` | no | | On a client machine: a local schema file that overrides the vault's `.vault/schema.yml`. |
 
 When the environment names none of `VAULT_PATH`, the four `S3_*` settings or `VAULT_SERVER_URL`, every command, the stdio server included, takes them from the Claude Code plugin's saved config; see [Command line](command-line.md#where-commands-find-the-vault). With neither, the stdio server and the commands exit with one line saying so, and `status` answers `"configured": false`. An HTTP server starts without storage settings but cannot open any vault.
@@ -50,7 +50,7 @@ These apply to `serve --transport http`. `--host` defaults to `127.0.0.1` and `-
 | `VAULT_AUTH_DIR` | no | `VAULT_CACHE_DIR/auth`; `/data/auth` in the image | Where `hosted.sqlite` lives: the accounts, vaults, keys, tokens and rate-limit counts. |
 | `VAULT_SUBJECT_PREFIX` | no | `users` | Where the vaults live in the folder or bucket: `<prefix>/<vault id>/`. See [What is stored](../install/storage.md#what-is-stored). |
 
-The server loads the extensions installed beside it, from the Python entry point group `notes_vault_mcp.extensions`.
+The server loads the extensions installed beside it, from the Python entry point group `mindin.extensions`.
 
 ## Sign-in
 
@@ -117,7 +117,7 @@ Read by their bare name only.
 | Variable | Required | Default | Meaning |
 | --- | --- | --- | --- |
 | `NO_COLOR` | no | | Any value keeps the terminal layout without colour. `TERM=dumb` does the same. |
-| `XDG_CONFIG_HOME` | no | `~/.config` | The folder holding `notes-vault-mcp/credentials.json`, the keys from `login`. |
+| `XDG_CONFIG_HOME` | no | `~/.config` | The folder holding `mindin/credentials.json`, the keys from `login`. A `notes-vault-mcp` folder there, and one in `~/.cache`, is moved to `mindin` the first time mindin runs, keeping its old name as a link. |
 | `CLAUDE_CONFIG_DIR` | no | `~/.claude` | Where the commands look for the Claude Code plugin's saved settings. |
 
 ## Docker Compose

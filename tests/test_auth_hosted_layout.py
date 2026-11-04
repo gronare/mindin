@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from hosted_support import NOTE_BODY, Hosted, call_tool, csrf_of, hosted, text_of
 
-from notes_vault_mcp import provision
-from notes_vault_mcp.backends import SCHEMA_KEY
-from notes_vault_mcp.vault import SubjectVaults
+from mindin import provision
+from mindin.backends import SCHEMA_KEY
+from mindin.vault import SubjectVaults
 
 
 @pytest.fixture

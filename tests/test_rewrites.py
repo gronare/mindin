@@ -9,11 +9,11 @@ from typing import Any
 import httpx2 as httpx
 import pytest
 
-from notes_vault_mcp import notes, provision
-from notes_vault_mcp.backends import VersionConflict
-from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.frontmatter import parse
-from notes_vault_mcp.vault import Vault
+from mindin import notes, provision
+from mindin.backends import VersionConflict
+from mindin.backends.local import LocalBackend
+from mindin.frontmatter import parse
+from mindin.vault import Vault
 
 
 class Meddled:
@@ -173,9 +173,9 @@ def test_provisioning_keeps_a_file_another_server_wrote_first(tmp_path: Path):
 async def dav(tmp_path: Path) -> AsyncIterator[httpx.AsyncClient]:
     from hosted_support import first_vault_id, hosted_config, key_for_subject
 
-    from notes_vault_mcp.auth.hosted import build_hosted_app
-    from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey
-    from notes_vault_mcp.vault import SubjectVaults
+    from mindin.auth.hosted import build_hosted_app
+    from mindin.auth.hosted_keys import Keyring, MasterKey
+    from mindin.vault import SubjectVaults
 
     vaults = SubjectVaults(cache=tmp_path / "cache", prefix="users")
     app = build_hosted_app(vaults, hosted_config(tmp_path), keyring=Keyring(MasterKey.generate()))

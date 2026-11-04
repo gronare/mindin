@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from notes_vault_mcp.search import render, search
-from notes_vault_mcp.vault import Vault
+from mindin.search import render, search
+from mindin.vault import Vault
 
 QUERIES = json.loads((Path(__file__).parent / "fixtures" / "queries.json").read_text(encoding="utf-8"))
 LIMIT = 15

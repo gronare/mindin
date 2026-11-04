@@ -13,13 +13,13 @@ Each person can also download a personal vault as a zip from its page at any tim
 
 ## Rotate the master key
 
-1. Make a new key with `notes-vault-mcp master-key generate`.
+1. Make a new key with `mindin master-key generate`.
 2. Set the new key in `VAULT_HOSTED_MASTER_KEY` and the old one in `VAULT_HOSTED_MASTER_KEY_PREVIOUS`, and restart the server.
 3. Wrap every vault key under the new one:
 
    ```sh
-   notes-vault-mcp master-key rewrap
-   notes-vault-mcp master-key status    # vault keys per master key
+   mindin master-key rewrap
+   mindin master-key status    # vault keys per master key
    ```
 
 4. When `status` counts no vault key under the old key, remove `VAULT_HOSTED_MASTER_KEY_PREVIOUS` and restart.

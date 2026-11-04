@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from test_cli_hooks import make_repo
 
-from notes_vault_mcp.cli import main
-from notes_vault_mcp.config import adopt_plugin_config, plugin_options
-from notes_vault_mcp.frontmatter import parse
+from mindin.cli import main
+from mindin.config import adopt_plugin_config, plugin_options
+from mindin.frontmatter import parse
 
 STORAGE_VARS = ("VAULT_PATH", "S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_BUCKET", "S3_PREFIX", "S3_REGION")
 
@@ -130,7 +130,7 @@ def test_task_open_fails_on_one_line_for_a_missing_note(configured: Path, worktr
     assert main(["task", "open", "--note", "Projects/nope.md", "--cwd", str(worktree)]) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err.strip() == "notes-vault-mcp: no such note: Projects/nope.md"
+    assert captured.err.strip() == "mindin: no such note: Projects/nope.md"
 
 
 def test_task_check_reports_empty_sections_in_a_swedish_vault(configured: Path, worktree: Path, capsys):
@@ -215,8 +215,8 @@ def test_status_without_probe_writes_nothing(configured: Path, capsys, monkeypat
     def refuse(*_args, **_kwargs):
         raise AssertionError("status wrote to the vault")
 
-    monkeypatch.setattr("notes_vault_mcp.backends.local.LocalBackend.put", refuse)
-    monkeypatch.setattr("notes_vault_mcp.backends.local.LocalBackend.delete", refuse)
+    monkeypatch.setattr("mindin.backends.local.LocalBackend.put", refuse)
+    monkeypatch.setattr("mindin.backends.local.LocalBackend.delete", refuse)
     status = run(capsys, "status")
     assert status["configured"] is True and status["backend"] == "local" and status["writable"] is None
 
@@ -243,9 +243,7 @@ def test_commands_fall_back_to_the_plugin_config(isolated: Path, vault_dir: Path
 def test_every_command_finds_the_server_in_the_plugin_config(isolated: Path, monkeypatch: pytest.MonkeyPatch, capsys):
     write_settings(isolated, {"vault_server_url": "https://vault.example.test", "s3_bucket": "old"})
     asked = []
-    monkeypatch.setattr(
-        "notes_vault_mcp.remote.tool_text", lambda url, tool, **arguments: asked.append((url, tool)) or ""
-    )
+    monkeypatch.setattr("mindin.remote.tool_text", lambda url, tool, **arguments: asked.append((url, tool)) or "")
     for command in (["search", "orchard"], ["backlog"], ["lint"]):
         assert main(command) == 0, command
     assert [tool for _, tool in asked] == ["search", "backlog", "lint"]

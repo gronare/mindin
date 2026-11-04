@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from hosted_support import INITIALIZE, hosted, key_for_subject, post_mcp, sse_payload, text_of
 
-from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey
-from notes_vault_mcp.vault import SubjectVaults
+from mindin.auth.hosted_keys import Keyring, MasterKey
+from mindin.vault import SubjectVaults
 
 LIST_FILES = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_files", "arguments": {}}}
 FRONT = "date: 2026-09-01\nupdated: 2026-09-01\ntags: [orchard]\nstatus: active\n"

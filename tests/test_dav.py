@@ -11,9 +11,9 @@ import httpx2 as httpx
 import pytest
 from hosted_support import first_vault_id, hosted_config, key_for_subject
 
-from notes_vault_mcp.auth.hosted import build_hosted_app
-from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey
-from notes_vault_mcp.vault import SubjectVaults
+from mindin.auth.hosted import build_hosted_app
+from mindin.auth.hosted_keys import Keyring, MasterKey
+from mindin.vault import SubjectVaults
 
 PROPFIND_ALL = '<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:allprop/></D:propfind>'
 
@@ -365,8 +365,8 @@ def test_if_match_star_writes_only_over_the_version_that_exists():
 
     from starlette.requests import Request
 
-    from notes_vault_mcp.backends import Entry
-    from notes_vault_mcp.dav import PreconditionFailed, expected_version
+    from mindin.backends import Entry
+    from mindin.dav import PreconditionFailed, expected_version
 
     request = Request({"type": "http", "headers": [(b"if-match", b"*")]})
     entry = Entry(key="Areas/orchard.md", version="v-orchard", mtime=datetime.now(tz=UTC), size=3)

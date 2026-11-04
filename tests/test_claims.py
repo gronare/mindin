@@ -8,13 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from notes_vault_mcp import notes, tasks
-from notes_vault_mcp.backends import VersionConflict
-from notes_vault_mcp.cli import main
-from notes_vault_mcp.frontmatter import parse, validate
-from notes_vault_mcp.index import Index
-from notes_vault_mcp.schema import CLAIM_KEY, Schema, default_schema_data, instructions
-from notes_vault_mcp.vault import Vault
+from mindin import notes, tasks
+from mindin.backends import VersionConflict
+from mindin.cli import main
+from mindin.frontmatter import parse, validate
+from mindin.index import Index
+from mindin.schema import CLAIM_KEY, Schema, default_schema_data, instructions
+from mindin.vault import Vault
 
 NOTE = "Projects/orchard-fresh.md"
 STORAGE_VARS = ("VAULT_PATH", "S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_BUCKET", "S3_PREFIX", "S3_REGION")

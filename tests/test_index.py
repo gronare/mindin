@@ -3,9 +3,9 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from notes_vault_mcp.index import Index, link_targets, path_list, shas_in
-from notes_vault_mcp.search import search
-from notes_vault_mcp.vault import Vault
+from mindin.index import Index, link_targets, path_list, shas_in
+from mindin.search import search
+from mindin.vault import Vault
 
 OLD_FTS_SQL = """
 CREATE TABLE notes (

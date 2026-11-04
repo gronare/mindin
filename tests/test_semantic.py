@@ -16,14 +16,14 @@ import numpy
 import pytest
 from fake_models import concept_vector
 
-from notes_vault_mcp import cli, embedding, notes, vectors
-from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.embedding import MINILM, MPNET, SharedEmbedder, configured_embedder
-from notes_vault_mcp.index import Index
-from notes_vault_mcp.schema import load_schema
-from notes_vault_mcp.search import render, search
-from notes_vault_mcp.vault import Vault, open_vault
-from notes_vault_mcp.vectors import chunks_of
+from mindin import cli, embedding, notes, vectors
+from mindin.backends.local import LocalBackend
+from mindin.embedding import MINILM, MPNET, SharedEmbedder, configured_embedder
+from mindin.index import Index
+from mindin.schema import load_schema
+from mindin.search import render, search
+from mindin.vault import Vault, open_vault
+from mindin.vectors import chunks_of
 
 
 class FakeEmbedder:
@@ -439,7 +439,7 @@ def test_on_without_the_extra_searches_by_words_and_says_so_once(
     monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setattr(embedding, "_reported", set())
     monkeypatch.setattr(embedding, "EXTRA_MODULES", ("numpy", "fastembed_is_not_installed"))
-    with caplog.at_level(logging.WARNING, logger="notes_vault_mcp.embedding"):
+    with caplog.at_level(logging.WARNING, logger="mindin.embedding"):
         first = open_vault(vectors="wait")
         second = open_vault(vectors="background")
     try:
@@ -456,14 +456,14 @@ def test_on_without_the_extra_searches_by_words_and_says_so_once(
 
 OFF_SCRIPT = """
 import json, sys
-from notes_vault_mcp.search import render, search
-from notes_vault_mcp.vault import open_vault
+from mindin.search import render, search
+from mindin.vault import open_vault
 vault = open_vault(vectors=sys.argv[1])
 vault.index.sync(force=True)
 queries = ("orchard", "domän", "inloggning", "9ca31382", "orchard bokning")
 out = [render(search(vault.index, vault.schema, q)) for q in queries]
 tables = [row[0] for row in vault.index.db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
-modules = ("fastembed", "numpy", "onnxruntime", "notes_vault_mcp.vectors", "notes_vault_mcp.embed_worker")
+modules = ("fastembed", "numpy", "onnxruntime", "mindin.vectors", "mindin.embed_worker")
 loaded = [m for m in modules if m in sys.modules]
 print(json.dumps({"out": out, "tables": sorted(tables), "loaded": loaded}))
 """
@@ -499,7 +499,7 @@ def test_an_index_without_an_embedder_has_no_vectors(vault_dir: Path, tmp_path: 
 async def _search_tool(vault: Vault):
     from mcp.client import Client
 
-    from notes_vault_mcp.server import build_server
+    from mindin.server import build_server
 
     async with Client(build_server(vault)) as client:
         tools = await client.list_tools()

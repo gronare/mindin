@@ -1,6 +1,6 @@
 # How it works
 
-The vault is an Obsidian-style folder of `.md` files with YAML frontmatter, kept on disk, in an S3 bucket or on a vault server. notes-vault-mcp indexes it and gives any MCP client a cheap way to search it, read it and write it. Writes are checked against a [schema](notes-and-layouts.md) the vault carries. Notes can point at code, and at the start of a session the agent gets the commits made since each relevant note was last updated, so a stale note is caught before it is believed.
+The vault is an Obsidian-style folder of `.md` files with YAML frontmatter, kept on disk, in an S3 bucket or on a vault server. mindin indexes it and gives any MCP client a cheap way to search it, read it and write it. Writes are checked against a [schema](notes-and-layouts.md) the vault carries. Notes can point at code, and at the start of a session the agent gets the commits made since each relevant note was last updated, so a stale note is caught before it is believed.
 
 ## Three ways to run it
 

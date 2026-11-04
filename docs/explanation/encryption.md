@@ -2,7 +2,7 @@
 
 Every vault on a server is sealed before it reaches storage: file contents with AES-256-GCM, and file and folder names with AES-SIV, so the folder or bucket holds only opaque object names and ciphertext.
 
-Each vault has its own data key, wrapped by the master key in `VAULT_HOSTED_MASTER_KEY` (base64 of 32 bytes, made with `notes-vault-mcp master-key generate`). The wrapped keys live in `hosted.sqlite`. The server refuses to start without the master key, or with one that does not open the vault keys it holds. Keep the master key outside the bucket: a vault is read with the master key and `hosted.sqlite` together, and with neither alone. [Back up and rotate keys](../how-to/back-up-and-rotate.md) covers both.
+Each vault has its own data key, wrapped by the master key in `VAULT_HOSTED_MASTER_KEY` (base64 of 32 bytes, made with `mindin master-key generate`). The wrapped keys live in `hosted.sqlite`. The server refuses to start without the master key, or with one that does not open the vault keys it holds. Keep the master key outside the bucket: a vault is read with the master key and `hosted.sqlite` together, and with neither alone. [Back up and rotate keys](../how-to/back-up-and-rotate.md) covers both.
 
 Deleting a vault destroys its key first, so its files cannot be read even before they are removed.
 

@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from notes_vault_mcp import git, hooks, notes
-from notes_vault_mcp.cli import main
-from notes_vault_mcp.config import env
-from notes_vault_mcp.vault import Vault
+from mindin import git, hooks, notes
+from mindin.cli import main
+from mindin.config import env
+from mindin.vault import Vault
 
 BACKEND_VARS = ("VAULT_PATH", "S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_BUCKET")
 
@@ -74,7 +74,7 @@ def test_session_start_exits_zero_with_no_backend(monkeypatch: pytest.MonkeyPatc
         monkeypatch.delenv("CLAUDE_PLUGIN_OPTION_" + name, raising=False)
     feed(monkeypatch, {"cwd": "/tmp"})
     assert main(["hook", "session-start"]) == 0
-    assert capsys.readouterr().out.startswith("vault: notes-vault-mcp: no vault configured")
+    assert capsys.readouterr().out.startswith("vault: mindin: no vault configured")
 
 
 def test_session_start_lists_commits_newer_than_the_note(
@@ -435,7 +435,7 @@ def test_session_start_follows_a_symlinked_repo_path(
 def test_commits_since_shows_the_count_and_the_newest_ten(tmp_path):
     import subprocess
 
-    from notes_vault_mcp.hooks import _commits_since
+    from mindin.hooks import _commits_since
 
     root = tmp_path / "repo"
     root.mkdir()

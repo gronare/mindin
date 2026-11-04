@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from notes_vault_mcp import notes
-from notes_vault_mcp.cli import main
-from notes_vault_mcp.frontmatter import parse
-from notes_vault_mcp.vault import Vault
+from mindin import notes
+from mindin.cli import main
+from mindin.frontmatter import parse
+from mindin.vault import Vault
 
 
 def test_backlog_add_files_a_note_under_the_area_family(vault: Vault, vault_dir: Path):

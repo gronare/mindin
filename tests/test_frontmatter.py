@@ -4,8 +4,8 @@ import datetime as dt
 
 import pytest
 
-from notes_vault_mcp.frontmatter import FrontmatterError, dump, parse, validate
-from notes_vault_mcp.schema import Schema, load_schema
+from mindin.frontmatter import FrontmatterError, dump, parse, validate
+from mindin.schema import Schema, load_schema
 
 NOTE = """---
 title: Test

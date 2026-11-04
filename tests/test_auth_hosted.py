@@ -21,8 +21,8 @@ from hosted_support import (
     vault_choice_of,
 )
 
-from notes_vault_mcp.auth.hosted_store import UNUSED_CLIENT_TTL
-from notes_vault_mcp.vault import SubjectVaults
+from mindin.auth.hosted_store import UNUSED_CLIENT_TTL
+from mindin.vault import SubjectVaults
 
 MCP_CIMD = "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration"
 MCP_SECURITY = "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations"

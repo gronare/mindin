@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from notes_vault_mcp.cli import main
-from notes_vault_mcp.frontmatter import parse
-from notes_vault_mcp.notes import lint, lint_note_text
-from notes_vault_mcp.vault import Vault
+from mindin.cli import main
+from mindin.frontmatter import parse
+from mindin.notes import lint, lint_note_text
+from mindin.vault import Vault
 
 
 def groups(vault: Vault) -> dict[str, list[str]]:
@@ -83,7 +83,7 @@ def test_the_repo_log_is_not_a_duplicate_stem(vault: Vault):
 
 
 def test_a_note_with_an_area_link_is_connected_not_orphaned(vault: Vault):
-    from notes_vault_mcp import notes
+    from mindin import notes
 
     notes.write(
         vault,

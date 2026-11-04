@@ -16,13 +16,13 @@ from mcp import Client, StdioServerParameters
 from remote_support import EMAIL, Served, serve
 from test_cli_hooks import feed, head_sha, make_repo, prompts, transcript_of
 
-from notes_vault_mcp import credentials, login, provision
-from notes_vault_mcp.backends import NotFound
-from notes_vault_mcp.backends.local import LocalBackend
-from notes_vault_mcp.cli import main
-from notes_vault_mcp.frontmatter import parse
-from notes_vault_mcp.proxy import Upstream, build_proxy, build_signed_out
-from notes_vault_mcp.vault import SubjectVaults
+from mindin import credentials, login, provision
+from mindin.backends import NotFound
+from mindin.backends.local import LocalBackend
+from mindin.cli import main
+from mindin.frontmatter import parse
+from mindin.proxy import Upstream, build_proxy, build_signed_out
+from mindin.vault import SubjectVaults
 
 FAKE_KEY = "nvm_fake-key-for-tests"
 RFC_8628 = "https://www.rfc-editor.org/rfc/rfc8628"
@@ -146,7 +146,7 @@ def test_login_stores_the_key_with_mode_600(tmp_path: Path, capsys):
     )
     waits: list[float] = []
     fake_login(server, waits, sys.stdout)
-    path = tmp_path / "config" / "notes-vault-mcp" / "credentials.json"
+    path = tmp_path / "config" / "mindin" / "credentials.json"
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     stored = json.loads(path.read_text(encoding="utf-8"))["servers"]["https://vault.example.test"]["vaults"][""]
@@ -163,7 +163,7 @@ def test_a_denied_login_stores_nothing(tmp_path: Path):
     server = FakeDeviceServer([(400, {"error": "access_denied"})])
     with pytest.raises(login.LoginError, match="denied"):
         fake_login(server, [], io.StringIO())
-    assert not (tmp_path / "config" / "notes-vault-mcp" / "credentials.json").exists()
+    assert not (tmp_path / "config" / "mindin" / "credentials.json").exists()
 
 
 def test_login_refuses_plain_http_off_this_machine():
@@ -204,7 +204,7 @@ def test_whoami_and_logout(remote: Served, capsys):
     assert "Forgot every key" in capsys.readouterr().out
     assert credentials.stored(remote.url) is None
     assert main(["whoami"]) == 1
-    assert "notes-vault-mcp login" in capsys.readouterr().err
+    assert "mindin login" in capsys.readouterr().err
 
 
 def test_session_start_through_the_server_equals_the_local_vault(
@@ -273,7 +273,7 @@ def test_session_start_without_a_key_says_how_to_sign_in(
     monkeypatch.setenv("VAULT_SERVER_URL", served.url)
     feed(monkeypatch, {"cwd": str(tmp_path)})
     assert main(["hook", "session-start"]) == 0
-    assert capsys.readouterr().out.startswith(f"vault: notes-vault-mcp: not signed in to {served.url}")
+    assert capsys.readouterr().out.startswith(f"vault: mindin: not signed in to {served.url}")
 
 
 def test_stop_blocks_on_an_unlogged_commit_through_the_server(
@@ -475,7 +475,7 @@ async def test_a_signed_out_proxy_says_how_to_sign_in(served: Served):
         tools = (await client.list_tools()).tools
         instructions = client.instructions
     assert tools == []
-    assert f"notes-vault-mcp login {served.url}" in instructions
+    assert f"mindin login {served.url}" in instructions
 
 
 @pytest.mark.anyio
@@ -486,7 +486,7 @@ async def test_serve_over_stdio_proxies_the_server(remote: Served, tmp_path: Pat
         "XDG_CONFIG_HOME": str(tmp_path / "config"),
         "VAULT_CACHE_DIR": str(tmp_path / "client-cache"),
     }
-    launched = StdioServerParameters(command=sys.executable, args=["-m", "notes_vault_mcp.cli"], env=environment)
+    launched = StdioServerParameters(command=sys.executable, args=["-m", "mindin.cli"], env=environment)
     async with Client(launched) as client:
         found = await client.call_tool("search", {"query": "Kontrollplanet"})
     assert "Areas/orchard.md" in "".join(block.text for block in found.content)
@@ -497,7 +497,7 @@ def test_a_refused_key_ends_a_shell_command_with_one_line(served: Served, monkey
     monkeypatch.setenv("VAULT_SERVER_URL", served.url)
     assert main(["search", "orchard"]) == 1
     error = capsys.readouterr().err
-    assert error.startswith(f"notes-vault-mcp: {served.url} refused the stored key (401)")
+    assert error.startswith(f"mindin: {served.url} refused the stored key (401)")
     assert len(error.strip().splitlines()) == 1
 
 
@@ -592,7 +592,7 @@ def test_read_prints_a_note_through_the_server_as_the_local_vault_does(
     assert main(["read", "Projects/nowhere.md"]) == 1
     missing = capsys.readouterr()
     assert missing.out == ""
-    assert missing.err.strip() == "notes-vault-mcp: Error executing tool read_file: Projects/nowhere.md"
+    assert missing.err.strip() == "mindin: Error executing tool read_file: Projects/nowhere.md"
     monkeypatch.delenv("VAULT_SERVER_URL")
     monkeypatch.setenv("VAULT_PATH", str(vault_dir))
     monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "local-cache"))
@@ -602,7 +602,7 @@ def test_read_prints_a_note_through_the_server_as_the_local_vault_does(
     assert not local.startswith("etag:")
     assert body == parse(local)[1] and body.lstrip().startswith("Bokningswidget ska renderas")
     assert main(["read", "Projects/nowhere.md"]) == 1
-    assert capsys.readouterr().err.strip() == "notes-vault-mcp: no such note: Projects/nowhere.md"
+    assert capsys.readouterr().err.strip() == "mindin: no such note: Projects/nowhere.md"
     assert main(["read", "../outside.md"]) == 1
     assert len(capsys.readouterr().err.strip().splitlines()) == 1
 
@@ -689,7 +689,7 @@ def test_a_folder_mapped_to_a_vault_without_a_key_says_how_to_sign_in(
     assert "login" in capsys.readouterr().out
     monkeypatch.chdir(repo)
     assert main(["whoami"]) == 1
-    assert f"notes-vault-mcp login {remote.url} --vault workshop" in capsys.readouterr().err
+    assert f"mindin login {remote.url} --vault workshop" in capsys.readouterr().err
 
 
 @pytest.mark.anyio

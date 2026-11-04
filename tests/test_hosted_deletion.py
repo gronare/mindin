@@ -7,9 +7,9 @@ import httpx2
 import pytest
 from hosted_support import NOTE_BODY, Hosted, call_tool, csrf_of, hosted, post_mcp, text_of
 
-from notes_vault_mcp.auth.hosted_keys import VaultKeys
-from notes_vault_mcp.auth.hosted_web import RECENT_SIGN_IN
-from notes_vault_mcp.vault import SubjectVaults
+from mindin.auth.hosted_keys import VaultKeys
+from mindin.auth.hosted_web import RECENT_SIGN_IN
+from mindin.vault import SubjectVaults
 
 
 @pytest.fixture

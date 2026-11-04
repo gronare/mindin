@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from forwarded_support import Proxy
 
-from notes_vault_mcp.auth import READ_SCOPE, WRITE_SCOPE, AuthConfig, auth_config
-from notes_vault_mcp.config import PLUGIN_ENV_PREFIX, ConfigError
+from mindin.auth import READ_SCOPE, WRITE_SCOPE, AuthConfig, auth_config
+from mindin.config import PLUGIN_ENV_PREFIX, ConfigError
 
 PREFIXES = ("VAULT_SMTP_", "VAULT_GITHUB_", "VAULT_OIDC_", "VAULT_IDENTITY_", "VAULT_HOSTED_")
 NAMES = (

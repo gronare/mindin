@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from notes_vault_mcp import provision
-from notes_vault_mcp.backends.local import LocalBackend
+from mindin import provision
+from mindin.backends.local import LocalBackend
 
 
 def test_initialize_writes_schema_bases_and_welcome(tmp_path: Path):

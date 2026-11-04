@@ -8,11 +8,11 @@ import jwt
 import pytest
 from forwarded_support import HOST, ISSUER, TYP, Proxy
 
-from notes_vault_mcp.auth import AuthConfig, ForwardedConfig
-from notes_vault_mcp.auth.hosted_store import HostedStore
-from notes_vault_mcp.auth.hosted_web import Browser, Limits
-from notes_vault_mcp.auth.login import Login
-from notes_vault_mcp.auth.login_forwarded import ForwardedSignIn, IdentityError, header_value
+from mindin.auth import AuthConfig, ForwardedConfig
+from mindin.auth.hosted_store import HostedStore
+from mindin.auth.hosted_web import Browser, Limits
+from mindin.auth.login import Login
+from mindin.auth.login_forwarded import ForwardedSignIn, IdentityError, header_value
 
 
 def verifier(proxy: Proxy, tmp_path: Path) -> ForwardedSignIn:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from notes_vault_mcp.schema import Schema, deep_merge, default_schema_data, instructions
+from mindin.schema import Schema, deep_merge, default_schema_data, instructions
 
 
 def _default() -> dict:

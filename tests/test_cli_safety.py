@@ -10,11 +10,11 @@ import pytest
 from test_cli_hooks import make_repo
 from test_cli_tasks import isolated, write_settings  # noqa: F401
 
-from notes_vault_mcp import hooks
-from notes_vault_mcp.backends import NotFound
-from notes_vault_mcp.cli import main, one_line
-from notes_vault_mcp.config import claude_credentials, plugin_options, read_json
-from notes_vault_mcp.hooks import read_hook_input
+from mindin import hooks
+from mindin.backends import NotFound
+from mindin.cli import main, one_line
+from mindin.config import claude_credentials, plugin_options, read_json
+from mindin.hooks import read_hook_input
 
 SECRET = "sekrit-s3-key-never-printed"
 
@@ -97,14 +97,14 @@ def test_a_failing_backend_error_is_one_line_without_the_secret(claude_dir: Path
     assert main(["task", "open", "--name", "x", "--cwd", str(repo)]) == 1
     out, err = capsys.readouterr()
     assert out == ""
-    assert err.count("\n") == 1 and err.startswith("notes-vault-mcp: ")
-    assert SECRET not in err and "ak" not in err.split("notes-vault-mcp: ", 1)[1].split()
+    assert err.count("\n") == 1 and err.startswith("mindin: ")
+    assert SECRET not in err and "ak" not in err.split("mindin: ", 1)[1].split()
 
 
 def test_one_line_prefixes_and_flattens_any_exception():
-    assert one_line(NotFound("Projects/x.md")) == "notes-vault-mcp: no such note: Projects/x.md"
-    assert one_line(RuntimeError("two\nlines   here")) == "notes-vault-mcp: two lines here"
-    assert one_line(RuntimeError("notes-vault-mcp: already prefixed")) == "notes-vault-mcp: already prefixed"
+    assert one_line(NotFound("Projects/x.md")) == "mindin: no such note: Projects/x.md"
+    assert one_line(RuntimeError("two\nlines   here")) == "mindin: two lines here"
+    assert one_line(RuntimeError("mindin: already prefixed")) == "mindin: already prefixed"
 
 
 def test_changelog_with_a_bad_period_fails_on_one_line(vault, capsys):
@@ -120,7 +120,7 @@ def test_status_never_touches_the_keychain_when_a_config_dir_is_set(claude_dir: 
     def refuse(*_args, **_kwargs):
         raise AssertionError("the keychain was read")
 
-    monkeypatch.setattr("notes_vault_mcp.config.subprocess.run", refuse)
+    monkeypatch.setattr("mindin.config.subprocess.run", refuse)
     write_settings(claude_dir, {"s3_endpoint": "https://s3.test", "s3_bucket": "b"})
     assert main(["status"]) == 0
     assert json.loads(capsys.readouterr().out)["configured"] is False
@@ -170,16 +170,14 @@ def test_the_status_command_reports_an_s3_backend_without_opening_it(claude_dir:
     monkeypatch.setenv("S3_ACCESS_KEY", "ak")
     monkeypatch.setenv("S3_SECRET_KEY", SECRET)
     monkeypatch.setenv("S3_BUCKET", "b")
-    monkeypatch.setattr(
-        "notes_vault_mcp.cli.open_vault", lambda *a, **k: (_ for _ in ()).throw(AssertionError("opened"))
-    )
+    monkeypatch.setattr("mindin.cli.open_vault", lambda *a, **k: (_ for _ in ()).throw(AssertionError("opened")))
     assert main(["status"]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status == {"configured": True, "version": status["version"], "backend": "s3", "writable": None}
 
 
 def test_git_helpers_survive_a_cwd_that_is_not_a_directory(tmp_path: Path):
-    from notes_vault_mcp.git import current_branch, main_checkout, repo_name, repo_root
+    from mindin.git import current_branch, main_checkout, repo_name, repo_root
 
     missing = tmp_path / "missing"
     assert repo_root(missing) is None and main_checkout(missing) is None and current_branch(missing) is None
@@ -190,13 +188,13 @@ def test_a_worktree_name_never_becomes_a_repo_name(tmp_path: Path):
     repo = make_repo(tmp_path / "repos", "orchard")
     worktree = tmp_path / "repos" / "wt.orchard"
     subprocess.run(["git", "worktree", "add", "-q", "-b", "t", str(worktree)], cwd=repo, check=True)
-    from notes_vault_mcp.git import repo_name
+    from mindin.git import repo_name
 
     assert repo_name(worktree) == "orchard"
 
 
 def test_a_test_never_sees_the_users_own_plugin_config_or_server_keys():
-    from notes_vault_mcp import credentials
+    from mindin import credentials
 
     assert plugin_options() == {}
     assert claude_credentials() == {}

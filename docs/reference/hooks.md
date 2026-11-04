@@ -1,6 +1,6 @@
 # Hooks
 
-`notes-vault-mcp hook session-start` and `notes-vault-mcp hook stop` are Claude Code hooks. Both read the hook JSON on stdin and exit 0 whatever happens. The [plugin](../how-to/claude-code.md) installs them; without it, add them to your settings as shown there.
+`mindin hook session-start` and `mindin hook stop` are Claude Code hooks. Both read the hook JSON on stdin and exit 0 whatever happens. The [plugin](../how-to/claude-code.md) installs them; without it, add them to your settings as shown there.
 
 ## session-start
 

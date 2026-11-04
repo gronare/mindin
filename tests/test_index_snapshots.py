@@ -7,9 +7,9 @@ import pytest
 from fake_models import concept_vector
 from hosted_support import Hosted, hosted
 
-from notes_vault_mcp.auth.hosted_keys import SealedVaults, VaultKeys, delete_vault
-from notes_vault_mcp.auth.hosted_snapshots import IndexSnapshots
-from notes_vault_mcp.vault import NoSubject, SubjectVaults
+from mindin.auth.hosted_keys import SealedVaults, VaultKeys, delete_vault
+from mindin.auth.hosted_snapshots import IndexSnapshots
+from mindin.vault import NoSubject, SubjectVaults
 
 NOTE = "---\ntitle: Kopian\ndate: 2026-10-01\nupdated: 2026-10-01\ntags: []\nstatus: active\n---\nsäkerhetskopia\n"
 CHANGED = NOTE.replace("säkerhetskopia", "säkerhetskopia varje natt")

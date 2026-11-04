@@ -5,10 +5,10 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from notes_vault_mcp.auth.database import SqliteDatabase
-from notes_vault_mcp.auth.hosted_store import HostedStore
-from notes_vault_mcp.auth.identities import Identities
-from notes_vault_mcp.extensions import Extension
+from mindin.auth.database import SqliteDatabase
+from mindin.auth.hosted_store import HostedStore
+from mindin.auth.identities import Identities
+from mindin.extensions import Extension
 
 
 class Clash(Exception):

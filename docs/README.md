@@ -1,4 +1,4 @@
-# notes-vault-mcp documentation
+# mindin documentation
 
 Start with [Install with Docker](install/docker.md): it takes you from an empty machine to a vault server you can connect claude.ai to.
 

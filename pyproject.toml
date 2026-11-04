@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "notes-vault-mcp"
+name = "mindin"
 version = "0.13.0"
 description = "MCP server for a markdown notes vault on S3 or a local directory, with a SQLite index, schema-aware writes and session hooks."
 readme = "README.md"
@@ -34,11 +34,11 @@ semantic = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/gronare/notes-vault-mcp"
-Repository = "https://github.com/gronare/notes-vault-mcp"
+Homepage = "https://github.com/gronare/mindin"
+Repository = "https://github.com/gronare/mindin"
 
 [project.scripts]
-notes-vault-mcp = "notes_vault_mcp.cli:main"
+mindin = "mindin.cli:main"
 
 [dependency-groups]
 dev = [
@@ -49,7 +49,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["notes_vault_mcp"]
+packages = ["mindin"]
 
 [tool.ruff]
 line-length = 120

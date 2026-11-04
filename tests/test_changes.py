@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from notes_vault_mcp.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys, delete_vault
-from notes_vault_mcp.auth.hosted_store import HostedStore
-from notes_vault_mcp.backends import SCHEMA_KEY
-from notes_vault_mcp.changes import NULL_BUS, Announcing, Change, LocalBus
-from notes_vault_mcp.search import search
-from notes_vault_mcp.vault import SubjectVaults, Vault
+from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys, delete_vault
+from mindin.auth.hosted_store import HostedStore
+from mindin.backends import SCHEMA_KEY
+from mindin.changes import NULL_BUS, Announcing, Change, LocalBus
+from mindin.search import search
+from mindin.vault import SubjectVaults, Vault
 
 FRONT = "date: 2026-09-01\nupdated: 2026-09-01\ntags: [orchard]\nstatus: active\n"
 QUINCE = f"---\ntitle: Quince\n{FRONT}---\n\nThe quince wants frost before picking.\n"

@@ -14,8 +14,8 @@ import numpy
 import pytest
 from fake_models import concept_vector
 
-from notes_vault_mcp import embed_worker
-from notes_vault_mcp.embedding import SharedEmbedder
+from mindin import embed_worker
+from mindin.embedding import SharedEmbedder
 
 TESTS = Path(__file__).parent
 LOADER = "fake_models:concept_model"
@@ -75,7 +75,7 @@ def test_two_clients_share_one_worker(make):
 START_SCRIPT = """
 import sys
 from pathlib import Path
-from notes_vault_mcp.embedding import SharedEmbedder
+from mindin.embedding import SharedEmbedder
 embedder = SharedEmbedder(Path(sys.argv[1]), "fake-1", loader="fake_models:concept_model")
 embedder.query("oauth")
 print(embedder.worker_pid)
@@ -137,7 +137,7 @@ def test_a_client_for_another_model_restarts_the_worker(make):
 
 
 OLD_WORKER = """
-from notes_vault_mcp import embed_worker
+from mindin import embed_worker
 embed_worker.package_version = lambda: "0.0.0-old"
 embed_worker.main()
 """

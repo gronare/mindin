@@ -87,7 +87,7 @@ def s3_settings() -> dict[str, str] | None:
 
 
 NO_BACKEND = (
-    "mindin: no vault configured. Set VAULT_PATH to a directory, "
+    "mindin: no vault configured. Run `mindin setup`, or set VAULT_PATH to a directory, "
     "S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET for an S3 bucket, "
     "or VAULT_SERVER_URL for a vault server."
 )
@@ -173,12 +173,27 @@ def plugin_options(settings_path: Path | None = None) -> dict[str, str]:
     return {}
 
 
-def adopt_plugin_config() -> str:
-    """Fill the storage variables from the vault plugin's saved config when the environment names no vault."""
-    if local_root() is not None or s3_settings() is not None or env("VAULT_SERVER_URL"):
+def environment_names_a_vault() -> bool:
+    return local_root() is not None or s3_settings() is not None or bool(env("VAULT_SERVER_URL"))
+
+
+_filled: tuple[str, dict[str, str]] = ("none", {})
+
+
+def adopt_config() -> str:
+    """Fill the storage variables when the environment names no vault: mindin's own config first, then the plugin's."""
+    global _filled
+    source, values = _filled
+    if values and all(os.environ.get(name) == value for name, value in values.items()):
+        return source
+    if environment_names_a_vault():
         return "env"
-    found = plugin_options()
-    for name, value in found.items():
-        if not env(name):
-            os.environ[name] = value
-    return "plugin" if found else "none"
+    from mindin.places import saved_settings
+
+    for source, found in (("config", saved_settings()), ("plugin", plugin_options())):
+        if found:
+            filled = {name: value for name, value in found.items() if not env(name)}
+            os.environ.update(filled)
+            _filled = (source, filled)
+            return source
+    return "none"

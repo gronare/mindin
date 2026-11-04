@@ -173,7 +173,13 @@ def test_the_status_command_reports_an_s3_backend_without_opening_it(claude_dir:
     monkeypatch.setattr("mindin.cli.open_vault", lambda *a, **k: (_ for _ in ()).throw(AssertionError("opened")))
     assert main(["status"]) == 0
     status = json.loads(capsys.readouterr().out)
-    assert status == {"configured": True, "version": status["version"], "backend": "s3", "writable": None}
+    assert status == {
+        "configured": True,
+        "version": status["version"],
+        "backend": "s3",
+        "source": "env",
+        "writable": None,
+    }
 
 
 def test_git_helpers_survive_a_cwd_that_is_not_a_directory(tmp_path: Path):

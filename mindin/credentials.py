@@ -36,27 +36,56 @@ def configured_server() -> str | None:
     return server_base(raw) if raw else None
 
 
-def _read() -> dict:
+def _document() -> dict:
     try:
         data = json.loads(credentials_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    servers = data.get("servers") if isinstance(data, dict) else None
-    return servers if isinstance(servers, dict) else {}
+    return data if isinstance(data, dict) else {}
 
 
-def _write(servers: dict) -> None:
+def _section(name: str) -> dict:
+    found = _document().get(name)
+    return found if isinstance(found, dict) else {}
+
+
+def _read() -> dict:
+    return _section("servers")
+
+
+def _write_section(name: str, value: dict) -> None:
+    document = _document() | {name: value}
     folder = private_dir(config_dir())
     handle, temporary = tempfile.mkstemp(dir=folder, prefix=".credentials-")
     try:
         os.fchmod(handle, 0o600)
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            json.dump({"servers": servers}, stream, indent=2)
+            json.dump(document, stream, indent=2)
         os.replace(temporary, credentials_path())
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(temporary)
         raise
+
+
+def _write(servers: dict) -> None:
+    _write_section("servers", servers)
+
+
+def _bucket(endpoint: str, bucket: str) -> str:
+    return f"{endpoint.rstrip('/')}#{bucket}"
+
+
+def s3_keys(endpoint: str, bucket: str) -> dict[str, str]:
+    found = _section("s3").get(_bucket(endpoint, bucket))
+    if not isinstance(found, dict):
+        return {}
+    return {name: found[name] for name in ("access_key", "secret_key") if isinstance(found.get(name), str)}
+
+
+def save_s3_keys(endpoint: str, bucket: str, access_key: str, secret_key: str) -> None:
+    buckets = _section("s3") | {_bucket(endpoint, bucket): {"access_key": access_key, "secret_key": secret_key}}
+    _write_section("s3", buckets)
 
 
 def _state(raw: object) -> dict:

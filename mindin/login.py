@@ -133,11 +133,11 @@ def access_words(scope: str) -> str:
 
 
 def server_argument(raw: str | None) -> str:
-    from mindin.config import adopt_plugin_config
+    from mindin.config import adopt_config
 
     if raw:
         return credentials.server_base(raw)
-    adopt_plugin_config()
+    adopt_config()
     found = credentials.configured_server() or credentials.DEFAULT_SERVER_URL
     if not found:
         raise ConfigError("mindin: name the server, as in `mindin login https://vault.example.com`")

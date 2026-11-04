@@ -8,10 +8,10 @@ from collections.abc import Callable
 from importlib import metadata
 from pathlib import Path
 
-from mindin import __version__, changelog, credentials, hooks, human, notes, provision, tasks, views
+from mindin import __version__, changelog, credentials, hooks, human, notes, places, provision, tasks, views
 from mindin.auth import auth_config
 from mindin.backends import NotFound
-from mindin.config import FORMER_NAMES, ConfigError, adopt_plugin_config, cache_dir, env, local_root, s3_settings
+from mindin.config import FORMER_NAMES, ConfigError, adopt_config, cache_dir, env, local_root, s3_settings
 from mindin.embedding import keep_warm
 from mindin.extensions import installed
 from mindin.frontmatter import parse
@@ -379,7 +379,7 @@ def json_command(action: Callable[[argparse.Namespace, Vault], dict]) -> Callabl
 
     def run(args: argparse.Namespace) -> int:
         try:
-            adopt_plugin_config()
+            adopt_config()
             url = server_url()
             if url is not None:
                 from mindin import remote
@@ -453,7 +453,7 @@ def read_note(path: str) -> str:
 
 def command_read(args: argparse.Namespace) -> int:
     try:
-        adopt_plugin_config()
+        adopt_config()
         text = read_note(args.path)
     except Exception as exc:
         print(one_line(exc), file=sys.stderr)
@@ -478,7 +478,7 @@ def is_writable(vault: Vault) -> bool:
     return True
 
 
-def remote_status(url: str, probe: bool) -> dict:
+def remote_status(url: str, probe: bool, source: str | None = None) -> dict:
     from mindin import remote
 
     vault, entry = credentials.chosen(url)
@@ -495,6 +495,7 @@ def remote_status(url: str, probe: bool) -> dict:
         "configured": signed_in,
         "version": package_version(),
         "backend": "server",
+        "source": source,
         "writable": writable,
         "server": url,
         "vault": vault,
@@ -510,13 +511,14 @@ def vault_kind(found: dict) -> dict:
 
 
 def command_status(args: argparse.Namespace) -> int:
-    adopt_plugin_config()
+    found = adopt_config()
+    source = found if found != "none" else None
     try:
         url = server_url()
     except ConfigError:
         url = None
     if url is not None:
-        print(json.dumps(remote_status(url, args.probe)))
+        print(json.dumps(remote_status(url, args.probe, source)))
         return 0
     backend = "local" if local_root() is not None else "s3" if s3_settings() is not None else None
     writable: bool | None = None if not args.probe else False
@@ -529,7 +531,13 @@ def command_status(args: argparse.Namespace) -> int:
                 vault.close()
         except Exception:
             writable = False
-    status = {"configured": backend is not None, "version": package_version(), "backend": backend, "writable": writable}
+    status = {
+        "configured": backend is not None,
+        "version": package_version(),
+        "backend": backend,
+        "source": source,
+        "writable": writable,
+    }
     print(json.dumps(status))
     return 0
 
@@ -659,6 +667,10 @@ def command_about(args: argparse.Namespace) -> int:
     print(f"{found['name']} {found['version']}, formerly {', '.join(found['former_names'])}")
     print(f"commands for tools: {', '.join(found['capabilities'])} (contract {found['contract']})")
     return 0
+
+
+def command_setup(args: argparse.Namespace) -> int:
+    return places.command_setup(args)
 
 
 def add_plain(parser: argparse.ArgumentParser) -> None:
@@ -939,6 +951,10 @@ def build_parser() -> argparse.ArgumentParser:
     asking.add_argument("url", nargs="?", help="the server; VAULT_SERVER_URL when omitted")
     asking.set_defaults(func=command_whoami)
 
+    choosing = sub.add_parser("setup", help="choose where this machine's vault lives, saved in mindin's own config")
+    places.add_arguments(choosing)
+    choosing.set_defaults(func=command_setup)
+
     telling = sub.add_parser("about", help="the name, version and commands for tools of this mindin")
     telling.add_argument("--json", action="store_true", help="answer JSON, for tools that read it")
     telling.set_defaults(func=command_about)
@@ -960,7 +976,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         args = parser.parse_args(["serve", *(argv or [])])
     try:
-        adopt_plugin_config()
+        if args.command != "setup":
+            adopt_config()
         return int(args.func(args))
     except ConfigError as exc:
         print(str(exc), file=sys.stderr)

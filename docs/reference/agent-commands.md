@@ -24,9 +24,9 @@ mindin log path --repo myapp --repo docs            # {"myapp": "Log/myapp-log.m
 mindin snapshot --json [--since ETAG]               # the board's notes and logs in one answer
 mindin read Projects/myapp-idea.md [--body]          # the note as stored in a pipe, or only its text after the frontmatter
 mindin status
-# {"configured": true, "version": "0.13.0", "backend": "s3", "writable": null}
+# {"configured": true, "version": "0.13.0", "backend": "s3", "source": "config", "writable": null}
 mindin status --probe
-# {"configured": true, "version": "0.13.0", "backend": "s3", "writable": true}
+# {"configured": true, "version": "0.13.0", "backend": "s3", "source": "config", "writable": true}
 mindin about --json
 # {"name": "mindin", "version": "0.13.0", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "read"], "former_names": ["notes-vault-mcp"]}
 ```
@@ -63,7 +63,7 @@ Every answer carries an `etag`; with `--since <etag>` the answer is only `{"unch
 
 ## status
 
-`status` never fails: with no vault configured it prints `"configured": false, "backend": null` and exits 0. Through a server it answers `"backend": "server"` with the `server` and whether this machine is `signed_in`. It is read-only and leaves `writable` null; `--probe` measures it by writing and deleting `.vault/write-probe`.
+`status` never fails: with no vault configured it prints `"configured": false, "backend": null, "source": null` and exits 0. `source` names what decided where the vault is: `env`, `config` (mindin's own, from `setup`) or `plugin` ([Where commands find the vault](command-line.md#where-commands-find-the-vault)). Through a server it answers `"backend": "server"` with the `server` and whether this machine is `signed_in`. It is read-only and leaves `writable` null; `--probe` measures it by writing and deleting `.vault/write-probe`.
 
 ## about
 

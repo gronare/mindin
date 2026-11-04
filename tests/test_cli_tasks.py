@@ -9,7 +9,7 @@ import pytest
 from test_cli_hooks import make_repo
 
 from mindin.cli import main
-from mindin.config import adopt_plugin_config, plugin_options
+from mindin.config import adopt_config, plugin_options
 from mindin.frontmatter import parse
 
 STORAGE_VARS = ("VAULT_PATH", "S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_BUCKET", "S3_PREFIX", "S3_REGION")
@@ -252,7 +252,7 @@ def test_every_command_finds_the_server_in_the_plugin_config(isolated: Path, mon
 
 def test_the_environment_wins_over_the_plugin_config(isolated: Path, configured: Path, tmp_path: Path):
     write_settings(isolated, {"vault_path": str(tmp_path / "elsewhere")})
-    assert adopt_plugin_config() == "env"
+    assert adopt_config() == "env"
     assert os.environ["VAULT_PATH"] == str(configured)
 
 

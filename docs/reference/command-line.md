@@ -2,6 +2,20 @@
 
 `mindin --help` and `mindin <command> --help` print every option. The commands for tools that drive agents (`task`, `log`, `snapshot`, `status`) are in [Agent commands](agent-commands.md).
 
+## Setting up a machine
+
+```sh
+mindin setup                            # asks where the vault lives, in a terminal
+mindin setup --folder ~/vault
+mindin setup --s3 <bucket> --endpoint <url> [--prefix <prefix>] [--region <region>]
+mindin setup --server <url> [--vault <slug>] [--no-browser]
+mindin about [--json]                   # name, version and the commands for tools
+```
+
+`setup` saves the choice in `mindin/config.toml` under `XDG_CONFIG_HOME` (default `~/.config/mindin/config.toml`), as a `[vault]` table with `kind` set to `folder`, `s3` or `server`. A folder must exist; asked in a terminal, setup offers to create it. `--s3` reads the bucket's keys from `S3_ACCESS_KEY` and `S3_SECRET_KEY`, or asks for them in a terminal, and keeps them in `credentials.json` next to the config, readable only by you, never in `config.toml`. `--server` signs the machine in with [`login`](../how-to/sign-in-a-machine.md) unless it holds a key already. Running `setup` again replaces the choice.
+
+`about --json` prints the [contract](agent-commands.md#about) tools read.
+
 ## Vault and search
 
 ```sh
@@ -79,4 +93,10 @@ With `--write` it keeps that as a period page, `Log/<repo>-<period>.md`, between
 
 ## Where commands find the vault
 
-Every command reads the storage settings from the environment first ([Configuration](configuration.md#storage)). When the environment names no vault, it takes the Claude Code plugin's saved user config instead: `pluginConfigs["vault@<marketplace>"].options` in `$CLAUDE_CONFIG_DIR/settings.json` (default `~/.claude/settings.json`), mapping `vault_path`, `s3_endpoint`, `s3_bucket`, `s3_access_key`, `s3_secret_key`, `s3_prefix`, `s3_region` and `vault_server_url` to their variables, with the secrets from Claude Code's credentials store when they are kept there.
+Every command, the stdio server included, takes the first of these that names a vault:
+
+1. The environment ([Configuration](configuration.md#storage)).
+2. mindin's own config, written by [`setup`](#setting-up-a-machine).
+3. The Claude Code plugin's saved user config.
+
+`status` says which one decided, in `source`: `env`, `config` or `plugin`. The plugin's config is `pluginConfigs["vault@<marketplace>"].options` in `$CLAUDE_CONFIG_DIR/settings.json` (default `~/.claude/settings.json`), mapping `vault_path`, `s3_endpoint`, `s3_bucket`, `s3_access_key`, `s3_secret_key`, `s3_prefix`, `s3_region` and `vault_server_url` to their variables, with the secrets from Claude Code's credentials store when they are kept there.

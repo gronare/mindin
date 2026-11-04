@@ -408,7 +408,13 @@ def test_a_stored_key_changes_nothing_without_a_server_url(served: Served, vault
     credentials.save(served.url, {"key": served.key(), "scope": "vault:read vault:write", "name": "laptop"})
     monkeypatch.setenv("VAULT_PATH", str(vault_dir))
     status = run_json(capsys, "status")
-    assert status == {"configured": True, "version": status["version"], "backend": "local", "writable": None}
+    assert status == {
+        "configured": True,
+        "version": status["version"],
+        "backend": "local",
+        "source": "env",
+        "writable": None,
+    }
 
 
 def test_the_plugin_config_points_kebbie_at_the_server(remote: Served, monkeypatch, tmp_path: Path, capsys):

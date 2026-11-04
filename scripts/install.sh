@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs mindin with uv, runs mindin setup and offers to add the vault to Claude Code, Codex and Cursor: curl -fsSL https://github.com/gronare/mindin/releases/latest/download/install.sh | sh
+# Installs mindin with uv, runs mindin setup and offers to add the vault to Claude Code, Codex and Cursor: curl -fsSL https://mindin.dev/install.sh | sh
 set -eu
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then

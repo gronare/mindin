@@ -34,7 +34,7 @@ semantic = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/gronare/mindin"
+Homepage = "https://mindin.dev"
 Repository = "https://github.com/gronare/mindin"
 
 [project.scripts]

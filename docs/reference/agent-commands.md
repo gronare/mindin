@@ -24,11 +24,11 @@ mindin log path --repo myapp --repo docs            # {"myapp": "Log/myapp-log.m
 mindin snapshot --json [--since ETAG]               # the board's notes and logs in one answer
 mindin read Projects/myapp-idea.md [--body]          # the note as stored in a pipe, or only its text after the frontmatter
 mindin status
-# {"configured": true, "version": "0.14.0", "backend": "s3", "source": "config", "writable": null}
+# {"configured": true, "version": "0.14.1", "backend": "s3", "source": "config", "writable": null}
 mindin status --probe
-# {"configured": true, "version": "0.14.0", "backend": "s3", "source": "config", "writable": true}
+# {"configured": true, "version": "0.14.1", "backend": "s3", "source": "config", "writable": true}
 mindin about --json
-# {"name": "mindin", "version": "0.14.0", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "read"], "former_names": ["notes-vault-mcp"]}
+# {"name": "mindin", "version": "0.14.1", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "read"], "former_names": ["notes-vault-mcp"]}
 ```
 
 ## task open

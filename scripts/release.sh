@@ -34,7 +34,7 @@ ci=$(gh run list --commit "$head" --workflow ci.yml --json status,conclusion -q 
 [ "$ci" = "completed success" ] || fail "CI on $(git rev-parse --short HEAD) is '${ci:-not found}'; release a commit whose CI is green"
 
 sh scripts/release-notes.sh --move "$version" || fail "write what $version brings in CHANGES.md first"
-perl -pi -e 's/^version = "[^"]*"/version = "'"$version"'"/ if $. <= 10' pyproject.toml shim/pyproject.toml
+for manifest in pyproject.toml shim/pyproject.toml; do perl -pi -e 's/^version = "[^"]*"/version = "'"$version"'"/ if $. <= 10' "$manifest"; done
 perl -pi -e 's/"mindin(\[semantic\])?==[^"]*"/"mindin$1=='"$version"'"/g' shim/pyproject.toml
 perl -pi -e 's/^VERSION = "[^"]*"/VERSION = "'"$version"'"/' mindin/server.py
 perl -pi -e 's/"version": "[^"]*"/"version": "'"$version"'"/' server.json

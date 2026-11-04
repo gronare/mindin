@@ -1,0 +1,59 @@
+{
+  "name": "vault",
+  "displayName": "Vault",
+  "version": "0.14.0",
+  "description": "mindin: your Obsidian vault, in a local folder, an S3 bucket or on a vault server, as Claude's persistent memory: indexed search, session-start context, a repo log with commit shas, and lint.",
+  "author": {
+    "name": "Carl Green"
+  },
+  "homepage": "https://github.com/gronare/mindin",
+  "repository": "https://github.com/gronare/mindin",
+  "license": "MIT",
+  "keywords": [
+    "obsidian",
+    "notes",
+    "memory",
+    "s3",
+    "mcp"
+  ],
+  "mcpServers": "./.mcp.json",
+  "userConfig": {
+    "vault_path": {
+      "type": "string",
+      "title": "Local vault folder",
+      "description": "Absolute path to a vault on this machine. Leave empty to use S3 or a vault server.",
+      "required": false
+    },
+    "s3_endpoint": {
+      "type": "string",
+      "title": "S3 endpoint",
+      "description": "e.g. https://minio.example.com (leave empty when using a local folder or a vault server)",
+      "required": false
+    },
+    "s3_bucket": {
+      "type": "string",
+      "title": "S3 bucket",
+      "required": false,
+      "description": "Bucket that holds the vault (e.g. obsidian)"
+    },
+    "s3_access_key": {
+      "type": "string",
+      "title": "S3 access key",
+      "required": false,
+      "description": "Access key with read/write on the bucket"
+    },
+    "s3_secret_key": {
+      "type": "string",
+      "title": "S3 secret key",
+      "sensitive": true,
+      "required": false,
+      "description": "Secret key for that access key"
+    },
+    "vault_server_url": {
+      "type": "string",
+      "title": "Vault server URL",
+      "description": "e.g. https://vault.example.com; then sign this machine in with /vault:login. Leave empty when using a local folder or S3.",
+      "required": false
+    }
+  }
+}

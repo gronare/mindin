@@ -108,35 +108,8 @@ jobs:
           done
           exit 1
 
-  plugin:
-    needs: [pypi]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          repository: gronare/claude-plugins
-          ref: main
-          ssh-key: ${{ secrets.CLAUDE_PLUGINS_DEPLOY_KEY }}
-
-      - name: Point the vault plugin at this release
-        run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          if grep -qE "(mindin|notes-vault-mcp)==${VERSION}\"" plugins/vault/.mcp.json; then
-            echo "the plugin already pins ${VERSION}"
-            exit 0
-          fi
-          sed -i -E "s/(mindin|notes-vault-mcp)==[0-9.]+/\1==${VERSION}/g" plugins/vault/.mcp.json plugins/vault/hooks/hooks.json
-          PLUGIN="$(jq -r '.version' plugins/vault/.claude-plugin/plugin.json | awk -F. '{print $1"."$2"."$3+1}')"
-          jq --arg v "$PLUGIN" '.version = $v' plugins/vault/.claude-plugin/plugin.json > plugin.json.tmp
-          mv plugin.json.tmp plugins/vault/.claude-plugin/plugin.json
-          git config user.name "mindin release"
-          git config user.email "release@mindin.invalid"
-          git add plugins/vault/.mcp.json plugins/vault/hooks/hooks.json plugins/vault/.claude-plugin/plugin.json
-          git commit -m "vault ${PLUGIN}: the server and the hooks pin ${VERSION}"
-          git push origin HEAD:main
-
   release:
-    needs: [pypi, ghcr, registry, plugin]
+    needs: [pypi, ghcr, registry]
     runs-on: ubuntu-latest
     permissions:
       contents: write

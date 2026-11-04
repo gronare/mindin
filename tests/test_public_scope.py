@@ -34,7 +34,7 @@ def prose() -> list[Path]:
 def scanned() -> list[Path]:
     tests = [path for path in files_under(ROOT / "tests") if path != Path(__file__).resolve()]
     top = [ROOT / name for name in ("README.md", "CHANGES.md", "server.json", "pyproject.toml", "Dockerfile")]
-    folders = (PACKAGE, ROOT / "docs", ROOT / "deploy", ROOT / "scripts", ROOT / ".github", ROOT / "shim")
+    folders = (PACKAGE, *(ROOT / name for name in ("docs", "deploy", "scripts", ".github", "shim", "plugin")))
     return [*(path for folder in folders for path in files_under(folder)), *tests, *top]
 
 
@@ -53,7 +53,8 @@ def test_the_public_package_keeps_to_the_vault(path: Path):
 
 def test_the_scan_reaches_every_tracked_folder():
     names = {path.relative_to(ROOT).parts[0] for path in scanned()}
-    assert {"mindin", "docs", "deploy", "scripts", ".github", "shim", "tests", "README.md", "CHANGES.md"} <= names
+    folders = {"mindin", "docs", "deploy", "scripts", ".github", "shim", "plugin", "tests"}
+    assert folders | {"README.md", "CHANGES.md"} <= names
 
 
 def test_the_guard_catches_what_it_names():

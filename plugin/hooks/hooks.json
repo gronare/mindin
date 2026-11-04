@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uvx notes-vault-mcp==0.14.0 hook session-start",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uvx notes-vault-mcp==0.14.0 hook stop",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -13,6 +13,7 @@ tag="v$version"
 image=ghcr.io/gronare/mindin
 former=notes-vault-mcp
 pinned="deploy/k8s/deployment.yaml deploy/docker/compose.yml docs/install/semantic-search.md"
+plugin="plugin/.claude-plugin/plugin.json plugin/.mcp.json plugin/hooks/hooks.json"
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"
 
@@ -42,6 +43,8 @@ perl -0pi -e 's/(\[\[package\]\]\nname = "mindin"\nversion = )"[^"]*"/$1"'"$vers
 perl -pi -e 's/^(# \{.*?"version": )"[^"]*"/$1"'"$version"'"/' docs/reference/agent-commands.md
 # shellcheck disable=SC2086
 perl -pi -e 's#(\Q'"$image"'\E):v[0-9][0-9.]*(-semantic)?$#$1:'"$tag"'$2#' $pinned
+perl -pi -e 's/"version": "[^"]*"/"version": "'"$version"'"/' plugin/.claude-plugin/plugin.json
+perl -pi -e 's/\b(mindin|notes-vault-mcp)==[0-9][0-9.]*/$1=='"$version"'/g' plugin/.mcp.json plugin/hooks/hooks.json
 
 expect pyproject.toml "version = \"$version\"" 1
 expect shim/pyproject.toml "version = \"$version\"" 1
@@ -52,12 +55,17 @@ expect server.json "\"version\": \"$version\"" 2
 expect docs/reference/agent-commands.md "\"version\": \"$version\"" 3
 expect docs/install/semantic-search.md "$image:$tag-semantic" 1
 for file in deploy/k8s/deployment.yaml deploy/docker/compose.yml; do expect "$file" "$image:$tag" 1; done
+expect plugin/.claude-plugin/plugin.json "\"version\": \"$version\"" 1
+expect plugin/.mcp.json "==$version\"" 1
+expect plugin/hooks/hooks.json "==$version hook" 2
 stale=$(grep -rnE "$image:v[0-9]|\"version\": \"[0-9]" README.md docs deploy | grep -vF -e "$image:$tag" -e "\"version\": \"$version\"" || true)
 [ -z "$stale" ] || fail "the bump did not reach: $stale"
+stale=$(grep -rnoE "(mindin|notes-vault-mcp)==[0-9][0-9.]*" plugin | grep -vE "==$version\$" || true)
+[ -z "$stale" ] || fail "the plugin still pins: $stale"
 grep -A1 '^name = "mindin"$' uv.lock | grep -q "^version = \"$version\"$" || fail "uv.lock still names another mindin version"
 uv lock --check --quiet || fail "uv.lock does not agree with pyproject.toml"
 
-files="CHANGES.md pyproject.toml shim/pyproject.toml uv.lock mindin/server.py server.json docs/reference/agent-commands.md $pinned"
+files="CHANGES.md pyproject.toml shim/pyproject.toml uv.lock mindin/server.py server.json docs/reference/agent-commands.md $pinned $plugin"
 # shellcheck disable=SC2086
 git add $files
 [ -z "$(git status --porcelain --untracked-files=all | grep -v '^M  ' || true)" ] || fail "the bump changed files outside $files"

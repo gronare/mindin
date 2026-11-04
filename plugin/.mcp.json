@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "vault": {
+      "command": "uvx",
+      "args": ["notes-vault-mcp==0.14.0"],
+      "env": {
+        "VAULT_PATH": "${user_config.vault_path}",
+        "S3_ENDPOINT": "${user_config.s3_endpoint}",
+        "S3_BUCKET": "${user_config.s3_bucket}",
+        "S3_ACCESS_KEY": "${user_config.s3_access_key}",
+        "S3_SECRET_KEY": "${user_config.s3_secret_key}",
+        "VAULT_SERVER_URL": "${user_config.vault_server_url}"
+      }
+    }
+  }
+}

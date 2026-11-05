@@ -14,6 +14,7 @@ from pathlib import Path
 
 from mindin import credentials
 from mindin.config import ConfigError, config_dir, env, environment_names_a_vault, private_dir
+from mindin.install_signal import CHANGE, QUESTION, answered
 
 CONFIG_NAME = "config.toml"
 DEFAULT_REGION = "us-east-1"
@@ -241,6 +242,19 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--region", help=f"with --s3: the region (default {DEFAULT_REGION})")
     parser.add_argument("--vault", help="with --server: the vault's slug, as in /mcp?vault=<slug>")
     parser.add_argument("--no-browser", action="store_true", help="with --server: only print the sign-in link")
+    parser.add_argument(
+        "--signals", choices=("yes", "no"), help="share anonymous usage data once a day (asked in a terminal)"
+    )
+
+
+def record_signals(share: bool) -> int:
+    write_config(read_config() | {"signals": {"install": share}})
+    print(f"Anonymous usage data: {'on' if share else 'off'}; `{CHANGE}` changes it.")
+    return 0
+
+
+def ask_signals(ask: Ask) -> int:
+    return record_signals(ask(f"{QUESTION} [y/N]", False).strip().lower() in YES)
 
 
 def terminal_ask(question: str, secret: bool) -> str:
@@ -264,6 +278,8 @@ def pick(ask: Ask) -> Choice:
 def command_setup(args: argparse.Namespace, ask: Ask | None = None) -> int:
     interactive = ask or (terminal_ask if sys.stdin.isatty() else None)
     given = [(choice, getattr(args, choice.kind)) for choice in CHOICES if getattr(args, choice.kind) is not None]
+    if args.signals is not None and not given:
+        return record_signals(args.signals == "yes")
     if given:
         choice, value = given[0]
         place = choice.given(value, args, interactive)
@@ -278,4 +294,9 @@ def command_setup(args: argparse.Namespace, ask: Ask | None = None) -> int:
     print(f"This machine's vault is {choice.describe(place.vault)}, saved in {config_path()}.")
     if overridden:
         print("The environment names another vault, and it decides while it is set; `mindin status` shows which.")
-    return choice.after(place, args)
+    code = choice.after(place, args)
+    if code == 0 and args.signals is not None:
+        record_signals(args.signals == "yes")
+    elif code == 0 and interactive is not None and answered() is None:
+        ask_signals(interactive)
+    return code

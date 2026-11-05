@@ -8,7 +8,19 @@ from collections.abc import Callable
 from importlib import metadata
 from pathlib import Path
 
-from mindin import __version__, changelog, credentials, hooks, human, notes, places, provision, tasks, views
+from mindin import (
+    __version__,
+    changelog,
+    credentials,
+    hooks,
+    human,
+    install_signal,
+    notes,
+    places,
+    provision,
+    tasks,
+    views,
+)
 from mindin.auth import auth_config
 from mindin.backends import NotFound
 from mindin.config import FORMER_NAMES, NO_VAULT_YET, ConfigError, adopt_config, cache_dir, env, local_root, s3_settings
@@ -32,6 +44,7 @@ def server_url() -> str | None:
 
 
 def command_serve(args: argparse.Namespace) -> int:
+    install_signal.start("server" if args.transport == "http" else install_signal.runs_as())
     url = server_url() if args.transport != "http" else None
     if url is not None:
         from mindin.proxy import proxy_stdio
@@ -513,6 +526,12 @@ def vault_kind(found: dict) -> dict:
     return kind | {"role": found.get("role")} if found["vault_kind"] == "shared" else kind
 
 
+def signals_status() -> dict:
+    on, decided = install_signal.switch()
+    shown = "not asked" if decided is None else "on" if on else "off"
+    return {"signals": shown, "signals_source": decided, "signals_change": install_signal.CHANGE}
+
+
 def command_status(args: argparse.Namespace) -> int:
     found = adopt_config()
     source = found if found != "none" else None
@@ -521,7 +540,7 @@ def command_status(args: argparse.Namespace) -> int:
     except ConfigError:
         url = None
     if url is not None:
-        print(json.dumps(remote_status(url, args.probe, source)))
+        print(json.dumps(remote_status(url, args.probe, source) | signals_status()))
         return 0
     backend = "local" if local_root() is not None else "s3" if s3_settings() is not None else None
     writable: bool | None = None if not args.probe else False
@@ -541,7 +560,7 @@ def command_status(args: argparse.Namespace) -> int:
         "source": source,
         "writable": writable,
     }
-    print(json.dumps(status))
+    print(json.dumps(status | signals_status()))
     return 0
 
 

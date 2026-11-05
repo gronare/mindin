@@ -60,6 +60,15 @@ command -v mindin >/dev/null 2>&1 || warn "$(short "$bin") is not on PATH; uv to
 printf '\n  %s→ mindin setup%s\n\n' "$dim" "$off"
 if [ -n "$tty" ]; then "$mindin" setup <"$tty"; else "$mindin" setup; fi || fail "mindin setup stopped before it was done. mindin is installed; run it again in this terminal: $(short "$mindin") setup"
 
+if [ -n "$tty" ] && "$mindin" status 2>/dev/null | grep -q '"signals": "not asked"'; then
+  heading "Usage data"
+  if yes_to "Share anonymous usage data once a day? A random install id, mindin's version, the OS and CPU type and how mindin runs (plugin, CLI or server) go to signals.mindin.dev; never notes, names, paths or your vault's address."; then
+    "$mindin" setup --signals yes </dev/null >/dev/null && ok "Usage data: on; $(short "$mindin") setup --signals no turns it off"
+  else
+    "$mindin" setup --signals no </dev/null >/dev/null && ok "Usage data: off"
+  fi
+fi
+
 heading "Clients"
 
 if command -v claude >/dev/null 2>&1; then

@@ -414,6 +414,9 @@ def test_a_stored_key_changes_nothing_without_a_server_url(served: Served, vault
         "backend": "local",
         "source": "env",
         "writable": None,
+        "signals": "off",
+        "signals_source": "env",
+        "signals_change": "mindin setup --signals yes|no",
     }
 
 

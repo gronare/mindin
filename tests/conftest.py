@@ -29,7 +29,10 @@ def away_from_the_users_own_config(tmp_path_factory: pytest.TempPathFactory, mon
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / ".claude"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
     monkeypatch.setenv("VAULT_CACHE_DIR", str(home / ".cache"))
-    monkeypatch.delenv("VAULT_SERVER_URL", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(home / ".local" / "state"))
+    monkeypatch.setenv("VAULT_SIGNALS", "off")
+    for name in ("VAULT_SERVER_URL", "CLAUDE_PLUGIN_OPTION_VAULT_SIGNALS", "CLAUDE_PLUGIN_ROOT"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture

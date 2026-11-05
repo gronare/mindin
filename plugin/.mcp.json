@@ -9,7 +9,8 @@
         "S3_BUCKET": "${user_config.s3_bucket}",
         "S3_ACCESS_KEY": "${user_config.s3_access_key}",
         "S3_SECRET_KEY": "${user_config.s3_secret_key}",
-        "VAULT_SERVER_URL": "${user_config.vault_server_url}"
+        "VAULT_SERVER_URL": "${user_config.vault_server_url}",
+        "CLAUDE_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
       }
     }
   }

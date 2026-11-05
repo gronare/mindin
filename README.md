@@ -29,6 +29,8 @@ Then open `https://VAULT_HOST/account` and sign in. [Install with Docker](https:
 
 Without the script, on one machine: `uv tool install mindin`, then `mindin setup`.
 
+mindin asks before it shares anonymous usage data, and sends nothing until you say yes: then, once a day, a random install id, mindin's version, the OS and CPU type and how mindin runs (plugin, CLI or server) go to signals.mindin.dev, never notes, names, paths or your vault's address. `mindin setup --signals yes|no` changes the answer. [The install signal](https://github.com/gronare/mindin/blob/main/docs/reference/install-signal.md) has the details.
+
 ## Use
 
 Add the server's address, `https://VAULT_HOST/mcp`, as a custom connector in claude.ai. Claude searches, reads and writes your notes. The same search from a shell on a [signed-in machine](https://github.com/gronare/mindin/blob/main/docs/how-to/sign-in-a-machine.md):

@@ -125,16 +125,17 @@ def test_setup_saves_a_server_and_signs_the_machine_in(monkeypatch, capsys):
 
 
 def test_setup_asks_in_a_terminal(vault_dir: Path, capsys):
-    answers = iter(["7", "1", str(vault_dir)])
+    answers = iter(["7", "1", str(vault_dir), ""])
     args = build_parser().parse_args(["setup"])
     assert places.command_setup(args, ask=lambda question, secret: next(answers)) == 0
     out = capsys.readouterr().out
     assert "1  A folder on this machine" in out and "Answer a number from 1 to 3." in out
     assert saved()["vault"]["path"] == str(vault_dir.resolve())
+    assert saved()["signals"] == {"install": False}, "an empty answer is a no"
 
 
 def test_setup_asks_for_the_secret_key_without_echoing_it(capsys):
-    answers = iter(["2", "https://s3.example.test", "notes", "", "", "ak", "sk"])
+    answers = iter(["2", "https://s3.example.test", "notes", "", "", "ak", "sk", "n"])
     secrets = []
 
     def ask(question: str, secret: bool) -> str:
@@ -142,7 +143,7 @@ def test_setup_asks_for_the_secret_key_without_echoing_it(capsys):
         return next(answers)
 
     assert places.command_setup(build_parser().parse_args(["setup"]), ask=ask) == 0
-    assert secrets == [False, False, False, False, False, False, True]
+    assert secrets == [False, False, False, False, False, False, True, False]
     assert credentials.s3_keys("https://s3.example.test", "notes")["secret_key"] == "sk"
 
 

@@ -5,6 +5,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+- `mindin setup` asks whether to share anonymous usage data, and nothing is sent until you say yes.
 
 ### Fixed
 

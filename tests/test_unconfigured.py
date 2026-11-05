@@ -60,7 +60,7 @@ def test_the_instructions_without_a_vault_open_with_the_setup_line():
 
 
 def stdio_exchange(home: Path, messages: list[dict]) -> dict[int, dict]:
-    environment = {"PATH": os.environ["PATH"], "HOME": str(home)}
+    environment = {"PATH": os.environ["PATH"], "HOME": str(home), "VAULT_SIGNALS": "off"}
     server = subprocess.Popen(
         [sys.executable, "-m", "mindin.cli"],
         stdin=subprocess.PIPE,
@@ -106,3 +106,9 @@ def test_mindin_over_stdio_without_a_vault_answers_and_writes_nothing(tmp_path: 
     assert by_id[4]["result"]["isError"] is True
     assert "mindin setup" in by_id[4]["result"]["content"][0]["text"]
     assert list(home.rglob("*")) == []
+
+
+def test_every_process_the_suite_starts_keeps_the_install_signal_off():
+    from mindin.install_signal import switch
+
+    assert switch() == (False, "env")

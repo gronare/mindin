@@ -179,6 +179,9 @@ def test_the_status_command_reports_an_s3_backend_without_opening_it(claude_dir:
         "backend": "s3",
         "source": "env",
         "writable": None,
+        "signals": "off",
+        "signals_source": "env",
+        "signals_change": "mindin setup --signals yes|no",
     }
 
 

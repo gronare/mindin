@@ -19,7 +19,8 @@ case "$1 $2" in
   "tool install")
     mkdir -p "$STUB_BIN"
     printf '#!/bin/sh\\necho "mindin $*" >> "$STUB_LOG"\\n' > "$STUB_BIN/mindin"
-    printf '[ "$1" = about ] && echo "mindin 9.9.9"\\nexit 0\\n' >> "$STUB_BIN/mindin"
+    printf '[ "$1" = about ] && echo "mindin 9.9.9"\\n' >> "$STUB_BIN/mindin"
+    printf '[ "$1" = status ] && cat "$STUB_STATUS"\\nexit 0\\n' >> "$STUB_BIN/mindin"
     chmod +x "$STUB_BIN/mindin" ;;
   "tool dir") echo "$STUB_BIN" ;;
 esac
@@ -43,7 +44,9 @@ def machine(tmp_path: Path) -> dict[str, str]:
     (home / ".codex" / "config.toml").write_text(CODEX)
     (home / ".cursor").mkdir()
     (home / ".cursor" / "mcp.json").write_text(json.dumps(CURSOR))
+    (tmp_path / "status.json").write_text('{"configured": true, "signals": "not asked"}\n')
     return {
+        "STUB_STATUS": str(tmp_path / "status.json"),
         "HOME": str(home),
         "PATH": f"{tools}:/usr/bin:/bin",
         "STUB_BIN": str(tmp_path / "bin"),
@@ -64,6 +67,7 @@ def test_without_a_terminal_it_installs_sets_up_and_only_prints_the_client_snipp
     mindin = f"{machine['STUB_BIN']}/mindin"
     assert "uv tool install --upgrade mindin" in logged(machine) and "mindin setup" in logged(machine)
     assert not any(line.startswith("claude ") for line in logged(machine))
+    assert not any("--signals" in line for line in logged(machine)), "without a terminal nobody is asked"
     assert "claude plugin install vault@gronare" in done.stdout
     assert f'command = "{mindin}"' in done.stdout and f'"command": "{mindin}"' in done.stdout
     home = Path(machine["HOME"])
@@ -102,6 +106,7 @@ def test_in_a_terminal_a_yes_adds_the_vault_to_each_client(machine: dict[str, st
     mindin = f"{machine['STUB_BIN']}/mindin"
     home = Path(machine["HOME"])
     assert "claude plugin install vault@gronare" in logged(machine)
+    assert "mindin setup --signals yes" in logged(machine)
     assert (home / ".codex" / "config.toml").read_text() == CODEX + f'\n[mcp_servers.vault]\ncommand = "{mindin}"\n'
     merged = json.loads((home / ".cursor" / "mcp.json").read_text())
     assert merged == {"mcpServers": {**CURSOR["mcpServers"], "vault": {"command": mindin}}}
@@ -113,6 +118,7 @@ def test_in_a_terminal_a_no_leaves_every_client_as_it_was(machine: dict[str, str
     out = run_answering(machine, b"n\n")
     home = Path(machine["HOME"])
     assert not any(line.startswith("claude ") for line in logged(machine))
+    assert "mindin setup --signals no" in logged(machine) and "Share anonymous usage data once a day?" in out
     assert (home / ".codex" / "config.toml").read_text() == CODEX
     assert json.loads((home / ".cursor" / "mcp.json").read_text()) == CURSOR
     assert "[mcp_servers.vault]" in out

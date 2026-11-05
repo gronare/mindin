@@ -28,6 +28,7 @@ An empty value counts as not set.
 | `VAULT_SERVER_URL` | one of | | On a client machine: the vault server the machine [signed in to](../how-to/sign-in-a-machine.md). The stdio server, the hooks and the commands work through it. Wins over `VAULT_PATH` and `S3_*`. |
 | `VAULT_CACHE_DIR` | no | `~/.cache/mindin`; `/data/cache` in the image | The search indexes, the model for search by meaning, and the model process's socket and log. |
 | `VAULT_SCHEMA` | no | | On a client machine: a local schema file that overrides the vault's `.vault/schema.yml`. |
+| `VAULT_SIGNALS` | no | | `on` or `off` for the [install signal](install-signal.md), winning over the answer `setup` saved as `[signals] install` in `config.toml`. Off deletes its install id. Without either, nothing is sent. |
 
 When the environment names none of `VAULT_PATH`, the four `S3_*` settings or `VAULT_SERVER_URL`, every command, the stdio server included, takes them from the vault [`setup`](command-line.md#setting-up-a-machine) saved, then from the Claude Code plugin's saved config; see [Where commands find the vault](command-line.md#where-commands-find-the-vault). With none of them, the stdio server and the commands exit with one line saying so, and `status` answers `"configured": false`. An HTTP server starts without storage settings but cannot open any vault.
 
@@ -118,6 +119,7 @@ Read by their bare name only.
 | --- | --- | --- | --- |
 | `NO_COLOR` | no | | Any value keeps the terminal layout without colour. `TERM=dumb` does the same. |
 | `XDG_CONFIG_HOME` | no | `~/.config` | The folder holding `mindin/config.toml`, the vault `setup` saved, and `mindin/credentials.json`, the keys from `login` and `setup`. A `notes-vault-mcp` folder there, and one in `~/.cache`, is moved to `mindin` the first time mindin runs, keeping its old name as a link. |
+| `XDG_STATE_HOME` | no | `~/.local/state` | The folder holding `mindin/install-id`, the [install signal](install-signal.md)'s id. Unset, and with `VAULT_CACHE_DIR` set, the id is in `state` beside that folder instead. |
 | `CLAUDE_CONFIG_DIR` | no | `~/.claude` | Where the commands look for the Claude Code plugin's saved settings. |
 
 ## Docker Compose

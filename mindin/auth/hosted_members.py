@@ -8,7 +8,7 @@ import sys
 from dataclasses import dataclass
 from urllib.parse import quote
 
-from mindin.auth import AuthConfig, auth_dir
+from mindin.auth import AuthConfig, auth_dir, mail
 from mindin.auth.hosted_store import Account, HostedStore, MembershipError, digest
 from mindin.auth.hosted_vaults import Vault
 from mindin.auth.identities import Identities
@@ -45,14 +45,9 @@ class Invitations:
         next_url = f"{self.config.path_prefix}/account/vaults/{vault.slug}"
         Identities(self.store).begin("email", token, "", {"email": address, "next": next_url}, INVITATION_TTL)
         link = f"{self.public_url}/signin/email/confirm?token={quote(token)}"
-        text = (
-            f"{owner.email} invites you to the shared vault {vault.name} at {self.public_url}.\n\n"
-            f"Open this link to sign in and join it:\n\n{link}\n\n"
-            f"The link works once, for seven days. After that, sign in at {self.public_url}/signin with this "
-            "address. If you did not expect this, ignore this email.\n"
-        )
+        subject, text, html = mail.invitation(self.public_url, link, owner.email, vault.name)
         try:
-            self.mailer.send(address, f"{owner.email} invites you to {vault.name}", text)
+            self.mailer.send(address, subject, text, html, mail.images())
         except (OSError, smtplib.SMTPException) as exc:
             logger.warning("vault invitation: sending failed: %s", exc)
             self.store.withdraw(vault, address)

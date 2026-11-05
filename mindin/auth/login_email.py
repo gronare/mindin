@@ -5,7 +5,7 @@ import re
 import secrets
 import smtplib
 import ssl
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from email.message import EmailMessage
 from typing import Any
 from urllib.parse import quote
@@ -15,7 +15,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from mindin.auth import SmtpConfig
+from mindin.auth import SmtpConfig, mail
 from mindin.auth.hosted_web import client_address, esc, page
 from mindin.auth.identities import Proof, addresses
 from mindin.auth.login import Login, hidden, next_field
@@ -33,12 +33,21 @@ class Mailer:
         self.config = config
         self.factory = factory or (smtplib.SMTP_SSL if config.security == "ssl" else smtplib.SMTP)
 
-    def send(self, to: str, subject: str, text: str) -> None:
+    def send(
+        self, to: str, subject: str, text: str, html: str | None = None, images: Mapping[str, bytes] | None = None
+    ) -> None:
         message = EmailMessage()
         message["From"] = self.config.sender
         message["To"] = to
         message["Subject"] = subject
         message.set_content(text)
+        if html is not None:
+            message.add_alternative(html, subtype="html")
+            part = message.get_payload()[1]
+            for cid, data in (images or {}).items():
+                part.add_related(
+                    data, maintype="image", subtype="png", cid=f"<{cid}>", disposition="inline", filename="mindin.png"
+                )
         context = ssl.create_default_context()
         if self.config.security == "ssl":
             client = self.factory(self.config.host, self.config.port, timeout=10, context=context)
@@ -91,13 +100,9 @@ class EmailSignIn:
         if self.known(email):
             token = secrets.token_urlsafe(32)
             self.login.identities.begin("email", token, "", {"email": email, "next": next_url}, LINK_TTL)
-            text = (
-                f"Open this link to sign in to your vault at {self.login.config.public_url}:\n\n"
-                f"{self.link_url(token)}\n\nIt works once, for 15 minutes. "
-                "If you did not ask for it, ignore this email.\n"
-            )
+            subject, text, html = mail.sign_in(self.login.config.public_url, self.link_url(token))
             try:
-                await anyio.to_thread.run_sync(self.mailer.send, email, "Your sign-in link", text)
+                await anyio.to_thread.run_sync(self.mailer.send, email, subject, text, html, mail.images())
             except (OSError, smtplib.SMTPException) as exc:
                 logger.warning("email sign-in: sending failed: %s", exc)
                 return page("Sending failed", "The link could not be sent. Try again later.", status_code=502)

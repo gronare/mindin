@@ -7,7 +7,7 @@ import httpx2
 import pytest
 from forwarded_support import ISSUER, TYP, Proxy
 from hosted_support import BASE, INITIALIZE, Hosted, csrf_of, hosted, query
-from login_support import Authenticator
+from login_support import Authenticator, branded, hrefs
 
 from mindin.auth import ForwardedConfig
 from mindin.auth.hosted_store import HostedStore, now
@@ -113,6 +113,8 @@ async def test_an_email_link_signs_an_invited_address_in_over_starttls(site: Hos
     assert site.smtp.logins == [("mailer", "smtp-password", True)], "the password only goes over TLS"
     message = site.smtp.messages[0]
     assert message["From"] == "vault@example.test" and message["To"] == "ann@example.com"
+    assert message["Subject"] == "Sign in to mindin"
+    assert hrefs(branded(message).html) == [site.smtp.last_link("ann@example.com")] * 2
     assert site.store.account("ann@example.com").status == "active"
     assert ways(site, "ann@example.com") == [("email", "ann@example.com")]
 

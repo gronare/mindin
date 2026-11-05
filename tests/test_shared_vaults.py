@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx2
 import pytest
 from hosted_support import BASE, INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_session, post_mcp, query, text_of
+from login_support import branded, hrefs
 
 from mindin.auth import MACHINE_KEY_PURPOSE
 from mindin.auth.database import SqliteDatabase
@@ -160,6 +161,8 @@ async def test_an_invitation_opens_an_account_under_invite_registration_with_one
         len(site.smtp.messages) == 1
         and site.smtp.messages[0]["Subject"] == "ann@example.com invites you to Orchard club"
     )
+    invitation = branded(site.smtp.messages[0])
+    assert "Join the vault</a>" in invitation.html and len(hrefs(invitation.html)) == 2
     assert shown.status_code == 200
     assert signed_in.status_code == 303 and signed_in.headers["location"] == "/account/vaults/orchardclub"
     assert landing.status_code == 200 and "Orchard club" in landing.text

@@ -9,6 +9,7 @@ import secrets
 import struct
 from dataclasses import dataclass, field
 from email.message import EmailMessage
+from html import unescape
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -120,10 +121,35 @@ class FakeSmtp:
     def last_link(self, to: str) -> str:
         for message in reversed(self.messages):
             if message["To"] == to.lower():
-                found = re.search(r"https?://\S+/signin/email/confirm\?token=\S+", message.get_content())
-                assert found, message.get_content()
+                text = message.get_body(("plain",)).get_content()
+                found = re.search(r"https?://\S+/signin/email/confirm\?token=\S+", text)
+                assert found, text
                 return found.group(0)
         raise AssertionError(f"no email to {to}")
+
+
+@dataclass(frozen=True)
+class Branded:
+    text: str
+    html: str
+    image: EmailMessage
+
+
+def branded(message: EmailMessage) -> Branded:
+    assert message.get_content_type() == "multipart/alternative"
+    plain, related = message.iter_parts()
+    assert plain.get_content_type() == "text/plain" and related.get_content_type() == "multipart/related"
+    html, image = related.iter_parts()
+    assert html.get_content_type() == "text/html" and image.get_content_type() == "image/png"
+    return Branded(plain.get_content(), html.get_content(), image)
+
+
+def hrefs(html: str) -> list[str]:
+    return [unescape(found) for found in re.findall(r'<a [^>]*href="([^"]*)"', html)]
+
+
+def outside_links(html: str) -> str:
+    return re.sub(r"<a .*?</a>", "", html, flags=re.DOTALL)
 
 
 class Authenticator:

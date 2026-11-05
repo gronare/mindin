@@ -7,6 +7,12 @@ What each mindin release brings, one line per change, as you would tell someone 
 ### What's new
 
 ### Fixed
+
+## 0.14.2
+
+### What's new
+
+### Fixed
 - `mindin` without a vault starts the server and answers each tool call with how to run `mindin setup`.
 
 ## 0.14.1

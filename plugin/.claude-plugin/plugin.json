@@ -1,7 +1,7 @@
 {
   "name": "vault",
   "displayName": "Vault",
-  "version": "0.14.3",
+  "version": "0.15.0",
   "description": "mindin: your Obsidian vault, in a local folder, an S3 bucket or on a vault server, as Claude's persistent memory: indexed search, session-start context, a repo log with commit shas, and lint.",
   "author": {
     "name": "Carl Green"

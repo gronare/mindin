@@ -11,7 +11,7 @@ from pathlib import Path
 from mindin import __version__, changelog, credentials, hooks, human, notes, places, provision, tasks, views
 from mindin.auth import auth_config
 from mindin.backends import NotFound
-from mindin.config import FORMER_NAMES, ConfigError, adopt_config, cache_dir, env, local_root, s3_settings
+from mindin.config import FORMER_NAMES, NO_VAULT_YET, ConfigError, adopt_config, cache_dir, env, local_root, s3_settings
 from mindin.embedding import keep_warm
 from mindin.extensions import installed
 from mindin.frontmatter import parse
@@ -22,7 +22,7 @@ from mindin.search import render, search
 from mindin.server import run_http, run_stdio
 from mindin.snapshot import build_snapshot
 from mindin.terminal import Terminal, terminal
-from mindin.vault import SubjectVaults, Vault, open_vault
+from mindin.vault import SubjectVaults, Unconfigured, Vault, open_vault
 
 template = provision.template
 
@@ -38,6 +38,9 @@ def command_serve(args: argparse.Namespace) -> int:
 
         return proxy_stdio(url)
     if args.transport != "http":
+        if local_root() is None and s3_settings() is None:
+            run_stdio(Unconfigured(NO_VAULT_YET))
+            return 0
         vault = open_vault(vectors="background")
         vault.start_embedding()
         run_stdio(vault)

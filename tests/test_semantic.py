@@ -352,6 +352,7 @@ def test_serving_embeds_pending_notes_before_any_request(root: Path, tmp_path: P
     backend = LocalBackend(root)
     vault = Vault(backend, load_schema(backend), index_path, embedder=FakeEmbedder(), background=True)
     served: list[Vault] = []
+    monkeypatch.setenv("VAULT_PATH", str(root))
     monkeypatch.setattr(cli, "open_vault", lambda vectors: vault)
     monkeypatch.setattr(cli, "run_stdio", served.append)
     try:

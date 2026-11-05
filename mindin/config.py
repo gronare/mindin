@@ -92,6 +92,11 @@ NO_BACKEND = (
     "or VAULT_SERVER_URL for a vault server."
 )
 
+NO_VAULT_YET = (
+    "No vault is set up. Run `mindin setup` to choose where it lives, a folder, an S3 bucket or a vault server, "
+    "or set VAULT_PATH, the S3_* settings or VAULT_SERVER_URL in the server's environment, then restart the client."
+)
+
 
 PLUGIN_NAME = "vault"
 PLUGIN_OPTIONS = {

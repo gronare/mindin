@@ -186,6 +186,32 @@ class SingleVault:
         self.vault.close()
 
 
+class NoVault(VaultError):
+    pass
+
+
+class Unconfigured:
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+
+    def current(self) -> Vault:
+        raise NoVault(self.reason)
+
+    def using(self) -> AbstractContextManager[Vault]:
+        raise NoVault(self.reason)
+
+    @property
+    def instruction_schema(self) -> Schema:
+        return Schema(default_schema_data())
+
+    @property
+    def searches_by_meaning(self) -> bool:
+        return False
+
+    def close(self) -> None:
+        pass
+
+
 def subject_key(subject: str) -> str:
     # The subject names a folder, so anything outside a plain identifier is hashed rather than trusted as a path.
     return subject if SUBJECT_RE.fullmatch(subject) else hashlib.sha1(subject.encode("utf-8")).hexdigest()[:16]

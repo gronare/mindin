@@ -21,7 +21,7 @@ from mindin.presets import PERSONAL_LAYOUTS
 from mindin.schema import CLAIM_KEY, NoHome, instructions, shared_instructions
 from mindin.search import QueryError, render, search
 from mindin.snapshot import build_snapshot
-from mindin.vault import SingleVault, SubjectVaults, Vault, VaultResolver, open_vault
+from mindin.vault import NoVault, SingleVault, SubjectVaults, Unconfigured, Vault, VaultResolver, open_vault
 
 VERSION = "0.14.1"
 
@@ -54,6 +54,8 @@ def machine_request() -> bool:
 
 
 class VaultServer(MCPServer):
+    refusal: str | None = None
+
     # The machine tools answer only a device-flow key, so no model can list or call them.
     async def list_tools(self) -> list[MCPTool]:
         tools = await super().list_tools()
@@ -62,6 +64,8 @@ class VaultServer(MCPServer):
     async def call_tool(self, name: str, arguments: dict[str, Any], context: Any = None) -> Any:
         if name in MACHINE_TOOLS and not machine_request():
             raise ToolError(f"Unknown tool: {name}")
+        if self.refusal is not None:
+            raise ToolError(self.refusal)
         return await super().call_tool(name, arguments, context)
 
 
@@ -79,10 +83,14 @@ def build_server(
     resolver: VaultResolver = SingleVault(vaults) if isinstance(vaults, Vault) else vaults
     general = instructions(resolver.instruction_schema)
     server = VaultServer("mindin", instructions=general, version=VERSION)
+    if isinstance(resolver, Unconfigured):
+        server.refusal = resolver.reason
 
     def instructions_now() -> str:
         try:
             vault = resolver.current()
+        except NoVault as exc:
+            return f"{exc}\n\n{general}"
         except VaultError:
             return general
         return shared_instructions(vault.schema, vault.rules.name) if vault.rules is not None else general
@@ -506,7 +514,7 @@ def _listing(vault: Vault, prefix: str) -> str:
     return "\n".join(keys) if keys else f"No files under '{prefix}'"
 
 
-def run_stdio(vault: Vault) -> None:
+def run_stdio(vault: Vault | VaultResolver) -> None:
     build_server(vault).run("stdio")
 
 

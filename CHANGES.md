@@ -7,6 +7,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 ### What's new
 
 ### Fixed
+- `mindin` with no vault configured starts the MCP server and lists its tools, and every tool call answers with how to set a vault up through `mindin setup`.
 
 ## 0.14.1
 

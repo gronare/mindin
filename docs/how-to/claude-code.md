@@ -28,7 +28,7 @@ claude mcp add vault -s user -e VAULT_PATH=$HOME/vault -- uvx mindin
 VAULT_PATH=$HOME/vault uvx mindin init
 ```
 
-For a bucket, pass `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `S3_BUCKET` in place of `VAULT_PATH` ([Storage](../install/storage.md)); for a server, `VAULT_SERVER_URL` after [signing the machine in](sign-in-a-machine.md). With no vault configured, the server exits with one line saying so.
+For a bucket, pass `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `S3_BUCKET` in place of `VAULT_PATH` ([Storage](../install/storage.md)); for a server, `VAULT_SERVER_URL` after [signing the machine in](sign-in-a-machine.md). With no vault configured, the server still starts and lists its tools, and every tool call answers with how to set one up: `mindin setup`, or the variables above.
 
 `init` writes `.vault/schema.yml` and the Obsidian Bases views into the vault, keeps anything that exists, and prints a CLAUDE.md snippet with the rules an agent follows on its side: `context` at session start, a note before the first edit, `log_append` at the end. Paste it into your CLAUDE.md. `init --preset para` starts from another [layout](../explanation/notes-and-layouts.md#layouts).
 

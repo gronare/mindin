@@ -2,7 +2,7 @@
   "mcpServers": {
     "vault": {
       "command": "uvx",
-      "args": ["mindin==0.14.2"],
+      "args": ["mindin==0.14.3"],
       "env": {
         "VAULT_PATH": "${user_config.vault_path}",
         "S3_ENDPOINT": "${user_config.s3_endpoint}",

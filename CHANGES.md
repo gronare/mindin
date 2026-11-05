@@ -5,6 +5,12 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+
+### Fixed
+
+## 0.14.3
+
+### What's new
 - Sign-in and invitation emails come as branded HTML with one button, in light and dark, and a plain-text part.
 
 ### Fixed

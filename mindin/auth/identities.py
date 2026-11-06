@@ -175,23 +175,20 @@ class Identities:
 
     def remove(self, account_id: str, method: str, subject: str) -> Removal:
         with self.store.connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            count = connection.execute(
-                "SELECT COUNT(*) FROM identities WHERE account_id = ?", (account_id,)
-            ).fetchone()[0]
+            # The no-op update row-locks the account, so a concurrent removal waits and then counts what this one left.
+            connection.execute("UPDATE accounts SET status = status WHERE id = ?", (account_id,))
+            deleted = connection.execute(
+                "DELETE FROM identities WHERE account_id = ? AND method = ? AND subject = ?"
+                " AND (SELECT COUNT(*) FROM identities WHERE account_id = ?) > 1",
+                (account_id, method, subject, account_id),
+            ).rowcount
+            if deleted:
+                return "removed"
             exists = connection.execute(
                 "SELECT 1 FROM identities WHERE account_id = ? AND method = ? AND subject = ?",
                 (account_id, method, subject),
             ).fetchone()
-            if exists is None:
-                return "missing"
-            if count <= 1:
-                return "last"
-            connection.execute(
-                "DELETE FROM identities WHERE account_id = ? AND method = ? AND subject = ?",
-                (account_id, method, subject),
-            )
-        return "removed"
+        return "last" if exists else "missing"
 
     def add_passkey(self, account_id: str, credential_id: str, public_key: bytes, sign_count: int, label: str) -> bool:
         try:

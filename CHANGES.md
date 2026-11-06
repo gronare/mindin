@@ -7,6 +7,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 ### What's new
 
 ### Fixed
+- Removing two ways in at once on a hosted server always leaves the account one way in.
 
 ## 0.15.0
 

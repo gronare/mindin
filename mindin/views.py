@@ -51,7 +51,7 @@ def view(
     vault: Vault,
     command: str,
     query: str | None = None,
-    limit: int = 15,
+    limit: int | None = None,
     area: str | None = None,
     priority: str | None = None,
     path: str | None = None,

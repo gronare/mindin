@@ -868,7 +868,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     find = sub.add_parser("search", help="search the index from the shell")
     find.add_argument("query")
-    find.add_argument("--limit", type=int, default=15)
+    find.add_argument("--limit", type=int, help="the most rows to show; the schema's search.default_limit when omitted")
     add_plain(find)
     find.set_defaults(func=command_search)
 

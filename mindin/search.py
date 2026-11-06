@@ -321,7 +321,7 @@ def search(
     index: Index,
     schema: Schema,
     query: str,
-    limit: int = 15,
+    limit: int | None = None,
     folder: str | None = None,
     status: str | None = None,
     tag: str | None = None,
@@ -373,7 +373,7 @@ def search(
         result.best_terms = max(row.terms for row in visible)
     result.total = len(visible)
     result.by_meaning = sum(row.by_meaning for row in visible)
-    result.rows = visible[:limit]
+    result.rows = visible[: schema.default_limit if limit is None else limit]
     return result
 
 

@@ -63,6 +63,7 @@ folders:
 | `tags.strict` | `false` | `true` refuses a write with a tag outside the vocabulary, and `lint` reports such tags. |
 | `synonyms` | `[]` | Groups of words search treats as one, such as `[[bokning, booking]]`. |
 | `stale_after_days` | `30` | When an open task note counts as stale. |
+| `search.default_limit` | `15` | How many notes `search` returns when the call names no `limit`. |
 | `search.recency_half_life_days` | `90` | How fast an old note's rank decays. |
 | `search.title_weight`, `summary_weight`, `tags_weight`, `body_weight`, `stem_weight` | `10.0`, `5.0`, `3.0`, `1.0`, `20.0` | How much a match in the title, summary, tags, body and file name weighs. |
 | `search.stemmed_weight` | `0.5` | How much a match on a word's stem alone weighs, so the exact form ranks first. |

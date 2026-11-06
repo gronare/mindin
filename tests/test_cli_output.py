@@ -89,6 +89,15 @@ def test_search_in_a_pipe_prints_the_rows_as_before(vault: Vault, capsys):
     assert run(capsys, "search", "nothingatallhere") == SEARCH_NOTHING
 
 
+def test_search_without_a_limit_takes_the_schemas_default_limit(vault: Vault, vault_dir: Path, capsys):
+    schema = vault_dir / ".vault" / "schema.yml"
+    schema.write_text(schema.read_text(encoding="utf-8") + "search:\n  default_limit: 3\n", encoding="utf-8")
+    default = run(capsys, "search", "orchard").splitlines()
+    explicit = run(capsys, "search", "orchard", "--limit", "4").splitlines()
+    assert default[0].startswith("3 of 5 ") and len(default) == 4
+    assert explicit[0].startswith("4 of 5 ") and len(explicit) == 5
+
+
 def test_backlog_in_a_pipe_prints_the_rows_as_before(vault: Vault, capsys):
     assert run(capsys, "backlog") == "The backlog is empty.\n"
     with_backlog(vault)

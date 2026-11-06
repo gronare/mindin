@@ -37,7 +37,8 @@ SEARCH_DESCRIPTION = (
     "Inflected forms match through stemming in the vault's languages. "
     "Search in the vault's language first; when nothing matches, translate the terms into the vault's other "
     "languages and search again, and the reply names them. "
-    "Excludes the archive and superseded notes unless you ask for them, and reports how many it hid."
+    "Excludes the archive and superseded notes unless you ask for them, and reports how many it hid. "
+    "limit defaults to the vault schema's search.default_limit."
 )
 MEANING_DESCRIPTION = (
     " It also finds notes by meaning, across languages too, that share no word with the query: "
@@ -120,7 +121,7 @@ def build_server(
     @server.tool(name="search", description=description)
     def search_tool(
         query: str,
-        limit: int = 15,
+        limit: int | None = None,
         folder: str | None = None,
         status: str | None = None,
         tag: str | None = None,
@@ -373,7 +374,7 @@ def build_server(
         def view_tool(
             command: str,
             query: str | None = None,
-            limit: int = 15,
+            limit: int | None = None,
             area: str | None = None,
             priority: str | None = None,
             path: str | None = None,

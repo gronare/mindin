@@ -37,7 +37,7 @@ mindin changelog --all                  # this month, and last month during its 
 mindin hook session-start | stop        # the Claude Code hooks, JSON on stdin
 ```
 
-`serve --host` defaults to `127.0.0.1` and `--port` to `8765`. `embed-worker` is described in [Search by meaning](../install/semantic-search.md#the-model-in-its-own-process). Through a server, `sync` only says that the server keeps the index.
+`serve --host` defaults to `127.0.0.1` and `--port` to `8765`. `embed-worker` is described in [Search by meaning](../install/semantic-search.md#the-model-in-its-own-process). `search --limit` defaults to the schema's `search.default_limit`. Through a server, `sync` only says that the server keeps the index.
 
 ## Signing in to a server
 

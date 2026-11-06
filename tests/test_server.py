@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from mcp.client import Client
 
@@ -57,6 +59,18 @@ async def test_search_returns_rendered_rows(vault: Vault):
     async with Client(build_server(vault)) as client:
         text = await text_of(client, "search", {"query": "orchard", "limit": 3})
     assert text.startswith("3 of 5 (archive: 2 hidden, superseded: 0 hidden)")
+
+
+@pytest.mark.anyio
+async def test_search_without_a_limit_takes_the_schemas_default_limit(vault: Vault, vault_dir: Path):
+    schema = vault_dir / ".vault" / "schema.yml"
+    schema.write_text(schema.read_text(encoding="utf-8") + "search:\n  default_limit: 3\n", encoding="utf-8")
+    vault.reload_schema()
+    async with Client(build_server(vault)) as client:
+        default = await text_of(client, "search", {"query": "orchard"})
+        explicit = await text_of(client, "search", {"query": "orchard", "limit": 4})
+    assert default.startswith("3 of 5 ")
+    assert explicit.startswith("4 of 5 ")
 
 
 @pytest.mark.anyio

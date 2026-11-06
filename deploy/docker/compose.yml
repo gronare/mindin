@@ -1,6 +1,6 @@
 services:
   vault:
-    image: ghcr.io/gronare/mindin:v0.15.0
+    image: ghcr.io/gronare/mindin:v0.15.1
     command: serve --transport http --host 0.0.0.0 --port 8765
     restart: unless-stopped
     env_file: .env

@@ -23,7 +23,7 @@ from mindin.search import QueryError, render, search
 from mindin.snapshot import build_snapshot
 from mindin.vault import NoVault, SingleVault, SubjectVaults, Unconfigured, Vault, VaultResolver, open_vault
 
-VERSION = "0.15.0"
+VERSION = "0.15.1"
 
 EXPECTED_FAILURES = (VaultError, FrontmatterError, notes.ValidationError, ScopeError, QueryError, NoHome)
 

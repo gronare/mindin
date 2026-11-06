@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mindin"
-version = "0.15.0"
+version = "0.15.1"
 description = "MCP server for a markdown notes vault on S3 or a local directory, with a SQLite index, schema-aware writes and session hooks."
 readme = "README.md"
 requires-python = ">=3.11"

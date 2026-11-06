@@ -74,7 +74,7 @@ In a terminal, `search`, `context`, `read`, `backlog` and `lint` print for a per
 
 - `search` shows each note's title with its kind and age, its path below it, and the matching text with wikilinks unwrapped; `≈ meaning` marks a note found by meaning rather than by its words.
 - `backlog` is one row per idea with its priority, area and age; `--paths` adds each note's path, and past 20 ideas the list is grouped by priority and ends with how many more there are, which `--all` shows.
-- `read` turns the frontmatter into a title and one line (kind, area, status, age, tags) above the text.
+- `read` turns the frontmatter into a title and one line (kind, area, status, age, tags) above the text, and leaves out a first `# heading` that repeats the title.
 - `context` sums up what the session-start hook gives an agent for the repo you stand in, or for `--path`: the system note, the commits newer than it, open tasks, the backlog, traps and the last log line.
 - `lint` counts the findings per kind with a plain explanation, and `--kind` lists one kind.
 

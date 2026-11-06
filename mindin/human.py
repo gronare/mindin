@@ -58,6 +58,7 @@ LINT_KINDS = {
 ENTRY_RE = re.compile(r"^(?P<head>.+?)(?P<sep>: | -> )(?P<rest>.*)$")
 LOG_LINE_RE = re.compile(r"^-?\s*\[(?P<day>\d{4}-\d{2}-\d{2})\]\s*(?P<text>.*)$")
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
+H1_RE = re.compile(r"^ {0,3}#[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
 
 
 def kind_cell(term: Terminal, kind: str, width: int = 0) -> str:
@@ -210,6 +211,19 @@ def wrapped(body: str, width: int) -> list[str]:
     return lines
 
 
+def same_words(left: str, right: str) -> bool:
+    return " ".join(left.split()).casefold() == " ".join(right.split()).casefold()
+
+
+def without_title_heading(body: str, title: str) -> str:
+    lines = body.splitlines(keepends=True)
+    first = next((number for number, line in enumerate(lines) if line.strip()), None)
+    heading = H1_RE.match(lines[first]) if first is not None else None
+    if heading is None or not same_words(heading.group(1), title):
+        return body
+    return "".join(lines[first + 1 :])
+
+
 def render_note(path: str, text: str, term: Terminal, body_only: bool = False) -> str | None:
     if not path.endswith(".md"):
         return None
@@ -225,7 +239,7 @@ def render_note(path: str, text: str, term: Terminal, body_only: bool = False) -
     if meta:
         head.append(meta)
     head.append(term.paint("─" * term.width, "dim"))
-    return "\n".join([*head, "", *wrapped(body, term.width)])
+    return "\n".join([*head, "", *wrapped(without_title_heading(body, title), term.width)])
 
 
 def kind_text(kind: str, stale_after_days: int) -> tuple[str, str]:

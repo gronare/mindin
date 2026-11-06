@@ -10,6 +10,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - Removing two ways in at once on a hosted server always leaves the account one way in.
 - A write with a local vault's etag is refused whenever the note changed, also when a same-size edit lands within the same instant.
 - `search` and `mindin search` without a limit return as many notes as the schema's `search.default_limit`.
+- `mindin read` in a terminal shows the title once when the note opens with the same `# heading`.
 
 ## 0.15.0
 

@@ -215,6 +215,26 @@ def test_a_long_backlog_is_grouped_and_stops_at_twenty(vault: Vault, monkeypatch
     assert sum(line.startswith("  Prune row") for line in run(capsys, "backlog", "--all").splitlines()) == 25
 
 
+def a_note(vault_dir: Path, name: str, title: str, body: str) -> str:
+    (vault_dir / "Resources" / name).write_text(
+        f"---\ntitle: {title}\ndate: 2026-08-01\nupdated: 2026-08-01\ntags: [orchard]\nstatus: active\n"
+        f'area: "[[orchard]]"\n---\n{body}',
+        encoding="utf-8",
+    )
+    return f"Resources/{name}"
+
+
+def test_read_in_a_terminal_prints_a_title_its_body_repeats_once(vault: Vault, vault_dir: Path, monkeypatch, capsys):
+    in_a_terminal(monkeypatch, width=60)
+    same = a_note(vault_dir, "same.md", "Same", "\n# Same\n\nKropp.\n")
+    other = a_note(vault_dir, "other.md", "Same", "\n# Something else\n\nKropp.\n")
+    assert run(capsys, "read", same).splitlines().count("Same") == 1
+    assert "# Same" not in run(capsys, "read", same)
+    lines = run(capsys, "read", other).splitlines()
+    assert lines[0] == "Same" and "# Something else" in lines
+    assert "# Same" in run(capsys, "read", same, "--plain")
+
+
 def test_read_in_a_terminal_turns_the_frontmatter_into_two_lines(vault: Vault, vault_dir: Path, monkeypatch, capsys):
     in_a_terminal(monkeypatch, width=60)
     lines = run(capsys, "read", "Areas/orchard.md").splitlines()

@@ -8,6 +8,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 
 ### Fixed
 - Removing two ways in at once on a hosted server always leaves the account one way in.
+- A write with a local vault's etag is refused whenever the note changed, also when a same-size edit lands within the same instant.
 
 ## 0.15.0
 

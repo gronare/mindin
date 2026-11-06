@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 from datetime import UTC, datetime
@@ -10,14 +11,22 @@ from mindin.backends import MUST_NOT_EXIST, Entry, NotFound, VaultError, Version
 CHECKED_WRITES = threading.Lock()
 
 
-def _version(stat: os.stat_result) -> str:
+def _version(data: bytes) -> str:
+    return hashlib.md5(data, usedforsecurity=False).hexdigest()
+
+
+def _folder_version(stat: os.stat_result) -> str:
     return f"{stat.st_mtime_ns}:{stat.st_size}"
 
 
-def _entry(key: str, stat: os.stat_result, size: int | None = None) -> Entry:
+def _stamp(stat: os.stat_result) -> tuple[int, int, int, int]:
+    return (stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size)
+
+
+def _entry(key: str, stat: os.stat_result, version: str, size: int | None = None) -> Entry:
     return Entry(
         key=key,
-        version=_version(stat),
+        version=version,
         mtime=datetime.fromtimestamp(stat.st_mtime, tz=UTC),
         size=stat.st_size if size is None else size,
     )
@@ -27,6 +36,19 @@ class LocalBackend:
     def __init__(self, root: Path) -> None:
         Path(root).mkdir(parents=True, exist_ok=True)
         self.root = Path(root).resolve()
+        self._listed: dict[Path, tuple[tuple[int, int, int, int], str]] = {}
+
+    def _listed_version(self, path: Path, stat: os.stat_result) -> str:
+        stamp = _stamp(stat)
+        known = self._listed.get(path)
+        if known is not None and known[0] == stamp:
+            return known[1]
+        try:
+            version = _version(path.read_bytes())
+        except OSError:
+            return _folder_version(stat)
+        self._listed[path] = (stamp, version)
+        return version
 
     def _path(self, key: str) -> Path:
         path = (self.root / key).resolve()
@@ -42,7 +64,8 @@ class LocalBackend:
             key = path.relative_to(self.root).as_posix()
             if not is_vault_key(key):
                 continue
-            entries.append(_entry(key, path.stat()))
+            stat = path.stat()
+            entries.append(_entry(key, stat, self._listed_version(path, stat)))
         return sorted(entries, key=lambda entry: entry.key)
 
     def _under(self, prefix: str) -> list[Path]:
@@ -69,7 +92,11 @@ class LocalBackend:
                 key += "/"
             if prefix and not key.startswith(prefix):
                 continue
-            entries.append(_entry(key, path.stat(), size=0 if path.is_dir() else None))
+            stat = path.stat()
+            if path.is_dir():
+                entries.append(_entry(key, stat, _folder_version(stat), size=0))
+            else:
+                entries.append(_entry(key, stat, self._listed_version(path, stat)))
         return sorted(entries, key=lambda entry: entry.key)
 
     def get(self, key: str) -> tuple[str, str]:
@@ -82,11 +109,16 @@ class LocalBackend:
             data = path.read_bytes()
         except (FileNotFoundError, IsADirectoryError) as exc:
             raise NotFound(key) from exc
-        return data, _version(path.stat())
+        return data, _version(data)
 
     def current_version(self, key: str) -> str | None:
         path = self._path(key)
-        return _version(path.stat()) if path.exists() else None
+        try:
+            return _version(path.read_bytes())
+        except IsADirectoryError:
+            return _folder_version(path.stat())
+        except FileNotFoundError:
+            return None
 
     def put(self, key: str, text: str, expected_version: str | None = None) -> str:
         return self.put_checked(key, text.encode("utf-8"), expected_version)
@@ -106,7 +138,7 @@ class LocalBackend:
         path = self._path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
-        return _version(path.stat())
+        return _version(data)
 
     def mkdir(self, key: str) -> None:
         self._path(key.rstrip("/")).mkdir(parents=True, exist_ok=True)

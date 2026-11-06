@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import boto3
@@ -23,9 +24,10 @@ def test_local_list_skips_obsidian_and_keeps_schema(vault_dir: Path):
 
 
 def test_local_get_returns_text_and_version(vault_dir: Path):
-    text, version = LocalBackend(vault_dir).get("Areas/orchard.md")
+    backend = LocalBackend(vault_dir)
+    text, version = backend.get("Areas/orchard.md")
     assert text.startswith("---")
-    assert ":" in version
+    assert version == next(entry.version for entry in backend.list() if entry.key == "Areas/orchard.md")
 
 
 def test_local_get_missing_raises_not_found(vault_dir: Path):
@@ -47,6 +49,22 @@ def test_local_put_with_a_stale_version_conflicts(vault_dir: Path):
     backend.put("Areas/orchard.md", "someone else wrote")
     with pytest.raises(VersionConflict):
         backend.put("Areas/orchard.md", "mine", expected_version=version)
+
+
+def test_local_version_changes_with_same_size_content_under_the_same_mtime(vault_dir: Path):
+    backend = LocalBackend(vault_dir)
+    path = vault_dir / "Areas/orchard.md"
+    backend.put("Areas/orchard.md", "first")
+    _, read = backend.get("Areas/orchard.md")
+    listed = next(entry.version for entry in backend.list() if entry.key == "Areas/orchard.md")
+    stat = path.stat()
+    path.write_text("other", encoding="utf-8")
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert backend.get("Areas/orchard.md")[1] != read
+    assert next(entry.version for entry in backend.list() if entry.key == "Areas/orchard.md") != listed
+    with pytest.raises(VersionConflict):
+        backend.put("Areas/orchard.md", "mine", expected_version=read)
+    assert path.read_text(encoding="utf-8") == "other"
 
 
 def test_local_move_and_delete(vault_dir: Path):

@@ -13,7 +13,7 @@ The `-semantic` image tag carries the extra; the plain tag leaves it out. Create
 ```yaml
 services:
   vault:
-    image: ghcr.io/gronare/mindin:v0.15.1-semantic
+    image: ghcr.io/gronare/mindin:v0.15.2-semantic
     environment:
       VAULT_SEMANTIC: "on"
     mem_limit: 3g

@@ -7,6 +7,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 ### What's new
 
 ### Fixed
+- Deleting a note on an S3 server that ignores the etag on deletes is refused when the note changed meanwhile.
 
 ## 0.15.1
 

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import io
 import os
+import threading
+import time
+import zipfile
 from pathlib import Path
 
 import boto3
@@ -8,9 +12,11 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
+from mindin.auth.hosted_transfer import export_zip
 from mindin.backends import FETCH_WORKERS, MUST_NOT_EXIST, NotFound, VersionConflict, delete_checked
 from mindin.backends.local import LocalBackend
-from mindin.backends.s3 import S3Backend
+from mindin.backends.s3 import PROBE_FOLDER, S3Backend
+from mindin.backends.sealed import SealedBackend
 
 BUCKET = "vault-test"
 ENDPOINT = "https://s3.amazonaws.com"
@@ -302,7 +308,10 @@ def test_s3_checked_delete_sends_if_match_and_refuses_a_changed_key(s3_backend: 
         s3_backend.delete_checked("Areas/orchard.md", "an-old-etag")
     assert s3_backend.get("Areas/orchard.md")[1] == version
     s3_backend.delete_checked("Areas/orchard.md", version)
-    assert [call["IfMatch"] for call in sent] == ['"an-old-etag"', f'"{version}"']
+    assert [call["IfMatch"] for call in sent if call["Key"] == "vault/Areas/orchard.md"] == [
+        '"an-old-etag"',
+        f'"{version}"',
+    ]
     with pytest.raises(NotFound):
         s3_backend.get("Areas/orchard.md")
 
@@ -354,3 +363,149 @@ def test_a_backend_without_checked_deletes_still_refuses_a_changed_file(vault_di
     delete_checked(plain, "Areas/orchard.md", version)
     with pytest.raises(NotFound):
         plain.inner.get("Areas/orchard.md")
+
+
+def ignoring_if_match_on_deletes(backend: S3Backend, monkeypatch) -> None:
+    original = backend.client.delete_object
+
+    def ignoring(**kwargs):
+        kwargs.pop("IfMatch", None)
+        return original(**kwargs)
+
+    monkeypatch.setattr(backend.client, "delete_object", ignoring)
+
+
+def probes_written(backend: S3Backend, monkeypatch) -> list[str]:
+    written: list[str] = []
+    original = backend.client.put_object
+
+    def counting(**kwargs):
+        if PROBE_FOLDER in kwargs["Key"]:
+            written.append(kwargs["Key"])
+        return original(**kwargs)
+
+    monkeypatch.setattr(backend.client, "put_object", counting)
+    return written
+
+
+def bucket_keys(backend: S3Backend) -> set[str]:
+    return {obj["Key"] for obj in backend.client.list_objects_v2(Bucket=BUCKET).get("Contents", [])}
+
+
+def test_s3_that_ignores_if_match_on_deletes_is_caught_by_the_probe_and_keeps_a_changed_note(
+    s3_backend: S3Backend, monkeypatch, caplog
+):
+    ignoring_if_match_on_deletes(s3_backend, monkeypatch)
+    _, stale = s3_backend.get("Areas/orchard.md")
+    current = s3_backend.put("Areas/orchard.md", "edited meanwhile")
+    with caplog.at_level("WARNING"), pytest.raises(VersionConflict):
+        s3_backend.delete_checked("Areas/orchard.md", stale)
+    assert s3_backend.get("Areas/orchard.md")[0] == "edited meanwhile"
+    assert s3_backend.conditional_deletes is False
+    assert any("ignores If-Match on deletes" in record.message for record in caplog.records)
+    s3_backend.delete_checked("Areas/orchard.md", current)
+    with pytest.raises(NotFound):
+        s3_backend.get("Areas/orchard.md")
+    assert not any(PROBE_FOLDER in key for key in bucket_keys(s3_backend))
+
+
+def test_s3_that_honours_if_match_on_deletes_keeps_the_conditional_path_after_one_probe(
+    s3_backend: S3Backend, monkeypatch
+):
+    written = probes_written(s3_backend, monkeypatch)
+    sent: list[dict] = []
+    original = s3_backend.client.delete_object
+
+    def recording(**kwargs):
+        sent.append(kwargs)
+        return original(**kwargs)
+
+    monkeypatch.setattr(s3_backend.client, "delete_object", recording)
+    monkeypatch.setattr(s3_backend, "current_version", lambda key: pytest.fail("a conditional delete needs no HEAD"))
+    first = s3_backend.put("Areas/one.md", "one")
+    second = s3_backend.put("Areas/two.md", "two")
+    s3_backend.delete_checked("Areas/one.md", first)
+    s3_backend.delete_checked("Areas/two.md", second)
+    assert len(written) == 1
+    assert s3_backend.conditional_deletes is True
+    assert [call.get("IfMatch") for call in sent if PROBE_FOLDER not in call["Key"]] == [f'"{first}"', f'"{second}"']
+    assert not any(PROBE_FOLDER in key for key in bucket_keys(s3_backend))
+
+
+def test_s3_probe_runs_once_per_server_across_backends(s3_backend: S3Backend, monkeypatch):
+    written = probes_written(s3_backend, monkeypatch)
+    s3_backend.delete_checked("Areas/orchard.md", s3_backend.get("Areas/orchard.md")[1])
+    other = S3Backend(ENDPOINT, "key", "secret", BUCKET, prefix="another")
+    other_written = probes_written(other, monkeypatch)
+    version = other.put("Areas/elsewhere.md", "x")
+    other.delete_checked("Areas/elsewhere.md", version)
+    assert len(written) == 1 and other_written == []
+
+
+def test_s3_concurrent_first_checked_deletes_run_the_probe_once(s3_backend: S3Backend, monkeypatch):
+    versions = {f"Areas/note-{n}.md": s3_backend.put(f"Areas/note-{n}.md", str(n)) for n in range(8)}
+    original = s3_backend.client.put_object
+    written: list[str] = []
+
+    def slow_probe(**kwargs):
+        if PROBE_FOLDER in kwargs["Key"]:
+            written.append(kwargs["Key"])
+            time.sleep(0.05)
+        return original(**kwargs)
+
+    monkeypatch.setattr(s3_backend.client, "put_object", slow_probe)
+    start = threading.Barrier(len(versions))
+    errors: list[BaseException] = []
+
+    def delete(key: str, version: str) -> None:
+        start.wait()
+        try:
+            s3_backend.delete_checked(key, version)
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=delete, args=item) for item in versions.items()]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == [] and len(written) == 1
+    assert [entry.key for entry in s3_backend.list()] == ["Areas/orchard.md"]
+
+
+def test_s3_probe_that_fails_falls_back_to_checking_the_etag(s3_backend: S3Backend, monkeypatch, caplog):
+    original = s3_backend.client.put_object
+
+    def denied(**kwargs):
+        if PROBE_FOLDER in kwargs["Key"]:
+            raise ClientError({"Error": {"Code": "AccessDenied", "Message": "no"}}, "PutObject")
+        return original(**kwargs)
+
+    monkeypatch.setattr(s3_backend.client, "put_object", denied)
+    ignoring_if_match_on_deletes(s3_backend, monkeypatch)
+    _, stale = s3_backend.get("Areas/orchard.md")
+    s3_backend.put("Areas/orchard.md", "edited meanwhile")
+    with caplog.at_level("WARNING"), pytest.raises(VersionConflict):
+        s3_backend.delete_checked("Areas/orchard.md", stale)
+    assert s3_backend.conditional_deletes is False
+    assert any("could not probe conditional deletes" in record.message for record in caplog.records)
+    assert s3_backend.get("Areas/orchard.md")[0] == "edited meanwhile"
+
+
+def test_a_leftover_probe_object_never_shows_in_listings_sealed_listings_or_exports(
+    s3_backend: S3Backend, monkeypatch, caplog
+):
+    s3_backend.client.put_object(Bucket=BUCKET, Key=f"vault/{PROBE_FOLDER}delete-leftover", Body=b"")
+    assert [entry.key for entry in s3_backend.list()] == ["Areas/orchard.md"]
+    assert {entry.key for entry in s3_backend.list_all("")} == {"Areas/orchard.md", "Notes/skip.txt"}
+    assert s3_backend.list_all(PROBE_FOLDER) == []
+    out = io.BytesIO()
+    export_zip(s3_backend, out)
+    assert set(zipfile.ZipFile(out).namelist()) == {"Areas/orchard.md", "Notes/skip.txt"}
+    inner = S3Backend(ENDPOINT, "key", "secret", BUCKET, prefix="users/acc_0123456789abcdef")
+    inner.client.put_object(Bucket=BUCKET, Key=f"users/acc_0123456789abcdef/{PROBE_FOLDER}delete-leftover", Body=b"")
+    sealed = SealedBackend(inner, os.urandom(32))
+    sealed.put("Areas/sealed.md", "sealed")
+    with caplog.at_level("WARNING"):
+        assert [entry.key for entry in sealed.list_all()] == ["Areas/sealed.md"]
+    assert not any("do not decrypt" in record.message for record in caplog.records)

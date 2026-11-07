@@ -295,3 +295,24 @@ def test_the_key_contexts_keep_the_former_name_so_existing_vaults_stay_readable(
     assert sealed.object_key("Areas/orchard.md") == "67Q9me9hupb49upXE9eVw9wauxET-17aoc7XjmoZkks"
     blob = base64.b64decode("bnZtMeoALf19pS/mWkbbd+cSPxr+iaxQpVG+ZufEUnrRW2Rgv+4/aX2M")
     assert sealed.unseal("Areas/orchard.md", blob) == b"# Orchard\n"
+
+
+def test_on_an_s3_that_ignores_if_match_on_deletes_a_checked_delete_still_refuses_a_changed_note(monkeypatch):
+    with mock_aws():
+        boto3.client("s3", region_name="us-east-1").create_bucket(Bucket=BUCKET)
+        inner = S3Backend("https://s3.amazonaws.com", "key", "secret", BUCKET, prefix="users/acc_0123456789abcdef")
+        original = inner.client.delete_object
+
+        def ignoring(**kwargs):
+            kwargs.pop("IfMatch", None)
+            return original(**kwargs)
+
+        monkeypatch.setattr(inner.client, "delete_object", ignoring)
+        sealed = SealedBackend(inner, os.urandom(32))
+        old = sealed.put("Areas/orchard.md", "first")
+        sealed.put("Areas/orchard.md", "second")
+        with pytest.raises(VersionConflict):
+            sealed.delete_checked("Areas/orchard.md", old)
+        sealed.forget_listing()
+        assert sealed.get("Areas/orchard.md")[0] == "second"
+        assert [entry.key for entry in sealed.list_all()] == ["Areas/orchard.md"]

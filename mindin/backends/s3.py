@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import threading
+import uuid
 
 import boto3
 from botocore.client import Config
@@ -14,6 +16,9 @@ CONFLICT_CODES = frozenset({"PreconditionFailed", "412", "ConditionalRequestConf
 UNSUPPORTED_CODES = frozenset({"NotImplemented", "501"})
 log = logging.getLogger(__name__)
 MARKDOWN = "text/markdown; charset=utf-8"
+PROBE_FOLDER = ".mindin-probe/"
+_delete_probes: dict[tuple[str, str], bool] = {}
+_probe_lock = threading.Lock()
 
 
 def _etag(raw: str | None) -> str:
@@ -73,7 +78,7 @@ class S3Backend:
         for page in paginator.paginate(Bucket=self.bucket, Prefix=self.prefix + prefix):
             for obj in page.get("Contents", []):
                 key = self._vault_key(obj["Key"])
-                if not key:
+                if not key or key.startswith(PROBE_FOLDER):
                     continue
                 entries.append(
                     Entry(key=key, version=_etag(obj.get("ETag")), mtime=obj["LastModified"], size=obj.get("Size", 0))
@@ -146,7 +151,7 @@ class S3Backend:
         self.client.delete_object(Bucket=self.bucket, Key=self._object_key(key))
 
     def delete_checked(self, key: str, expected_version: str) -> None:
-        if self.conditional_deletes:
+        if self.conditional_deletes and self._honours_conditional_deletes():
             try:
                 key_name = self._object_key(key)
                 self.client.delete_object(Bucket=self.bucket, Key=key_name, IfMatch=f'"{expected_version}"')
@@ -162,6 +167,49 @@ class S3Backend:
         if self.current_version(key) != expected_version:
             raise VersionConflict(f"{key} changed since it was read (expected {expected_version})")
         self.delete(key)
+
+    def _honours_conditional_deletes(self) -> bool:
+        server = (self.client.meta.endpoint_url, self.bucket)
+        with _probe_lock:
+            if server not in _delete_probes:
+                _delete_probes[server] = self._probe_conditional_delete()
+        self.conditional_deletes = _delete_probes[server]
+        return self.conditional_deletes
+
+    def _probe_conditional_delete(self) -> bool:
+        probe = self._object_key(f"{PROBE_FOLDER}delete-{uuid.uuid4().hex}")
+        try:
+            self.client.put_object(Bucket=self.bucket, Key=probe, Body=b"")
+            try:
+                self.client.delete_object(Bucket=self.bucket, Key=probe, IfMatch='"mindin-probe-mismatch"')
+            except ClientError as exc:
+                code = exc.response["Error"]["Code"]
+                if code in UNSUPPORTED_CODES:
+                    log.warning("mindin: this S3 server refuses conditional deletes; checking the etag first")
+                    return False
+                if code not in CONFLICT_CODES:
+                    raise
+                if self._probe_exists(probe):
+                    return True
+            log.warning("mindin: this S3 server ignores If-Match on deletes; checking the etag first")
+            return False
+        except Exception as exc:
+            log.warning("mindin: could not probe conditional deletes on this S3 server (%s); checking the etag", exc)
+            return False
+        finally:
+            try:
+                self.client.delete_object(Bucket=self.bucket, Key=probe)
+            except Exception as exc:
+                log.warning("mindin: could not remove the delete probe %s: %s", probe, exc)
+
+    def _probe_exists(self, probe: str) -> bool:
+        try:
+            self.client.head_object(Bucket=self.bucket, Key=probe)
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] in MISSING_CODES:
+                return False
+            raise
+        return True
 
     def move(self, src: str, dst: str) -> None:
         try:

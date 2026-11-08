@@ -701,6 +701,12 @@ def command_setup(args: argparse.Namespace) -> int:
     return places.command_setup(args)
 
 
+def command_move(args: argparse.Namespace) -> int:
+    from mindin import move
+
+    return move.command_move(args)
+
+
 def add_plain(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--plain", action="store_true", help="the plain output a pipe gets, also in a terminal")
 
@@ -987,6 +993,14 @@ def build_parser() -> argparse.ArgumentParser:
     choosing = sub.add_parser("setup", help="choose where this machine's vault lives, saved in mindin's own config")
     places.add_arguments(choosing)
     choosing.set_defaults(func=command_setup)
+
+    moving = sub.add_parser(
+        "move", help="copy this machine's vault to a folder, a bucket or a server, check it, then switch to it"
+    )
+    from mindin.move import add_arguments as add_move_arguments
+
+    add_move_arguments(moving)
+    moving.set_defaults(func=command_move)
 
     telling = sub.add_parser("about", help="the name, version and commands for tools of this mindin")
     telling.add_argument("--json", action="store_true", help="answer JSON, for tools that read it")

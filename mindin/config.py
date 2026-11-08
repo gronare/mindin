@@ -185,6 +185,11 @@ def environment_names_a_vault() -> bool:
 _filled: tuple[str, dict[str, str]] = ("none", {})
 
 
+def filled_names() -> set[str]:
+    """The storage variables adopt_config filled from mindin's config or the plugin's, as opposed to the shell's."""
+    return set(_filled[1])
+
+
 def adopt_config() -> str:
     """Fill the storage variables when the environment names no vault: mindin's own config first, then the plugin's."""
     global _filled

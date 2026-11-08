@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 from cimd_support import MetadataHost
@@ -79,10 +80,17 @@ class Served:
 
 
 @contextmanager
-def serve(vaults: SubjectVaults, tmp_path: Path, email: str = EMAIL, sub: str = SUB) -> Iterator[Served]:
+def serve(
+    vaults: SubjectVaults,
+    tmp_path: Path,
+    email: str = EMAIL,
+    sub: str = SUB,
+    extensions: Any = (),
+    **overrides: Any,
+) -> Iterator[Served]:
     port = free_port()
     url = f"http://127.0.0.1:{port}"
-    config = hosted_config(tmp_path, public_url=url, issuer=url)
+    config = hosted_config(tmp_path, public_url=url, issuer=url, **overrides)
     clock = Clock()
     metadata = MetadataHost()
     app = build_hosted_app(
@@ -93,6 +101,7 @@ def serve(vaults: SubjectVaults, tmp_path: Path, email: str = EMAIL, sub: str = 
         resolver=metadata.resolve,
         clock=clock,
         keyring=Keyring(MasterKey.generate()),
+        extensions=extensions,
     )
     store = HostedStore(config.auth_dir)
     account, _ = store.invite(email)

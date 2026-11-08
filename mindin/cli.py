@@ -26,6 +26,7 @@ from mindin.config import FORMER_NAMES, NO_VAULT_YET, ConfigError, cache_dir, en
 from mindin.embedding import keep_warm
 from mindin.extensions import installed
 from mindin.frontmatter import parse
+from mindin.hosted import cli as hosted_cli
 from mindin.hosted.config import auth_config
 from mindin.places import adopt_config
 from mindin.presets import PERSONAL_LAYOUTS, PRESETS
@@ -196,53 +197,6 @@ def command_sync(args: argparse.Namespace) -> int:
     if vault.index.vectors is not None:
         print(f"{vault.index.vectors.count()} notes carry vectors for search by meaning")
     return 0
-
-
-def command_accounts(args: argparse.Namespace) -> int:
-    from mindin.hosted.accounts import store as hosted_store
-
-    return hosted_store.command_accounts(args)
-
-
-def command_members(args: argparse.Namespace) -> int:
-    from mindin.hosted.accounts import members as hosted_members
-
-    return hosted_members.command_members(args)
-
-
-def command_org(args: argparse.Namespace) -> int:
-    from mindin.hosted.orgs import organisations as hosted_orgs
-
-    return hosted_orgs.command_org(args)
-
-
-def command_delete_account(args: argparse.Namespace) -> int:
-    from mindin.hosted.accounts import keys as hosted_keys
-
-    return hosted_keys.command_delete_account(args)
-
-
-def command_import(args: argparse.Namespace) -> int:
-    from mindin.hosted.accounts import import_export as hosted_transfer
-
-    return hosted_transfer.command_import(args)
-
-
-def command_master_key(args: argparse.Namespace) -> int:
-    from mindin.hosted.accounts import keys as hosted_keys
-
-    return hosted_keys.command_master_key(args)
-
-
-def command_support(args: argparse.Namespace) -> int:
-    from mindin.hosted.accounts import access as hosted_access
-
-    return hosted_access.command_support(args)
-
-
-def add_operator(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--operator", required=True, help="who on the service's staff does this")
-    parser.add_argument("--reason", required=True, help="why; the account sees it in its access log")
 
 
 def command_backlog(args: argparse.Namespace) -> int:
@@ -613,103 +567,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--rebuild", action="store_true", help="drop the index and read every note again")
     sync.set_defaults(func=command_sync)
 
-    accounts = sub.add_parser("accounts", help="the accounts of the HTTP server")
-    accounts_sub = accounts.add_subparsers(dest="accounts_command", required=True)
-    accounts_sub.add_parser("list", help="list accounts with status and key count").set_defaults(func=command_accounts)
-    inviting = accounts_sub.add_parser("invite", help="let this email address sign in and get a vault")
-    inviting.add_argument("email")
-    inviting.set_defaults(func=command_accounts)
-    for name, summary in (
-        ("suspend", "refuse the account's keys and tokens at once"),
-        ("activate", "lift a suspension"),
-    ):
-        changing = accounts_sub.add_parser(name, help=summary)
-        changing.add_argument("account", help="the account's email or id")
-        changing.set_defaults(func=command_accounts)
-    listing_vaults = accounts_sub.add_parser("vaults", help="list the account's vaults with notes, files and keys")
-    listing_vaults.add_argument("account", help="the account's email or id")
-    listing_vaults.set_defaults(func=command_accounts)
-    adding = accounts_sub.add_parser("add-vault", help="give the account another vault")
-    adding.add_argument("account", help="the account's email or id")
-    adding.add_argument("name", help="the vault's name; the address is made from it unless --slug names one")
-    adding.add_argument("--slug", help="the vault's slug, as in /mcp?vault=<slug>: one lowercase word")
-    adding.add_argument("--preset", choices=PERSONAL_LAYOUTS, help="write this layout now (needs the master key)")
-    adding.add_argument(
-        "--shared", action="store_true", help="a shared vault: the account and the members it invites, current notes"
-    )
-    adding.set_defaults(func=command_accounts)
-    members = accounts_sub.add_parser("members", help="list a shared vault's owner, members and open invitations")
-    members.add_argument("account", help="the owner's email or id")
-    members.add_argument("vault", help="the vault's slug")
-    members.set_defaults(func=command_members)
-    adding_member = accounts_sub.add_parser(
-        "add-member", help="invite an email to a shared vault; with SMTP set up, it gets a sign-in link"
-    )
-    adding_member.add_argument("account", help="the owner's email or id")
-    adding_member.add_argument("vault", help="the vault's slug")
-    adding_member.add_argument("email")
-    adding_member.set_defaults(func=command_members)
-    removing_member = accounts_sub.add_parser(
-        "remove-member", help="withdraw an invitation, or remove a member and revoke their keys to the vault"
-    )
-    removing_member.add_argument("account", help="the owner's email or id")
-    removing_member.add_argument("vault", help="the vault's slug")
-    removing_member.add_argument("email")
-    removing_member.set_defaults(func=command_members)
-    renaming = accounts_sub.add_parser("rename-vault", help="change a vault's name or address")
-    renaming.add_argument("account", help="the account's email or id")
-    renaming.add_argument("vault", help="the vault's slug")
-    renaming.add_argument("--name")
-    renaming.add_argument(
-        "--slug", help="a new slug, one lowercase word; clients that use /mcp?vault=<old slug> must change too"
-    )
-    renaming.set_defaults(func=command_accounts)
-    deleting = accounts_sub.add_parser(
-        "delete", help="destroy the data keys, objects and indexes of every vault, then the account itself"
-    )
-    deleting.add_argument("account", help="the account's email or id")
-    deleting.add_argument("--yes", action="store_true", help="confirm; the vault cannot be recovered")
-    deleting.set_defaults(func=command_delete_account)
-    importing = accounts_sub.add_parser(
-        "import", help="seal every file of a plaintext vault into the account (needs its support grant)"
-    )
-    importing.add_argument("account", help="the account's email or id")
-    importing.add_argument("--vault", help="the vault's slug; needed when the account has several")
-    origin = importing.add_mutually_exclusive_group(required=True)
-    origin.add_argument("--from-path", help="a local vault folder")
-    origin.add_argument("--from-s3-bucket", help="a bucket; credentials from IMPORT_S3_ACCESS_KEY/SECRET_KEY")
-    importing.add_argument("--from-s3-prefix", default="", help="the vault's prefix in that bucket")
-    importing.add_argument("--from-s3-endpoint", help="defaults to S3_ENDPOINT")
-    importing.add_argument("--from-s3-region", help="defaults to S3_REGION, then us-east-1")
-    importing.add_argument("--dry-run", action="store_true", help="list what would be imported, skipped and refused")
-    add_operator(importing)
-    importing.set_defaults(func=command_import)
-
-    from mindin.hosted.orgs.organisations import add_commands as add_org_commands
-
-    add_org_commands(sub, command_org)
-
-    master = sub.add_parser("master-key", help="the master key that wraps each hosted vault's data key")
-    master_sub = master.add_subparsers(dest="master_key_command", required=True)
-    master_sub.add_parser("generate", help="print a fresh base64 master key").set_defaults(func=command_master_key)
-    master_sub.add_parser("status", help="count vault keys per master key").set_defaults(func=command_master_key)
-    master_sub.add_parser(
-        "rewrap", help="wrap every vault key under VAULT_HOSTED_MASTER_KEY, unwrapping with the previous keys"
-    ).set_defaults(func=command_master_key)
-
-    support = sub.add_parser("support", help="open an account's vault under the support grant it gave on /account")
-    support_sub = support.add_subparsers(dest="support_command", required=True)
-    listing = support_sub.add_parser("files", help="list the vault's paths")
-    listing.add_argument("account", help="the account's email or id")
-    listing.add_argument("--vault", help="the vault's slug; needed when the account has several")
-    add_operator(listing)
-    listing.set_defaults(func=command_support)
-    reading = support_sub.add_parser("read", help="print one file")
-    reading.add_argument("account", help="the account's email or id")
-    reading.add_argument("path")
-    reading.add_argument("--vault", help="the vault's slug; needed when the account has several")
-    add_operator(reading)
-    reading.set_defaults(func=command_support)
+    hosted_cli.add_commands(sub)
 
     queue = sub.add_parser("backlog", help="list the backlog, sorted by priority then age")
     queue.add_argument("--area", help="a system note stem, or the prefix a family of stems shares")

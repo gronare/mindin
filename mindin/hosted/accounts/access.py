@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import argparse
-import sys
 import time
 from collections.abc import Callable
 
-from mindin.backends import NotFound
 from mindin.hosted.accounts.store import Account, HostedStore
 from mindin.hosted.accounts.vaults import Vault
-from mindin.hosted.config import auth_dir
 from mindin.hosted.database import Row
 
 GRANT_CHOICES = {"hour": ("one hour", 3600), "day": ("one day", 86400), "week": ("seven days", 7 * 86400)}
@@ -80,37 +76,3 @@ def chosen_vault(store: HostedStore, account: Account, ref: str | None) -> Vault
         return store.own_vault(account.id, ref)
     vaults = store.vaults(account.id)
     return vaults[0] if len(vaults) == 1 else None
-
-
-def command_support(args: argparse.Namespace) -> int:
-    from mindin.hosted.accounts.keys import sealed_vaults_from_env
-
-    store = HostedStore(auth_dir())
-    account = store.account(args.account)
-    if account is None:
-        print(f"mindin: no account {args.account!r}", file=sys.stderr)
-        return 1
-    vault = chosen_vault(store, account, args.vault)
-    if vault is None:
-        print(f"mindin: name one of {account.email}'s vaults with --vault <slug>", file=sys.stderr)
-        return 1
-    action = "list files" if args.support_command == "files" else f"read {args.path}"
-    sealed = sealed_vaults_from_env(store)
-    try:
-        SupportAccess(store).admit(vault, args.operator, args.reason, action)
-    except NoGrant as exc:
-        print(f"mindin: refused for {account.email}: {exc}", file=sys.stderr)
-        return 1
-    backend, _ = sealed.for_vault(vault.id)
-    if args.support_command == "files":
-        for entry in backend.list_all():
-            print(entry.key)
-        return 0
-    try:
-        data, _ = backend.get_bytes(args.path)
-    except NotFound:
-        print(f"mindin: no such file: {args.path}", file=sys.stderr)
-        return 1
-    sys.stdout.buffer.write(data)
-    sys.stdout.flush()
-    return 0

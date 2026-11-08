@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import argparse
 import base64
 import binascii
 import hashlib
 import hmac
 import os
 import shutil
-import sys
 import time
 from dataclasses import dataclass, field
 from functools import partial
@@ -20,7 +18,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from mindin.backends import Entry, VaultBackend, VaultError, is_vault_key, make_subject_backend
 from mindin.backends.local import LocalBackend
 from mindin.backends.sealed import DATA_KEY_BYTES, NONCE_BYTES, SealedBackend, Storage, new_data_key
-from mindin.config import ConfigError, cache_dir, env
+from mindin.config import ConfigError, env
 from mindin.hosted.accounts.history import HISTORY_PREFIX, History, history_key
 from mindin.hosted.accounts.limits import Quotas
 from mindin.hosted.accounts.store import Account, HostedStore
@@ -357,47 +355,3 @@ def sealed_vaults_from_env(store: HostedStore | None = None) -> SealedVaults:
     keys = VaultKeys(store, Keyring.from_env())
     keys.verify()
     return SealedVaults(store, keys, env("VAULT_SUBJECT_PREFIX") or DEFAULT_SUBJECT_PREFIX)
-
-
-def command_master_key(args: argparse.Namespace) -> int:
-    if args.master_key_command == "generate":
-        print(MasterKey.generate().encoded())
-        return 0
-    store = HostedStore(auth_dir())
-    keys = VaultKeys(store, Keyring.from_env())
-    if args.master_key_command == "status":
-        current = keys.keyring.current.key_id
-        print(f"mindin: current master key {current}")
-        for key_id, count in sorted(keys.counts().items()):
-            state = "current" if key_id == current else "previous" if key_id in keys.keyring.key_ids else "MISSING"
-            print(f"{key_id}  {count} vault keys  {state}")
-        return 0
-    try:
-        rewrapped, kept = keys.rewrap()
-    except VaultError as exc:
-        print(f"mindin: {exc}", file=sys.stderr)
-        return 1
-    current = keys.keyring.current.key_id
-    print(f"mindin: rewrapped {rewrapped} vault keys under {current}, {kept} already were")
-    return 0
-
-
-def command_delete_account(args: argparse.Namespace) -> int:
-    store = HostedStore(auth_dir())
-    account = store.account(args.account)
-    if account is None:
-        print(f"mindin: no account {args.account!r}", file=sys.stderr)
-        return 1
-    if not args.yes:
-        print(
-            f"mindin: deleting {account.email} destroys every vault it owns for good; repeat with --yes",
-            file=sys.stderr,
-        )
-        return 2
-    try:
-        deleted = delete_account(sealed_vaults_from_env(store), account, cache_dir())
-    except StillShared as exc:
-        print(f"mindin: {exc}", file=sys.stderr)
-        return 1
-    print(f"mindin: deleted {account.email}: its vaults' data keys, {deleted} objects and their indexes")
-    return 0

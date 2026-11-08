@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import argparse
 import hashlib
 import hmac
 import json
 import secrets
-import sys
 import time
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
@@ -20,7 +18,6 @@ from mindin.hosted.accounts.vaults import (
     MEMBER,
     OWNER,
     PERSONAL,
-    SHARED,
     SLUG_MAX,
     Vault,
     Waiting,
@@ -37,10 +34,9 @@ from mindin.hosted.accounts.vaults import (
     valid_slug,
     vault_of,
 )
-from mindin.hosted.config import READ_SCOPE, WRITE_SCOPE, auth_dir
+from mindin.hosted.config import READ_SCOPE, WRITE_SCOPE
 from mindin.hosted.database import Database, Row, SqliteDatabase
 from mindin.hosted.orgs.rules import sharing_refusal
-from mindin.hosted.pages.templates import stamp
 from mindin.hosted.schema import STEPS
 from mindin.hosted.signin.registration import Registrant
 from mindin.shared import Actor
@@ -758,77 +754,3 @@ class ApiKeyCredentials:
     def actor(self, secret: str) -> Actor | None:
         grant = self.store.key_grant(secret)
         return Actor(grant.account.email, grant.account.id, grant.name) if grant else None
-
-
-def command_accounts(args: argparse.Namespace) -> int:
-    store = HostedStore(auth_dir())
-    action = args.accounts_command
-    if action == "list":
-        accounts = store.accounts()
-        if not accounts:
-            print("mindin: no accounts yet; `mindin accounts invite <email>` adds one")
-        for account in accounts:
-            keys = len(store.keys(account.id))
-            vaults = len(store.vaults(account.id))
-            signed_in = f"{stamp(account.last_login_at)} UTC" if account.last_login_at else "never signed in"
-            print(f"{account.id}  {account.email}  {account.status}  {vaults} vaults  {keys} keys  {signed_in}")
-        return 0
-    if action == "invite":
-        try:
-            account, created = store.invite(args.email)
-        except ValueError as exc:
-            print(f"mindin: {exc}", file=sys.stderr)
-            return 2
-        verb = "invited" if created else "already has an account,"
-        print(f"mindin: {account.email} {verb} status {account.status}")
-        return 0
-    if action in ("vaults", "add-vault", "rename-vault"):
-        return command_vaults(store, args)
-    status: AccountStatus = "suspended" if action == "suspend" else "active"
-    account = store.set_status(args.account, status)
-    if account is None:
-        print(f"mindin: no account {args.account!r}", file=sys.stderr)
-        return 1
-    print(f"mindin: {account.email} is {account.status}")
-    return 0
-
-
-def command_vaults(store: HostedStore, args: argparse.Namespace) -> int:
-    from mindin.hosted.accounts.keys import sealed_vaults_from_env
-
-    account = store.account(args.account)
-    if account is None:
-        print(f"mindin: no account {args.account!r}", file=sys.stderr)
-        return 1
-    action = args.accounts_command
-    try:
-        if action == "add-vault":
-            if args.shared and args.preset:
-                print("mindin: a shared vault has its own fixed layout; leave out --preset", file=sys.stderr)
-                return 2
-            vault = store.create_vault(account.id, args.name, args.slug, SHARED if args.shared else PERSONAL)
-            if args.preset:
-                from mindin import provision
-
-                backend, _ = sealed_vaults_from_env(store).for_vault(vault.id)
-                provision.initialize(backend, preset=args.preset)
-            print(f"mindin: {account.email} has the {vault.kind} vault {vault.name} at /mcp?vault={vault.slug}")
-            return 0
-        if action == "rename-vault":
-            vault = store.own_vault(account.id, args.vault)
-            if vault is None:
-                print(f"mindin: {account.email} has no vault {args.vault!r}", file=sys.stderr)
-                return 1
-            renamed = store.rename_vault(vault.id, args.name, args.slug)
-            print(f"mindin: {renamed.name} is at /mcp?vault={renamed.slug}")
-            return 0
-    except VaultNameError as exc:
-        print(f"mindin: {exc}", file=sys.stderr)
-        return 2
-    sealed = sealed_vaults_from_env(store)
-    for vault in store.reachable_vaults(account.id):
-        facts = sealed.facts(vault.id)
-        keys = len(store.keys(account.id, vault.id))
-        kind = f"shared, {store.role(vault, account.id)}" if vault.shared else vault.kind
-        print(f"{vault.slug}  {vault.name}  {kind}  {vault.id}  {facts.notes} notes  {facts.files} files  {keys} keys")
-    return 0

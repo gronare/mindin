@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import argparse
-import sys
 import zipfile
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -9,8 +7,6 @@ from typing import IO
 
 from mindin.backends import LimitReached, VaultBackend, VaultError
 from mindin.hosted.accounts.limits import size_text
-from mindin.hosted.accounts.store import HostedStore
-from mindin.hosted.config import auth_dir
 from mindin.transfer import count_text, skipped_as, skipped_lines
 
 MAX_UPLOAD_BYTES = 512 * 1024 * 1024
@@ -162,91 +158,3 @@ def export_zip(backend: VaultBackend, out: IO[bytes]) -> int:
             archive.writestr(info, backend.get_bytes(entry.key)[0])
             count += 1
     return count
-
-
-def import_source(args: argparse.Namespace) -> VaultBackend:
-    from mindin.config import ConfigError, env
-
-    if args.from_path:
-        from pathlib import Path
-
-        from mindin.backends.local import LocalBackend
-
-        root = Path(args.from_path).expanduser()
-        if not root.is_dir():
-            raise ConfigError(f"mindin: {root} is not a folder")
-        return LocalBackend(root)
-    from mindin.backends.s3 import S3Backend
-
-    access_key = env("IMPORT_S3_ACCESS_KEY") or env("S3_ACCESS_KEY")
-    secret_key = env("IMPORT_S3_SECRET_KEY") or env("S3_SECRET_KEY")
-    endpoint = args.from_s3_endpoint or env("S3_ENDPOINT") or ""
-    if not (access_key and secret_key):
-        raise ConfigError("mindin: importing from S3 needs IMPORT_S3_ACCESS_KEY and IMPORT_S3_SECRET_KEY")
-    return S3Backend(
-        endpoint,
-        access_key,
-        secret_key,
-        args.from_s3_bucket,
-        prefix=args.from_s3_prefix or "",
-        region=args.from_s3_region or env("S3_REGION") or "us-east-1",
-    )
-
-
-def command_import(args: argparse.Namespace) -> int:
-    from mindin.hosted.accounts.access import NoGrant, SupportAccess, chosen_vault
-    from mindin.hosted.accounts.keys import sealed_vaults_from_env
-    from mindin.hosted.accounts.limits import Quotas
-
-    store = HostedStore(auth_dir())
-    account = store.account(args.account)
-    if account is None:
-        print(f"mindin: no account {args.account!r}", file=sys.stderr)
-        return 1
-    vault = chosen_vault(store, account, args.vault)
-    if vault is None:
-        print(f"mindin: name one of {account.email}'s vaults with --vault <slug>", file=sys.stderr)
-        return 1
-    if vault.shared:
-        print(
-            f"mindin: {vault.slug} is a shared vault; it takes notes through its connections, so each change"
-            " is kept in its history",
-            file=sys.stderr,
-        )
-        return 1
-    source = import_source(args)
-    sealed = sealed_vaults_from_env(store)
-    try:
-        SupportAccess(store).admit(vault, args.operator, args.reason, "import")
-    except NoGrant as exc:
-        print(f"mindin: refused for {account.email}: {exc}", file=sys.stderr)
-        return 1
-    sealed_target, _ = sealed.for_vault(vault.id)
-    quotas = Quotas(store, store.extensions, lambda vault_id: sealed.facts(vault_id).size)
-    target = quotas.guard(vault, sealed_target)
-    try:
-        plan = prepare_import(target, backend_source(source))
-    except BadArchive as exc:
-        print(f"mindin: {exc}", file=sys.stderr)
-        return 1
-    out = sys.stderr if plan.refusals else sys.stdout
-    for line in plan.lines():
-        print(f"mindin: {line}", file=out)
-    if plan.refusals and not args.dry_run:
-        refuse_import(target, plan)
-    if plan.refusals:
-        print(
-            f"mindin: nothing imported into {account.email}'s {vault.slug}; the server refuses the files above",
-            file=sys.stderr,
-        )
-        return 1
-    if args.dry_run:
-        print(f"mindin: dry run; nothing imported into {account.email}'s {vault.slug}")
-        return 0
-    try:
-        counts = import_files(target, plan)
-    except LimitReached as exc:
-        print(f"mindin: {exc}", file=sys.stderr)
-        return 1
-    print(f"mindin: imported into {account.email}'s {vault.slug}: {counts.summary()}")
-    return 0

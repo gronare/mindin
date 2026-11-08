@@ -179,11 +179,9 @@ def test_closing_an_idle_vault_holds_up_no_other_vault(storage: Path, tmp_path: 
     idle = vaults.for_subject("frame")
     slow = SlowIndex()
     idle._index = slow  # type: ignore[assignment]
+    clock.now += vaults.idle_seconds - 1
     vaults.for_subject("orchard")
-    clock.now += vaults.idle_seconds + 1
-    with vaults.using_subject("orchard"):
-        pass
-    clock.now += 0.5
+    clock.now += 2
     evicting = threading.Thread(target=vaults.for_subject, args=("workshop",))
     evicting.start()
     assert slow.entered.wait(5)

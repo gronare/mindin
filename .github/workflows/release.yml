@@ -40,40 +40,90 @@ jobs:
         run: uv build shim --out-dir dist
       - uses: pypa/gh-action-pypi-publish@release/v1
 
-  ghcr:
+  ghcr-build:
     needs: [test]
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+        variant: ["", "-semantic"]
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - variant: ""
+            extras: ""
+          - variant: "-semantic"
+            extras: --extra semantic
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          tags: |
-            ghcr.io/gronare/mindin:${{ github.ref_name }}
-            ghcr.io/gronare/mindin:latest
-            ghcr.io/gronare/notes-vault-mcp:${{ github.ref_name }}
-            ghcr.io/gronare/notes-vault-mcp:latest
+          platforms: ${{ matrix.platform }}
+          build-args: EXTRAS=${{ matrix.extras }}
           labels: io.modelcontextprotocol.server.name=io.github.gronare/mindin
-      - uses: docker/build-push-action@v6
+          outputs: type=image,"name=ghcr.io/gronare/mindin,ghcr.io/gronare/notes-vault-mcp",push-by-digest=true,name-canonical=true,push=true
+      - name: Keep the digest for the manifest job
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@v4
         with:
-          context: .
-          push: true
-          build-args: EXTRAS=--extra semantic
-          tags: |
-            ghcr.io/gronare/mindin:${{ github.ref_name }}-semantic
-            ghcr.io/gronare/mindin:latest-semantic
-            ghcr.io/gronare/notes-vault-mcp:${{ github.ref_name }}-semantic
-            ghcr.io/gronare/notes-vault-mcp:latest-semantic
-          labels: io.modelcontextprotocol.server.name=io.github.gronare/mindin
+          name: digest${{ matrix.variant }}-${{ matrix.runner }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  ghcr:
+    needs: [ghcr-build]
+    strategy:
+      matrix:
+        variant: ["", "-semantic"]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest${{ matrix.variant }}-ubuntu-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag one manifest for amd64 and arm64 under both names
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -- *
+          [ "$#" -eq 2 ] || { echo "::error::expected two digests, found: $*"; exit 1; }
+          for image in ghcr.io/gronare/mindin ghcr.io/gronare/notes-vault-mcp; do
+            sources=""
+            for digest in "$@"; do sources="$sources $image@sha256:$digest"; done
+            # shellcheck disable=SC2086
+            docker buildx imagetools create -t "$image:$GITHUB_REF_NAME$VARIANT" -t "$image:latest$VARIANT" $sources
+            docker buildx imagetools inspect "$image:$GITHUB_REF_NAME$VARIANT"
+          done
 
   registry:
     needs: [pypi, ghcr]

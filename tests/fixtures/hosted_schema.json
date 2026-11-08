@@ -264,7 +264,7 @@
     "table",
     "organisation_departures",
     "organisation_departures",
-    "CREATE TABLE organisation_departures (\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    email TEXT NOT NULL COLLATE NOCASE,\n    former_account TEXT NOT NULL,\n    removed_at INTEGER NOT NULL,\n    delete_after INTEGER,\n    PRIMARY KEY (organisation_id, email)\n)"
+    "CREATE TABLE organisation_departures (\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    email TEXT NOT NULL COLLATE NOCASE,\n    former_account TEXT NOT NULL,\n    removed_at INTEGER NOT NULL,\n    delete_after INTEGER,\n    source TEXT,\n    told_at INTEGER,\n    erased_at INTEGER,\n    kept_at INTEGER,\n    PRIMARY KEY (organisation_id, email)\n)"
    ],
    [
     "table",
@@ -635,7 +635,7 @@
     "table",
     "organisation_departures",
     "organisation_departures",
-    "CREATE TABLE organisation_departures (\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    email TEXT NOT NULL COLLATE NOCASE,\n    former_account TEXT NOT NULL,\n    removed_at INTEGER NOT NULL,\n    delete_after INTEGER,\n    PRIMARY KEY (organisation_id, email)\n)"
+    "CREATE TABLE organisation_departures (\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    email TEXT NOT NULL COLLATE NOCASE,\n    former_account TEXT NOT NULL,\n    removed_at INTEGER NOT NULL,\n    delete_after INTEGER,\n    source TEXT,\n    told_at INTEGER,\n    erased_at INTEGER,\n    kept_at INTEGER,\n    PRIMARY KEY (organisation_id, email)\n)"
    ],
    [
     "table",

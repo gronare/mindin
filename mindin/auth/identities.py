@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from mindin.auth import Registration
-from mindin.auth.hosted_orgs import domain_address, join_by_domain, on_a_domain
+from mindin.auth.hosted_orgs import domain_address, join_by_domain, keep_departed, on_a_domain
 from mindin.auth.hosted_store import Account, HostedStore, account_of, digest, now
 from mindin.auth.hosted_vaults import accept_invitations, add_first_vault, invited
 from mindin.auth.registration import Registrant
@@ -321,4 +321,7 @@ class Identities:
             " WHERE id = ?",
             (secrets.token_hex(16), now(), name, name, account_id),
         )
-        return account_of(connection.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone())
+        account = account_of(connection.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone())
+        if account is not None and account.active:
+            keep_departed(connection, account_id, now())
+        return account

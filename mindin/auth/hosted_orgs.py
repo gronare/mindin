@@ -113,6 +113,10 @@ CREATE TABLE IF NOT EXISTS organisation_departures (
     former_account TEXT NOT NULL,
     removed_at INTEGER NOT NULL,
     delete_after INTEGER,
+    source TEXT,
+    told_at INTEGER,
+    erased_at INTEGER,
+    kept_at INTEGER,
     PRIMARY KEY (organisation_id, email)
 );
 """
@@ -194,6 +198,17 @@ class Departure:
     account: Account
     organisation: Organisation
     delete_after: int | None
+
+
+@dataclass(frozen=True)
+class Removed:
+    email: str
+    removed_at: int
+    delete_after: int | None
+    source: str | None
+    told_at: int | None
+    erased_at: int | None
+    kept_at: int | None = None
 
 
 def now() -> int:
@@ -280,6 +295,14 @@ def departed(connection: Any, organisation_id: str, emails: tuple[str, ...], acc
 
 def at_verified_domain(connection: Any, organisation_id: str, email: str) -> bool:
     return any(found == organisation_id for found, _ in matching(connection, (email,)))
+
+
+def keep_departed(connection: Any, account_id: str, moment: int) -> None:
+    connection.execute(
+        "UPDATE organisation_departures SET delete_after = NULL, kept_at = ?"
+        " WHERE former_account = ? AND delete_after > ?",
+        (moment, account_id, moment),
+    )
 
 
 def clear_departure(connection: Any, organisation_id: str, account_id: str, email: str) -> None:
@@ -773,6 +796,10 @@ class Organisations:
         erases = self.erases(organisation, account)
         with self.store.connect() as connection:
             self.keep_an_admin(connection, organisation, account.id)
+            source = connection.execute(
+                "SELECT source FROM organisation_members WHERE organisation_id = ? AND account_id = ?",
+                (organisation.id, account.id),
+            ).fetchone()["source"]
             vaults = [
                 hand_to_an_admin(connection, vault, admins) if vault.account_id == account.id else vault
                 for vault in org_vaults_of(connection, organisation.id)
@@ -795,11 +822,12 @@ class Organisations:
                 (organisation.id, account.id),
             )
             connection.execute(
-                "INSERT INTO organisation_departures(organisation_id, email, former_account, removed_at, delete_after)"
-                " VALUES(?, ?, ?, ?, ?) ON CONFLICT (organisation_id, email) DO UPDATE SET"
+                "INSERT INTO organisation_departures(organisation_id, email, former_account, removed_at, delete_after,"
+                " source) VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT (organisation_id, email) DO UPDATE SET"
                 " former_account = excluded.former_account, removed_at = excluded.removed_at,"
-                " delete_after = excluded.delete_after",
-                (organisation.id, account.email.lower(), account.id, moment, delete_after),
+                " delete_after = excluded.delete_after, source = excluded.source, told_at = NULL, erased_at = NULL,"
+                " kept_at = NULL",
+                (organisation.id, account.email.lower(), account.id, moment, delete_after, source),
             )
         return Departure(account, organisation, delete_after)
 
@@ -826,13 +854,40 @@ class Organisations:
             ).fetchall()
         return [(row["organisation_id"], row["former_account"]) for row in rows]
 
-    def settle(self, organisation_id: str, account_id: str) -> None:
+    def settle(self, organisation_id: str, account_id: str, erased: bool = False) -> None:
         with self.store.connect() as connection:
             connection.execute(
-                "UPDATE organisation_departures SET delete_after = NULL"
+                "UPDATE organisation_departures SET delete_after = NULL, erased_at = ?"
                 " WHERE organisation_id = ? AND former_account = ?",
-                (organisation_id, account_id),
+                (self.moment() if erased else None, organisation_id, account_id),
             )
+
+    def told(self, departure: Departure) -> None:
+        with self.store.connect() as connection:
+            connection.execute(
+                "UPDATE organisation_departures SET told_at = ? WHERE organisation_id = ? AND former_account = ?",
+                (self.moment(), departure.organisation.id, departure.account.id),
+            )
+
+    def removed(self, organisation: Organisation) -> list[Removed]:
+        with self.store.connect() as connection:
+            rows = connection.execute(
+                "SELECT email, removed_at, delete_after, source, told_at, erased_at, kept_at"
+                " FROM organisation_departures WHERE organisation_id = ? ORDER BY removed_at, email",
+                (organisation.id,),
+            ).fetchall()
+        return [
+            Removed(
+                row["email"],
+                row["removed_at"],
+                row["delete_after"],
+                row["source"],
+                row["told_at"],
+                row["erased_at"],
+                row["kept_at"],
+            )
+            for row in rows
+        ]
 
     def create_vault(
         self, organisation: Organisation, admin: Account, name: str, slug: str | None = None, layout: str = WIKI_PRESET
@@ -972,7 +1027,7 @@ def domain_state(item: OrgDomain) -> str:
     return "verified" if item.verified else f"unverified: TXT {item.record_name} {item.record_value}"
 
 
-def told_on_departure(departure: Departure) -> str:
+def told_on_departure(organisations: Organisations, departure: Departure) -> str:
     if departure.delete_after is None:
         return f"mindin: removed {departure.account.email}; their account and own vaults stay"
     from mindin.auth import auth_config, mail
@@ -990,10 +1045,12 @@ def told_on_departure(departure: Departure) -> str:
         subject, text, html = departure_mail(config.public_url, departure)
         try:
             Mailer(config.smtp).send(departure.account.email, subject, text, html, mail.images())
+            organisations.told(departure)
             told = "an email tells them how to download their vaults"
         except OSError as exc:
             told = f"the email could not be sent ({exc}); tell them to download their vaults from /account"
-    return f"mindin: removed {departure.account.email}; their account and own vaults go on {when}; {told}"
+    email = departure.account.email
+    return f"mindin: removed {email}; their account and own vaults go on {when} unless they sign in before; {told}"
 
 
 def command_org(args: argparse.Namespace) -> int:
@@ -1057,7 +1114,7 @@ def command_org_change(organisations: Organisations, organisation: Organisation,
         print(f"mindin: {account.email} is a member, no longer an admin of {organisation.name}")
         return 0
     if action == "member":
-        print(told_on_departure(organisations.remove_member(organisation, args.email)))
+        print(told_on_departure(organisations, organisations.remove_member(organisation, args.email)))
         return 0
     if change == "create":
         admins = organisations.admins(organisation)

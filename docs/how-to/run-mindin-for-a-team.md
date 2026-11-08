@@ -100,7 +100,9 @@ mindin org member remove Example cy@example.com
 Removing a member stops their keys, tokens and connections to every organisation vault on their next request. What they wrote stays, under their name in each vault's history. An organisation vault they owned passes to another admin; when no other admin can take one over, the removal is refused and nothing changes. Their personal vaults follow the organisation's setting:
 
 - `keep` (the default): the account stays, as an account of its own.
-- `export-and-delete`: a member who joined through a verified domain, with an address still at one, is deleted after the given days, 1 to 365; omitting `--days` keeps the current number. With SMTP set, they get an email with a link to download their vaults; without it, tell them yourself. Their account stays all the same when an extension keeps it, when they belong to another organisation by then, or when they own a shared vault that other members still use. Someone an admin added keeps their account.
+- `export-and-delete`: a member who joined through a verified domain, with an address still at one, is deleted after the given days, 1 to 365; omitting `--days` keeps the current number. With SMTP set, they get an email with a link to download their vaults; without it, tell them yourself. Signing in before the date keeps their account and own vaults, as an account outside the organisation. Their account stays all the same when an extension keeps it, when they belong to another organisation by then, or when they own a shared vault that other members still use. Someone an admin added keeps their account.
+
+Under When a member is removed, the organisation's page lists everyone removed, when, and what happens to their account: kept, kept because they signed in again and when, or when it is deleted unless they sign in and whether the email went out.
 
 A removed person does not rejoin through the domain: not with the same account, and not with any address their sign-in carries. An admin adds them back with `mindin org member add`, and their deletion, if one is pending, is cancelled once they are back in. The last admin cannot be removed or lose the role.
 

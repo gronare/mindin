@@ -31,6 +31,7 @@ from mindin.auth.hosted_orgs import (
     OrgInvitation,
     OrgMember,
     OrgVault,
+    Removed,
     domain_of,
 )
 from mindin.auth.hosted_store import Account, MembershipError, VaultNameError
@@ -77,6 +78,29 @@ def joined_by(member: OrgMember) -> str:
     return SOURCES.get(member.source, member.source)
 
 
+def mail_date(moment: int) -> str:
+    day = datetime.fromtimestamp(moment, UTC)
+    return f"{day.day} {day:%B %Y}"
+
+
+def short_date(moment: int) -> str:
+    day = datetime.fromtimestamp(moment, UTC)
+    return f"{day.day} {day:%b}"
+
+
+def their_account(item: Removed) -> str:
+    if item.erased_at:
+        return f"deleted on {short_date(item.erased_at)}, with their own vaults"
+    if item.kept_at:
+        return f"kept: signed in again on {short_date(item.kept_at)}"
+    if item.delete_after:
+        told = f"export link sent {short_date(item.told_at)}" if item.told_at else "no email sent"
+        return f"{told} · deleted on {short_date(item.delete_after)} unless they sign in before then"
+    if item.source in SOURCES:
+        return f"kept: {SOURCES[item.source]}, not through a domain"
+    return "kept"
+
+
 def long_date(moment: int) -> str:
     day = datetime.fromtimestamp(moment, UTC)
     return f"{day.day} {day:%b %Y}"
@@ -115,14 +139,14 @@ def invitation_mail(public_url: str, item: OrgInvitation) -> mail.Mail:
 
 
 def departure_mail(public_url: str, departure: Departure) -> mail.Mail:
-    days = departure.organisation.removal_days
+    when = mail_date(departure.delete_after or 0)
     link = f"{public_url.rstrip('/')}/account"
     return mail.branded(
         f"{departure.organisation.name} removed you from its vaults",
         "Download your vaults",
         f"{departure.organisation.name} removed {departure.account.email} from its vaults on "
-        f"{mail.host_of(public_url)}. Your own vaults and your account are deleted in {days} days. Sign in to "
-        "download each of your vaults as a zip before then.",
+        f"{mail.host_of(public_url)}. Your own vaults and your account are deleted on {when}. Sign in before"
+        f" {when} to keep your account, or to download each of your vaults as a zip.",
         "Download your vaults",
         link,
         "Each vault's page has a Download zip button.",
@@ -139,6 +163,8 @@ def delete_departed(organisations: Organisations, erase: Callable[[Account], Non
             try:
                 erase(account)
                 deleted += 1
+                organisations.settle(organisation_id, account_id, erased=True)
+                continue
             except StillShared as exc:
                 logger.warning("organisation departure: %s; the account stays", exc)
         organisations.settle(organisation_id, account_id)
@@ -407,7 +433,20 @@ the setting.</p>
 </label></fieldset>
 <label class="field narrow">Days before deletion<input type="text" name="days" inputmode="numeric"
 pattern="[0-9]{{1,3}}" value="{organisation.removal_days}" required></label>
-<div><button class="btn" type="submit">Save</button></div></form></div>"""
+<div><button class="btn" type="submit">Save</button></div></form>{self.removed_list(organisation)}</div>"""
+
+    def removed_list(self, organisation: Organisation) -> str:
+        rows = "".join(
+            f'<tr><td>{esc(item.email)}</td><td class="nowrap">{esc(stamp(item.removed_at)[:10])}</td>'
+            f"<td>{esc(their_account(item))}</td></tr>"
+            for item in self.organisations.removed(organisation)
+        )
+        if not rows:
+            return ""
+        return (
+            '<h2 class="subhead">Removed</h2><div class="tablewrap noact"><table><thead><tr><th>Who</th>'
+            f"<th>Removed</th><th>Their account</th></tr></thead><tbody>{rows}</tbody></table></div>"
+        )
 
     def sharing_section(self, organisation: Organisation, csrf: str) -> str:
         allowed = " checked" if organisation.external_sharing == ALLOWED else ""
@@ -603,8 +642,10 @@ already exists.</p>
             return f"{email} is removed; their own vaults stay with their account."
         when = stamp(departure.delete_after)[:10]
         sent = self.send_departure(departure)
+        if sent:
+            self.organisations.told(departure)
         told = "An email tells them how to download their vaults." if sent else "This server sends no email; tell them."
-        return f"{email} is removed; their own vaults are deleted on {when}. {told}"
+        return f"{email} is removed; their own vaults are deleted on {when} unless they sign in before then. {told}"
 
     @property
     def public_url(self) -> str:

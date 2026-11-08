@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -248,7 +249,10 @@ async def test_flow_13_export_and_delete_mails_a_link_and_deletes_the_account_la
     assert "their own vaults are deleted on" in removed.text and "An email tells them" in removed.text
     message = site.smtp.messages[-1]
     assert message["To"] == "cy@acme.test" and message["Subject"] == "Acme removed you from its vaults"
-    assert "http://localhost/account" in message.get_body(("plain",)).get_content()
+    body = message.get_body(("plain",)).get_content()
+    due = datetime.fromtimestamp(site.clock() + 14 * 86400, UTC)
+    assert "http://localhost/account" in body
+    assert f"Sign in before {due.day} {due:%B %Y} to keep your account" in " ".join(body.split())
     sealed = SealedVaults(site.store, VaultKeys(site.store, site.keyring))
 
     def erase(account) -> None:
@@ -260,6 +264,33 @@ async def test_flow_13_export_and_delete_mails_a_link_and_deletes_the_account_la
     assert site.store.account("cy@acme.test") is None
     assert history(site)[0].author_email == "cy@acme.test"
     assert delete_departed(orgs(site), erase) == 0
+    async with site.browser() as back:
+        await site.sign_in(back, "cy@acme.test")
+    assert orgs(site).due() == []
+    assert orgs(site).removed(orgs(site).require("Acme"))[0].kept_at is None
+
+
+@pytest.mark.anyio
+async def test_signing_in_before_the_date_keeps_a_removed_members_account_and_vaults(
+    site: Hosted, vaults: SubjectVaults
+):
+    ada, bea = await company(site)
+    async with ada, bea, site.browser() as cy:
+        await site.sign_in(cy, "cy@acme.test")
+        await write(cy, key(site, "cy@acme.test"), "Areas/mine.md", DEPLOY)
+        await post_org(site, ada, "/removal", removal="export-and-delete", days="14")
+        await post_org(site, ada, "/members/remove", email="cy@acme.test")
+        async with site.browser() as back:
+            returned = await site.sign_in(back, "cy@acme.test")
+        page = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
+    sealed = SealedVaults(site.store, VaultKeys(site.store, site.keyring))
+    site.clock.advance(15 * 86400)
+    assert delete_departed(orgs(site), lambda account: delete_account(sealed, account, vaults.cache)) == 0
+    account = site.store.account("cy@acme.test")
+    today = datetime.fromtimestamp(time.time(), UTC)
+    assert returned.status_code == 303 and account is not None and account.active
+    assert site.store.vaults(account.id) and not orgs(site).of_account(account.id)
+    assert f"<td>kept: signed in again on {today.day} {today:%b}</td>" in page.text
 
 
 @pytest.mark.anyio
@@ -1021,3 +1052,30 @@ async def test_each_org_vault_shows_its_notes_and_layout(site: Hosted):
         page = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
     assert '<p class="facts">1 note · shared layout</p>' in page.text
     assert " MB" not in page.text and "1 GB" not in page.text
+
+
+@pytest.mark.anyio
+async def test_the_removed_list_says_what_happens_to_each_account_and_when(site: Hosted, vaults: SubjectVaults):
+    ada, bea = await company(site)
+    async with ada, bea, site.browser() as cy:
+        await site.sign_in(cy, "cy@acme.test")
+        await post_org(site, ada, "/members", email="dan@acme.test")
+        await post_org(site, ada, "/removal", removal="export-and-delete", days="30")
+        await post_org(site, ada, "/members/remove", email="cy@acme.test")
+        removed = await post_org(site, ada, "/members/remove", email="dan@acme.test")
+        sealed = SealedVaults(site.store, VaultKeys(site.store, site.keyring))
+        site.clock.advance(31 * 86400)
+        delete_departed(orgs(site), lambda account: delete_account(sealed, account, vaults.cache))
+        later = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
+    sent = datetime.fromtimestamp(site.clock() - 31 * 86400, UTC)
+    due = datetime.fromtimestamp(site.clock() - 86400, UTC)
+    gone = datetime.fromtimestamp(site.clock(), UTC)
+    assert '<h2 class="subhead">Removed</h2>' in removed.text
+    assert (
+        f'<td>cy@acme.test</td><td class="nowrap">{sent:%Y-%m-%d}</td>'
+        f"<td>export link sent {sent.day} {sent:%b} · deleted on {due.day} {due:%b} unless they sign in before"
+        " then</td>" in removed.text
+    )
+    assert "<td>dan@acme.test</td>" in removed.text
+    assert "<td>kept: added by an admin, not through a domain</td>" in removed.text
+    assert f"<td>deleted on {gone.day} {gone:%b}, with their own vaults</td>" in later.text

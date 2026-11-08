@@ -180,6 +180,7 @@ class OrganisationPages:
         smtp = self.browser.config.smtp
         self.mailer = Mailer(smtp, pages.smtp_factory) if smtp else None
         pages.shared.organisations = self.organisations
+        self.sections: list[Callable[[Organisation, Account, str], str]] = []
 
     def local(self, path: str) -> str:
         return self.browser.local(path)
@@ -478,7 +479,8 @@ already exists.</p>
 {self.invitations_list(organisation, csrf)}
 {self.vaults_section(organisation, csrf)}
 {self.sharing_section(organisation, csrf)}
-{self.removal_section(organisation, csrf)}"""
+{self.removal_section(organisation, csrf)}
+{"".join(section(organisation, account, csrf) for section in self.sections)}"""
         return self.browser.app(organisation.name, body, on="account", status_code=status_code)
 
     def refused(self) -> Response:

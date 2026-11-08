@@ -14,6 +14,7 @@ from starlette.responses import PlainTextResponse, Response
 from starlette.routing import Route
 
 from mindin import cli, extension_api, extensions
+from mindin.auth.hosted_orgs import Organisations
 from mindin.auth.hosted_store import Account, HostedStore
 from mindin.auth.periodic import Leases, PeriodicRunner
 from mindin.extensions import Access, Extension, Periodic, Server, Subcommands
@@ -39,6 +40,9 @@ class Ledger(Extension):
         server.routes.append(Route(server.config.path_prefix + "/ledger/count", endpoint=count, methods=["GET"]))
         server.account_sections.append(lambda account, csrf: f"<h2>Ledger</h2><p>{account.email}</p>")
         server.vault_sections.append(lambda account, vault, csrf: f"<h2>Ledger</h2><p>{vault.slug}</p>")
+        server.organisation_sections.append(
+            lambda organisation, viewer, csrf: f"<h2>Ledger</h2><p>{organisation.name} for {viewer.email}</p>"
+        )
 
     def access(self, account: Account) -> Access:
         return self.granted.get(account.email, "full")
@@ -70,6 +74,17 @@ async def test_an_extension_adds_a_route_and_sections_on_the_account_and_vault_p
     assert (counted.status_code, counted.text) == (200, "1")
     assert "<h2>Ledger</h2><p>ann@example.com</p>" in page.text
     assert f"<h2>Ledger</h2><p>{slug}</p>" in vault_page.text
+
+
+@pytest.mark.anyio
+async def test_an_extension_adds_a_section_to_the_organisation_page_for_its_admins(site: Hosted):
+    organisation = Organisations(site.store, site.clock).create("Acme", "ada@acme.test")
+    ada, bob = await site.member("ada@acme.test"), await site.member("bob@example.com")
+    async with ada, bob:
+        page = await ada.get(f"/account/organisation/{organisation.id}")
+        outside = await bob.get(f"/account/organisation/{organisation.id}")
+    assert page.status_code == 200 and "<h2>Ledger</h2><p>Acme for ada@acme.test</p>" in page.text
+    assert outside.status_code == 403 and "Ledger" not in outside.text
 
 
 @pytest.mark.anyio
@@ -158,6 +173,8 @@ EXTENSION_NEEDS = {
     "LimitReached",
     "Mail",
     "Mailer",
+    "Organisation",
+    "OrganisationSection",
     "Periodic",
     "Registrant",
     "STORE_VERSION",

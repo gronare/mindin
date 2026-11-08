@@ -60,6 +60,7 @@ A `Registrant` carries the sign-in's `method`, `subject` (for GitHub the numeric
 | `routes` | Starlette routes to add. Put them under `config.path_prefix`. |
 | `account_sections` | Functions `(account, csrf) -> html` that add a section to the Account page (`/account/settings`). |
 | `vault_sections` | Functions `(account, vault, csrf) -> html` that add a section to a vault's page. |
+| `organisation_sections` | Functions `(organisation, viewer, csrf) -> html` that add a section to an organisation's page (`/account/organisation/{id}`), which only its admins open; `viewer` is the signed-in admin's `Account`. |
 | `health_checks` | Functions `() -> bool` that `/ready` runs; any that returns `False` or raises makes it answer 503 and name the check. |
 | `periodic` | `Periodic(name, seconds, run)` entries: the server calls `run()` in a thread of its own when it starts, then every `seconds` until it stops. A run that raises is logged and the next one still comes. Servers that share one account store take turns: each period, only the one that claims the job's name runs it. Make `run` safe to repeat. |
 
@@ -77,8 +78,8 @@ A `ChangeBus` (`publish`, `listen`, `close`) carries `Change(vault_id, kind, ori
 
 `mindin.extension_api` exports:
 
-- Hooks and the server: `Extension`, `Server`, `Access`, `Section`, `VaultSection`, `HealthCheck`, `SignInCheck`, `Subcommands`.
-- The account store: `Database`, `Connection`, `HostedStore`, `Account`, `Vault`, `Identities`, `STORE_VERSION`, `rewrite_slugs`, `has_table`, `account_of`, `digest`, `scope_label`, `MACHINE_KEY_PURPOSE`, `INVITATION_TTL`.
+- Hooks and the server: `Extension`, `Server`, `Access`, `Section`, `VaultSection`, `OrganisationSection`, `HealthCheck`, `SignInCheck`, `Subcommands`.
+- The account store: `Database`, `Connection`, `HostedStore`, `Account`, `Vault`, `Organisation`, `Identities`, `STORE_VERSION`, `rewrite_slugs`, `has_table`, `account_of`, `digest`, `scope_label`, `MACHINE_KEY_PURPOSE`, `INVITATION_TTL`.
 - Pages and mail: `Browser`, `page`, `esc`, `stamp`, `limited`, `Mailer`, `SmtpFactory`, `EMAIL_ADDRESS`, and `branded(subject, heading, lead, button, link, note)`, a `Mail` in the sign-in mails' look whose `images()` go with it to `Mailer.send`.
 - Accounts made and storage kept: `Registrant`, `Periodic`, `StorageLimits`, `with_defaults`, `LimitReached`.
 - Vaults and storage: `SubjectVaults`, `SealedVaults`, `SelfDeletion`, `VaultFacts`, `VaultBackend`, `make_subject_backend`, `MUST_NOT_EXIST`, `VersionConflict`, `honours_conditions`.

@@ -9,6 +9,7 @@ from mindin.auth.hosted_deletion import SelfDeletion
 from mindin.auth.hosted_keys import SealedVaults, VaultFacts
 from mindin.auth.hosted_limits import StorageLimits, with_defaults
 from mindin.auth.hosted_members import INVITATION_TTL
+from mindin.auth.hosted_orgs import Organisation
 from mindin.auth.hosted_store import Account, HostedStore, account_of, digest, scope_label
 from mindin.auth.hosted_vaults import MIGRATIONS, Vault, rewrite_slugs
 from mindin.auth.hosted_web import Browser, esc, page
@@ -26,6 +27,7 @@ from mindin.extensions import (
     Access,
     Extension,
     HealthCheck,
+    OrganisationSection,
     Periodic,
     Section,
     Server,
@@ -67,6 +69,8 @@ __all__ = [
     "Listener",
     "Mail",
     "Mailer",
+    "Organisation",
+    "OrganisationSection",
     "Periodic",
     "Registrant",
     "SealedVaults",

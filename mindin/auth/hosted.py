@@ -612,6 +612,7 @@ def build_hosted_app(
         extension.attach(extended)
     vaults.use_bus(supplied_bus(extensions, extended) or NULL_BUS)
     pages.sections += extended.vault_sections
+    organisation_pages.sections += extended.organisation_sections
     built_in = built_in_checks(store)
 
     def extended_and_support(account: Account, csrf: str) -> str:

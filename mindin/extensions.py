@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from mindin.auth.hosted_deletion import SelfDeletion
     from mindin.auth.hosted_keys import SealedVaults
     from mindin.auth.hosted_limits import StorageLimits
+    from mindin.auth.hosted_orgs import Organisation
     from mindin.auth.hosted_store import Account, HostedStore
     from mindin.auth.hosted_vaults import Vault
     from mindin.auth.hosted_web import Browser
@@ -33,6 +34,7 @@ Access = Literal["full", "read", "none"]
 ACCESS_RANK: dict[str, int] = {"none": 0, "read": 1, "full": 2}
 Section = Callable[["Account", str], str]
 VaultSection = Callable[["Account", "Vault", str], str]
+OrganisationSection = Callable[["Organisation", "Account", str], str]
 HealthCheck = Callable[[], bool]
 
 
@@ -75,6 +77,7 @@ class Server:
     routes: list[BaseRoute] = field(default_factory=list)
     account_sections: list[Section] = field(default_factory=list)
     vault_sections: list[VaultSection] = field(default_factory=list)
+    organisation_sections: list[OrganisationSection] = field(default_factory=list)
     health_checks: list[HealthCheck] = field(default_factory=list)
     periodic: list[Periodic] = field(default_factory=list)
 
@@ -93,7 +96,7 @@ class Extension:
         """Add subcommands to the mindin CLI."""
 
     def attach(self, server: Server) -> None:
-        """Add routes and sections on the account and vault pages to a hosted server."""
+        """Add routes and sections on the account, vault and organisation pages to a hosted server."""
 
     def bus(self, server: Server) -> ChangeBus | None:
         """The change bus that carries changes made outside this server to it, and this server's changes out."""

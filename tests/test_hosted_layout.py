@@ -139,3 +139,38 @@ async def test_a_vault_on_a_preset_no_longer_shipped_is_named_and_can_switch(sit
     assert "This vault now uses PARA. No note was moved or deleted." in switched.text
     assert provision.current_preset(vault) == "para"
     assert vault.get(provision.PREVIOUS_SCHEMA_KEY)[0].startswith("preset: lyt")
+
+
+@pytest.mark.anyio
+async def test_the_layout_box_shows_the_folders_and_fields_the_vault_schema_names(site: Hosted, vaults: SubjectVaults):
+    http = await site.member("ann@example.com", sub="sub-ann")
+    async with http:
+        vaults.for_subject(site.vault_of("ann@example.com"))
+        built_in = await http.get("/account/vaults/notes")
+        backend = vaults.backend_factory(site.vault_of("ann@example.com"))[0]
+        edited = provision.stored(backend, SCHEMA_KEY).replace("Hub of the graph.", "Where the orchard lives.")
+        backend.put(SCHEMA_KEY, edited)
+        changed = await http.get("/account/vaults/notes")
+    assert "<td><code>Areas/</code></td><td>One living note per system or subsystem." in built_in.text
+    assert "<td><code>Archive/</code></td><td>History. Searched only on request. Not searched unless" in built_in.text
+    assert "<dt>Every note needs</dt><dd>title, date, updated, tags, status</dd>" in built_in.text
+    assert "<dt>Also an area in</dt><dd>Projects/, Resources/, Log/</dd>" in built_in.text
+    assert '<summary class="btn secondary small">Show .vault/schema.yml</summary>' in built_in.text
+    assert '<pre class="diff">version: 1\nlanguage: en' in built_in.text
+    assert "Where the orchard lives." in changed.text and "Hub of the graph." not in changed.text
+
+
+@pytest.mark.anyio
+async def test_the_layout_box_names_the_kinds_each_folder_takes_and_the_root(site: Hosted, vaults: SubjectVaults):
+    http = await site.member("ann@example.com", sub="sub-ann")
+    async with http:
+        backend = vaults.backend_factory(site.vault_of("ann@example.com"))[0]
+        backend.put(SCHEMA_KEY, "preset: wiki\n")
+        wiki = await http.get("/account/vaults/notes")
+        backend.put(SCHEMA_KEY, "preset: custom\n")
+        custom = await http.get("/account/vaults/notes")
+    assert "<th>Kinds</th>" in wiki.text and "<td>the root</td><td>The Bases views." in wiki.text
+    assert "How to do something, written once the work behind it is finished.</td><td>howto</td>" in wiki.text
+    assert "<dt>Every note needs</dt><dd>title, date, updated, tags, status, team, author</dd>" in wiki.text
+    assert "This layout names no folders; a note can go anywhere." in custom.text
+    assert "<th>Kinds</th>" not in custom.text and "Switch layout" in custom.text

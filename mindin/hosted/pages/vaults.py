@@ -57,7 +57,7 @@ from mindin.hosted.pages.shared import SharedPages
 from mindin.hosted.pages.web import Browser, app_script
 from mindin.hosted.signin.email import SmtpFactory
 from mindin.presets import OFFERED, PRESETS
-from mindin.schema import broken_schema_lines, schema_from_text
+from mindin.schema import Schema, broken_schema_lines, schema_from_text
 
 if TYPE_CHECKING:
     from mindin.hosted.pages.account import SelfDeletion
@@ -230,8 +230,9 @@ decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url
 
     def layout_box(self, vault: Vault, csrf: str, schema: str | None) -> str:
         current = provision.named_preset(schema)
+        shown = layout_contents(schema) if schema is not None else ""
         if current == BUILT_IN:
-            return f'<div class="box"><h2>Layout</h2><p class="small muted">{esc(describe(current))}</p></div>'
+            return f'<div class="box"><h2>Layout</h2><p class="small muted">{esc(describe(current))}</p>{shown}</div>'
         if current is None:
             heading, lead, label = (
                 "Pick a layout",
@@ -241,7 +242,7 @@ decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url
         else:
             heading, lead, label = "Layout", f"{describe(current)} {SWITCHING}", "Switch layout"
         return f"""<div class="box"><h2>{heading}</h2>
-<p class="small muted">{esc(lead)}</p><p class="small muted">{esc(EDITING)}</p>
+<p class="small muted">{esc(lead)}</p>{shown}<p class="small muted">{esc(EDITING)}</p>
 {form_head(csrf, self.vault_url(vault, "/layout"), ' class="stack"')}
 <fieldset class="choice"><legend>Layout</legend>{layout_options(current or OFFERED[0])}</fieldset>
 <div><button class="btn" type="submit">{label}</button></div></form></div>"""
@@ -501,6 +502,39 @@ def broken_box(text: str | None) -> str:
     said = [f"<p>{esc(line)}</p>" for line in lines if not line.startswith("- ")]
     items = "".join(f"<li>{esc(line.removeprefix('- '))}</li>" for line in lines if line.startswith("- "))
     return f'<div class="notice">{"".join(said)}{f"<ul>{items}</ul>" if items else ""}</div>'
+
+
+def folder_rows(schema: Schema, typed: bool) -> list[str]:
+    root = schema.data.get("root_description")
+    rows = [f"<tr><td>the root</td><td>{esc(str(root))}</td>{'<td></td>' if typed else ''}</tr>"] if root else []
+    for folder in schema.folders.values():
+        hidden = " Not searched unless asked for." if not folder.searched else ""
+        kinds = f"<td>{esc(', '.join(folder.kinds))}</td>" if typed else ""
+        rows.append(
+            f"<tr><td><code>{esc(folder.name)}/</code></td><td>{esc(folder.description)}{hidden}</td>{kinds}</tr>"
+        )
+    return rows
+
+
+def layout_contents(text: str) -> str:
+    schema = schema_from_text(text)
+    typed = any(folder.kinds for folder in schema.folders.values())
+    rows = folder_rows(schema, typed)
+    folders = (
+        table(["Folder", "What goes there", *(["Kinds"] if typed else [])], rows)
+        if rows
+        else '<p class="small muted">This layout names no folders; a note can go anywhere.</p>'
+    )
+    required = ", ".join(schema.required_fields) or "no field"
+    facts = [("Every note needs", required)]
+    if schema.area_required_in:
+        facts.append(("Also an area in", ", ".join(f"{name}/" for name in schema.area_required_in)))
+    if schema.kind_values:
+        facts.append(("Kinds", ", ".join(schema.kind_values)))
+    listed = "".join(f"<dt>{esc(label)}</dt><dd>{esc(value)}</dd>" for label, value in facts)
+    return f"""{folders}<dl class="kv">{listed}</dl>
+<details><summary class="btn secondary small">Show {esc(SCHEMA_KEY)}</summary>
+<pre class="diff">{esc(text)}</pre></details>"""
 
 
 def layout_options(selected: str) -> str:

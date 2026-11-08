@@ -23,7 +23,7 @@ mindin accounts activate ann@example.com
 mindin accounts delete ann@example.com --yes
 ```
 
-`accounts delete` destroys every vault's key first, then their files, indexes, keys, connections and the account's ways in. It is refused while the account owns a [shared vault](../explanation/shared-vaults.md) that has other members; hand each one over or delete it first. People can also delete their own account on the Account page.
+`accounts list` shows each account's status, number of vaults and keys, and last sign-in in UTC. `accounts delete` destroys every vault's key first, then their files, indexes, keys, connections and the account's ways in. It is refused while the account owns a [shared vault](../explanation/shared-vaults.md) that has other members; hand each one over or delete it first. People can also delete their own account on the Account page.
 
 ## Give an account more vaults
 

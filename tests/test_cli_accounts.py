@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 
@@ -40,6 +41,7 @@ def test_list_shows_status_keys_and_last_sign_in(store: HostedStore, capsys: pyt
     assert main(["accounts", "list"]) == 0
     lines = capsys.readouterr().out.splitlines()
     assert "ann@example.com  active  1 vaults  1 keys" in lines[0]
+    assert re.search(r"  \d{4}-\d\d-\d\d \d\d:\d\d UTC$", lines[0])
     assert "never signed in" not in lines[0]
     assert "bo@example.com  invited  1 vaults  0 keys  never signed in" in lines[1]
 

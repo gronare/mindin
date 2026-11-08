@@ -85,8 +85,8 @@ def command_members(args: argparse.Namespace) -> int:
     action = args.accounts_command
     if action == "members":
         for member in store.members(vault):
-            changed = stamp(member.last_change_at) if member.last_change_at else "no changes"
-            print(f"{member.email}  {member.role}  since {stamp(member.since)}  {changed}")
+            changed = f"{stamp(member.last_change_at)} UTC" if member.last_change_at else "no changes"
+            print(f"{member.email}  {member.role}  since {stamp(member.since)} UTC  {changed}")
         return 0
     if action == "add-member":
         try:

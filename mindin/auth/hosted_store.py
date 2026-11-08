@@ -855,7 +855,7 @@ def command_accounts(args: argparse.Namespace) -> int:
         for account in accounts:
             keys = len(store.keys(account.id))
             vaults = len(store.vaults(account.id))
-            signed_in = stamp(account.last_login_at) if account.last_login_at else "never signed in"
+            signed_in = f"{stamp(account.last_login_at)} UTC" if account.last_login_at else "never signed in"
             print(f"{account.id}  {account.email}  {account.status}  {vaults} vaults  {keys} keys  {signed_in}")
         return 0
     if action == "invite":

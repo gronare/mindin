@@ -4,19 +4,16 @@ import contextlib
 import json
 import os
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import date
 from pathlib import Path
 
-from mindin import changelog
-from mindin.config import cache_dir
-from mindin.git import current_branch, git, in_main_checkout, main_checkout, repo_name, repo_root
-from mindin.notes import context, vault_paths_in
-from mindin.vault import Vault, open_vault
+from mindin import credentials
+from mindin.client import CHANGELOG_META, AskedPrompts, VaultClient, open_client
+from mindin.git import current_branch, git, main_checkout, repo_name, repo_root
+from mindin.notes import vault_paths_in
 
 SHA_PREFIX_LENGTH = 7
-CHANGELOG_META = "changelog_ran_on"
 VAULT_HINT = (
     "## how to read the vault\n"
     "The notes above live in the vault, not on disk. Read a note with the vault MCP tool `read_file(path)`, "
@@ -32,7 +29,7 @@ SHARED_VAULT_HINT = (
     "user's personal vault."
 )
 
-__all__ = ["git", "repo_name", "repo_root"]
+__all__ = ["CHANGELOG_META", "git", "repo_name", "repo_root"]
 
 
 def read_hook_input(raw: str) -> dict:
@@ -107,24 +104,12 @@ def render_session_start(bundle: dict, cwd: str) -> str:
     return "\n\n".join([bundle["text"], *commit_blocks(cwd, bundle["system"]), hint])
 
 
-def session_start_text(vault: Vault, cwd: str) -> str:
-    repo = repo_name(cwd)
-    bundle = context(vault, path=str(in_main_checkout(cwd)), repo=repo)
-    main = main_checkout(cwd)
-    if repo_root(cwd) is not None and main is not None:
-        vault.index.remember_repo(repo, str(main))
-    return render_session_start(bundle.as_dict(), cwd)
-
-
 def session_start(raw: str) -> str:
-    data = read_hook_input(raw)
-    cwd = str(data.get("cwd") or os.getcwd())
-    vault = open_vault()
-    try:
-        vault.index.sync()
-        return session_start_text(vault, cwd)
-    finally:
-        vault.close()
+    cwd = str(read_hook_input(raw).get("cwd") or os.getcwd())
+    with credentials.working_in(cwd), open_client() as client:
+        text = render_session_start(client.context(cwd), cwd)
+        client.remember_repo(cwd)
+    return text
 
 
 RECENT = "24 hours ago"
@@ -160,28 +145,12 @@ def _recent_commits(root: Path) -> list[tuple[str, str]]:
     return commits
 
 
-def _log_text(vault: Vault, repo: str) -> str:
-    try:
-        text, _ = vault.backend.get(vault.schema.log_key(repo))
-    except Exception:
-        return ""
-    return text
-
-
 def unlogged_in(logged: str, root: Path) -> list[tuple[str, str]]:
     return [(sha, subject) for sha, subject in _recent_commits(root) if sha not in logged]
 
 
-def unlogged_commits(vault: Vault, root: Path, repo: str) -> list[tuple[str, str]]:
-    return unlogged_in(_log_text(vault, repo), root)
-
-
 def stale_labels(triage: list[dict]) -> list[tuple[str, str]]:
     return [(note["key"], f"{note['key']} ({note['age']} old)") for note in triage]
-
-
-def stale_open_notes(vault: Vault, repo: str, path: str) -> list[tuple[str, str]]:
-    return stale_labels(context(vault, path=path, repo=repo).as_dict()["triage"])
 
 
 VAULT_WRITES = frozenset(
@@ -190,7 +159,6 @@ VAULT_WRITES = frozenset(
 WRAPPED_PROMPT = re.compile(
     r"\s*(<(bash-|command-|local-command-|task-notification|system-reminder)|\[Request interrupted by user)"
 )
-ASKED_LIMIT = 200
 PROMPT_THRESHOLD = 3
 
 
@@ -281,32 +249,6 @@ def touched_notes(transcript_path: str | None) -> set[str]:
     return read_transcript(transcript_path).touched
 
 
-class AskedPrompts:
-    def __init__(self, data: dict, save: Callable[[], None]) -> None:
-        self.data = data
-        self.save = save
-
-    def last(self, session: str) -> str | None:
-        return self.data.get(session)
-
-    def remember(self, session: str, prompt: str) -> None:
-        self.data.pop(session, None)
-        self.data[session] = prompt
-        for stale in list(self.data)[:-ASKED_LIMIT]:
-            del self.data[stale]
-        self.save()
-
-
-def local_asked_prompts() -> AskedPrompts:
-    path = cache_dir() / "stop-prompts.json"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        data = {}
-    data = data if isinstance(data, dict) else {}
-    return AskedPrompts(data, lambda: path.write_text(json.dumps(data, indent=2), encoding="utf-8"))
-
-
 def unsaved_prompts(found: Transcript, last_asked: str | None) -> list[str]:
     prompts = found.prompts_since_write
     if last_asked in prompts:
@@ -333,15 +275,6 @@ def _reason(
             "there is nothing to save"
         )
     return "The vault is behind this session. " + "; ".join(parts)
-
-
-def refresh_month_pages(vault: Vault, today: date | None = None) -> list[str]:
-    stamp = (today or date.today()).isoformat()
-    if vault.index.meta(CHANGELOG_META) == stamp:
-        return []
-    vault.index.set_meta(CHANGELOG_META, stamp)
-    vault.index.db.commit()
-    return changelog.write_all(vault, periods=changelog.periods_due(today or date.today()))
 
 
 def _switched_off(name: str) -> bool:
@@ -384,19 +317,19 @@ def stop(raw: str) -> str | None:
     target = stop_target(raw)
     if target is None:
         return None
-    commits: list[tuple[str, str]] = []
-    stale: list[tuple[str, str]] = []
-    if target.root is not None:
-        vault = open_vault()
-        try:
-            vault.index.sync()
-            with contextlib.suppress(Exception):
-                refresh_month_pages(vault)
-            commits = unlogged_commits(vault, target.root, target.repo)
-            stale = stale_open_notes(vault, target.repo, str(in_main_checkout(target.cwd)))
-        finally:
-            vault.close()
-    return verdict(target, commits, stale, local_asked_prompts())
+    with open_client() as client:
+        return stop_verdict(client, target)
+
+
+def stop_verdict(client: VaultClient, target: StopTarget) -> str | None:
+    asked = client.asked_prompts()
+    if target.root is None:
+        return verdict(target, [], [], asked)
+    with contextlib.suppress(Exception):
+        client.refresh_month_pages()
+    commits = unlogged_in(client.log_text(target.repo), target.root)
+    stale = stale_labels(client.context(target.cwd)["triage"])
+    return verdict(target, commits, stale, asked)
 
 
 def verdict(

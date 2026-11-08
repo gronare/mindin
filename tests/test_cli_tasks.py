@@ -240,7 +240,9 @@ def test_commands_fall_back_to_the_plugin_config(isolated: Path, vault_dir: Path
 def test_every_command_finds_the_server_in_the_plugin_config(isolated: Path, monkeypatch: pytest.MonkeyPatch, capsys):
     write_settings(isolated, {"vault_server_url": "https://vault.example.test", "s3_bucket": "old"})
     asked = []
-    monkeypatch.setattr("mindin.remote.tool_text", lambda url, tool, **arguments: asked.append((url, tool)) or "")
+    monkeypatch.setattr(
+        "mindin.client.RemoteClient.tool_text", lambda client, tool, **arguments: asked.append((client.url, tool)) or ""
+    )
     for command in (["search", "orchard"], ["backlog"], ["lint"]):
         assert main(command) == 0, command
     assert [tool for _, tool in asked] == ["search", "backlog", "lint"]

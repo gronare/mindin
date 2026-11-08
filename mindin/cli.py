@@ -19,20 +19,17 @@ from mindin import (
     places,
     provision,
     tasks,
-    views,
 )
 from mindin.auth import auth_config
 from mindin.backends import NotFound
+from mindin.client import open_client
 from mindin.config import FORMER_NAMES, NO_VAULT_YET, ConfigError, adopt_config, cache_dir, env, local_root, s3_settings
 from mindin.embedding import keep_warm
 from mindin.extensions import installed
 from mindin.frontmatter import parse
-from mindin.git import in_main_checkout, repo_name
 from mindin.presets import PERSONAL_LAYOUTS, PRESETS
 from mindin.schema import CLAIM_KEY
-from mindin.search import render, search
 from mindin.server import run_http, run_stdio
-from mindin.snapshot import build_snapshot
 from mindin.terminal import Terminal, terminal
 from mindin.vault import SubjectVaults, Unconfigured, Vault, open_vault
 
@@ -107,24 +104,12 @@ def command_hook(args: argparse.Namespace) -> int:
 def run_hook(event: str, raw: str) -> int:
     if event == "session-start":
         try:
-            url = server_url()
-            if url is None:
-                print(hooks.session_start(raw))
-            else:
-                from mindin import remote
-
-                print(remote.session_start(url, raw))
+            print(hooks.session_start(raw))
         except Exception as exc:
             print(f"vault: {exc}")
         return 0
     try:
-        url = server_url()
-        if url is None:
-            blocked = hooks.stop(raw)
-        else:
-            from mindin import remote
-
-            blocked = remote.stop(url, raw)
+        blocked = hooks.stop(raw)
     except Exception:
         return 0
     if blocked:
@@ -132,9 +117,7 @@ def run_hook(event: str, raw: str) -> int:
     return 0
 
 
-def changelog_remote(url: str, args: argparse.Namespace) -> int:
-    from mindin import remote
-
+def command_changelog(args: argparse.Namespace) -> int:
     if not args.all:
         if not args.repo or not args.period:
             print("changelog needs <repo> <period>, or --all", file=sys.stderr)
@@ -142,34 +125,15 @@ def changelog_remote(url: str, args: argparse.Namespace) -> int:
         if not changelog.PERIOD_RE.match(args.period):
             print(f"mindin: period {args.period!r} is not YYYY or YYYY-MM", file=sys.stderr)
             return 2
-    for line in remote.changelog_command(url, args):
+    with open_client() as client:
+        if args.all:
+            period = args.period or (args.repo if args.repo and changelog.PERIOD_RE.match(args.repo) else None)
+            lines = [f"wrote {key}" for key in client.write_changelogs(period)]
+        else:
+            repo_path = Path(args.repo_path).expanduser() if args.repo_path else None
+            lines = [client.changelog(args.repo, args.period, repo_path, bool(args.write))]
+    for line in lines:
         print(line)
-    return 0
-
-
-def command_changelog(args: argparse.Namespace) -> int:
-    url = server_url()
-    if url is not None:
-        return changelog_remote(url, args)
-    vault = open_vault()
-    vault.index.sync()
-    if args.all:
-        period = args.period or (args.repo if args.repo and changelog.PERIOD_RE.match(args.repo) else None)
-        for key in changelog.write_all(vault, periods=[period] if period else None):
-            print(f"wrote {key}")
-        return 0
-    if not args.repo or not args.period:
-        print("changelog needs <repo> <period>, or --all", file=sys.stderr)
-        return 2
-    if not changelog.PERIOD_RE.match(args.period):
-        print(f"mindin: period {args.period!r} is not YYYY or YYYY-MM", file=sys.stderr)
-        return 2
-    repo_path = Path(args.repo_path).expanduser() if args.repo_path else None
-    if args.write:
-        changed = changelog.write_page(vault, args.repo, args.period, repo_path)
-        print(("wrote " if changed else "unchanged ") + vault.schema.period_key(args.repo, args.period))
-        return 0
-    print(changelog.render(vault, args.repo, args.period, repo_path))
     return 0
 
 
@@ -194,23 +158,12 @@ def command_lint(args: argparse.Namespace) -> int:
         print(f"mindin: no finding kind named {args.kind!r}; the kinds are: {known}", file=sys.stderr)
         return 2
     term = terminal(args.plain)
-    url = server_url()
-    if url is not None:
-        from mindin import remote
-
+    with open_client() as client:
+        text, findings = client.lint(args.write, bool(args.park_stale))
         if not term.pretty and not kind:
-            if args.write or args.park_stale:
-                print(remote.tool_text(url, "lint_and_park", write=args.write, park=bool(args.park_stale)))
-            else:
-                print(remote.tool_text(url, "lint"))
+            print(text)
         else:
-            text, stale_after_days = remote.lint(url, write=args.write, park=bool(args.park_stale))
-            print(lint_text(notes.Findings.parse(text), kind, term, stale_after_days))
-    else:
-        vault = open_vault()
-        vault.index.sync(force=True)
-        findings = notes.lint_findings(vault, write=args.write, park=args.park_stale)
-        print(lint_text(findings, kind, term, vault.schema.stale_after_days))
+            print(lint_text(findings, kind, term, client.stale_after_days()))
     if args.write:
         print(f"wrote {args.write}", file=sys.stderr)
     return 0
@@ -289,77 +242,31 @@ def add_operator(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--reason", required=True, help="why; the account sees it in its access log")
 
 
-REMOTE_BACKLOG_LIMIT = 10000
-
-
-def remote_view(url: str, command: str, **arguments: object) -> dict | None:
-    from mindin import remote
-
-    return remote.view(url, command, **arguments)
-
-
 def command_backlog(args: argparse.Namespace) -> int:
     term = terminal(args.plain)
-    url = server_url()
-    if url is not None:
-        from mindin import remote
-
-        found = remote_view(url, "backlog", area=args.area, priority=args.priority) if term.pretty else None
+    with open_client() as client:
+        found = client.backlog_view(args.area, args.priority) if term.pretty else None
         if found is not None:
             print(human.render_backlog(found, term, paths=args.paths, show_all=args.all))
             return 0
-        print(remote.tool_text(url, "backlog", area=args.area, priority=args.priority, limit=REMOTE_BACKLOG_LIMIT))
-        return 0
-    vault = open_vault()
-    vault.index.sync()
-    if term.pretty:
-        found = views.backlog_view(vault, area=args.area, priority=args.priority)
-        print(human.render_backlog(found, term, paths=args.paths, show_all=args.all))
-        return 0
-    print(notes.render_backlog(notes.backlog(vault, area=args.area, priority=args.priority), vault))
+        print(client.backlog_text(args.area, args.priority))
     return 0
 
 
 def command_search(args: argparse.Namespace) -> int:
     term = terminal(args.plain)
-    url = server_url()
-    if url is not None:
-        from mindin import remote
-
-        found = remote_view(url, "search", query=args.query, limit=args.limit) if term.pretty else None
+    with open_client(vectors="wait") as client:
+        found = client.search_view(args.query, args.limit) if term.pretty else None
         if found is not None:
             print(human.render_search(found, term))
             return 0
-        print(remote.tool_text(url, "search", query=args.query, limit=args.limit))
-        return 0
-    vault = open_vault(vectors="wait")
-    vault.index.sync()
-    result = search(vault.index, vault.schema, args.query, limit=args.limit)
-    print(human.render_search(views.search_view(result), term) if term.pretty else render(result))
+        print(client.search_text(args.query, args.limit))
     return 0
 
 
 def context_view(cwd: str) -> dict | None:
-    where = {"path": str(in_main_checkout(cwd)), "repo": repo_name(cwd)}
-    url = server_url()
-    if url is not None:
-        return remote_view(url, "context", **where)
-    vault = open_vault()
-    try:
-        vault.index.sync()
-        return views.context_bundle(vault, **where).view()
-    finally:
-        vault.close()
-
-
-def context_plain(cwd: str) -> str:
-    raw = json.dumps({"cwd": cwd})
-    url = server_url()
-    if url is None:
-        return hooks.session_start(raw)
-    from mindin import remote
-
-    return remote.session_start(url, raw)
+    with open_client() as client:
+        return client.context_view(cwd)
 
 
 def command_context(args: argparse.Namespace) -> int:
@@ -368,7 +275,7 @@ def command_context(args: argparse.Namespace) -> int:
     with credentials.working_in(cwd):
         found = context_view(cwd) if term.pretty else None
         if found is None:
-            print(context_plain(cwd))
+            print(hooks.session_start(json.dumps({"cwd": cwd})))
             return 0
         print(human.render_context(found, hooks.note_commits(cwd, found["system"]), term))
     return 0
@@ -390,25 +297,12 @@ def one_line(exc: Exception) -> str:
     return message if message.startswith("mindin:") else f"mindin: {message}"
 
 
-def json_command(action: Callable[[argparse.Namespace, Vault], dict]) -> Callable[[argparse.Namespace], int]:
-    def local(args: argparse.Namespace) -> dict:
-        vault = open_vault()
-        try:
-            vault.index.sync()
-            return action(args, vault)
-        finally:
-            vault.close()
-
+def json_command(action: str) -> Callable[[argparse.Namespace], int]:
     def run(args: argparse.Namespace) -> int:
         try:
             adopt_config()
-            url = server_url()
-            if url is not None:
-                from mindin import remote
-
-                result = remote.json_action(url, action.__name__, args)
-            else:
-                result = local(args)
+            with credentials.working_in(getattr(args, "cwd", None)), open_client() as client:
+                result = getattr(client, action)(args)
         except Exception as exc:
             print(one_line(exc), file=sys.stderr)
             return 1
@@ -418,59 +312,9 @@ def json_command(action: Callable[[argparse.Namespace, Vault], dict]) -> Callabl
     return run
 
 
-def task_open(args: argparse.Namespace, vault: Vault) -> dict:
-    if args.note:
-        return tasks.claim_task(vault, args.note, args.cwd)
-    return tasks.open_task(vault, args.name or "", args.cwd, branch=args.branch)
-
-
-def task_check(args: argparse.Namespace, vault: Vault) -> dict:
-    need = [key.strip() for key in args.need.split(",") if key.strip()]
-    return {"missing": tasks.missing_sections(vault, args.path, need)}
-
-
-def task_close(args: argparse.Namespace, vault: Vault) -> dict:
-    return {"path": notes.close(vault, args.path)}
-
-
-def task_backlog(args: argparse.Namespace, vault: Vault) -> dict:
-    notes.set_status(vault, args.path, notes.BACKLOG_STATUS, priority=args.priority)
-    return {"path": args.path}
-
-
-def task_claim(args: argparse.Namespace, vault: Vault) -> dict:
-    return tasks.claim_note(vault, args.path, args.machine, args.task, repo=args.repo or "", force=args.force)
-
-
-def task_release(args: argparse.Namespace, vault: Vault) -> dict:
-    if args.path is None:
-        return tasks.release_claims_of(vault, args.machine or "", args.task or "")
-    return tasks.release_note(vault, args.path, machine=args.machine)
-
-
-def log_append(args: argparse.Namespace, vault: Vault) -> dict:
-    return tasks.append_log(vault, args.cwd, args.line, commits=tuple(args.commit or ()), branch=args.branch)
-
-
-def log_path(args: argparse.Namespace, vault: Vault) -> dict:
-    return tasks.log_paths(vault.schema, args.repo)
-
-
-def snapshot(args: argparse.Namespace, vault: Vault) -> dict:
-    return build_snapshot(vault, since=args.since)
-
-
 def read_note(path: str) -> str:
-    url = server_url()
-    if url is not None:
-        from mindin import remote
-
-        return remote.run(url, lambda server: server.read(path))
-    vault = open_vault()
-    try:
-        return notes.read(vault, path).partition("\n")[2]
-    finally:
-        vault.close()
+    with open_client() as client:
+        return client.read(path)
 
 
 def command_read(args: argparse.Namespace) -> int:
@@ -901,7 +745,7 @@ def build_parser() -> argparse.ArgumentParser:
     opening.add_argument("--cwd", required=True, help="the worktree or checkout the work happens in")
     opening.add_argument("--branch", help="the branch; read from --cwd when omitted")
     opening.add_argument("--note", metavar="VAULT_PATH", help="claim this existing task note instead of creating one")
-    opening.set_defaults(func=json_command(task_open))
+    opening.set_defaults(func=json_command("task_open"))
     check = task_sub.add_parser("check", help="list the sections of a task note that are still empty")
     check.add_argument("path")
     check.add_argument(
@@ -909,14 +753,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=",".join(tasks.DEFAULT_NEED),
         help="comma-separated keys among problem, solution, decisions, tests, scope",
     )
-    check.set_defaults(func=json_command(task_check))
+    check.set_defaults(func=json_command("task_check"))
     closing = task_sub.add_parser("close", help="set status complete and move the note to the archive")
     closing.add_argument("path")
-    closing.set_defaults(func=json_command(task_close))
+    closing.set_defaults(func=json_command("task_close"))
     parking = task_sub.add_parser("backlog", help="put the note back in the backlog")
     parking.add_argument("path")
     parking.add_argument("--priority", default="medium", help="urgent, high, medium or low")
-    parking.set_defaults(func=json_command(task_backlog))
+    parking.set_defaults(func=json_command("task_backlog"))
     claiming = task_sub.add_parser(
         "claim",
         help=f"write which machine and task work on the note (frontmatter key {CLAIM_KEY}), unless another holds it",
@@ -926,7 +770,7 @@ def build_parser() -> argparse.ArgumentParser:
     claiming.add_argument("--task", required=True, help="the task working on the note")
     claiming.add_argument("--repo", help="the repo the task works in")
     claiming.add_argument("--force", action="store_true", help="take the note over from another machine")
-    claiming.set_defaults(func=json_command(task_claim))
+    claiming.set_defaults(func=json_command("task_claim"))
     releasing = task_sub.add_parser(
         "release",
         help=f"clear the note's claim (frontmatter key {CLAIM_KEY}), or without a path every claim of --machine --task",
@@ -934,7 +778,7 @@ def build_parser() -> argparse.ArgumentParser:
     releasing.add_argument("path", nargs="?")
     releasing.add_argument("--machine", help="clear it only when this machine holds it")
     releasing.add_argument("--task", help="without a path: the task whose claims to clear, wherever its notes moved")
-    releasing.set_defaults(func=json_command(task_release))
+    releasing.set_defaults(func=json_command("task_release"))
 
     repo_log = sub.add_parser("log", help="the repo log, for tools that drive agents (JSON out)")
     log_sub = repo_log.add_subparsers(dest="log_command", required=True)
@@ -943,12 +787,12 @@ def build_parser() -> argparse.ArgumentParser:
     appending.add_argument("--branch", help="the branch the commits were made on; read from --cwd when omitted")
     appending.add_argument("--line", required=True)
     appending.add_argument("--commit", action="append", help="a commit sha; repeat for several")
-    appending.set_defaults(func=json_command(log_append))
+    appending.set_defaults(func=json_command("log_append"))
     locating = log_sub.add_parser("path", help="the vault path of a repo's log, from the schema")
     locating.add_argument(
         "--repo", required=True, action="append", help='repeat for several; then the answer is {"<repo>": "<path>"}'
     )
-    locating.set_defaults(func=json_command(log_path))
+    locating.set_defaults(func=json_command("log_path"))
 
     board = sub.add_parser(
         "snapshot",
@@ -958,7 +802,7 @@ def build_parser() -> argparse.ArgumentParser:
     board.add_argument(
         "--since", metavar="ETAG", help='answer only {"unchanged": true, "etag": ...} while the etag still holds'
     )
-    board.set_defaults(func=json_command(snapshot))
+    board.set_defaults(func=json_command("snapshot"))
 
     signing_in = sub.add_parser("login", help="sign this machine in to a vault server and store its key")
     signing_in.add_argument("url", nargs="?", help="the server, e.g. https://vault.example.com; VAULT_SERVER_URL")

@@ -3,7 +3,7 @@
   "name": "io.github.gronare/mindin",
   "title": "mindin",
   "description": "Indexed search, schema-checked writes and session hooks for a markdown notes vault",
-  "version": "0.15.2",
+  "version": "0.16.0",
   "repository": {
     "url": "https://github.com/gronare/mindin",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "mindin",
-      "version": "0.15.2",
+      "version": "0.16.0",
       "runtimeHint": "uvx",
       "transport": { "type": "stdio" },
       "environmentVariables": [

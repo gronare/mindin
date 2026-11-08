@@ -5,6 +5,12 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+
+### Fixed
+
+## 0.16.0
+
+### What's new
 - An organisation lets everyone at its verified email domain in on their first sign-in.
 - An organisation admin can invite someone with an account, and send again or withdraw the invitation.
 - An organisation's vault is a wiki with Areas, Teams, Guides, Decisions, Projects and Incidents.

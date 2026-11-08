@@ -29,3 +29,17 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv export --frozen --all-groups --no-emit-project --format requirements-txt > "$RUNNER_TEMP/requirements.txt"
       - run: uvx pip-audit --disable-pip --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --all-extras --no-dev --no-install-project
+      # Exceptions: certifi is MPL-2.0 and ships its CA bundle unmodified; py_rust_stemmers has no licence metadata, its LICENSE file is MIT.
+      - name: Every runtime dependency has a permissive licence
+        run: >-
+          uvx pip-licenses@5.5.5 --python .venv/bin/python --from=mixed --partial-match
+          --fail-on="GPL"
+          --allow-only="MIT;BSD;Apache;ISC;PSF;Python Software Foundation;Zlib;Unlicense;CC0"
+          --ignore-packages certifi py_rust_stemmers

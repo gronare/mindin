@@ -213,8 +213,7 @@ def test_a_layout_without_a_home_answers_in_one_line_through_the_server(
     assert "has no" in logged and len(logged.strip().splitlines()) == 1
     feed(monkeypatch, {"cwd": str(repo)})
     assert main(["hook", "stop"]) == 0
-    stopped = json.loads(capsys.readouterr().out)
-    assert stopped["decision"] == "block" and head_sha(repo) in stopped["reason"]
+    assert capsys.readouterr().out.strip() == ""
 
 
 def test_session_start_without_a_key_says_how_to_sign_in(

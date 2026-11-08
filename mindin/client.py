@@ -49,7 +49,7 @@ class VaultClient(Protocol):
     def context(self, cwd: str) -> dict: ...
     def context_view(self, cwd: str) -> dict | None: ...
     def remember_repo(self, cwd: str) -> None: ...
-    def log_text(self, repo: str) -> str: ...
+    def log_text(self, repo: str) -> str | None: ...
     def refresh_month_pages(self, today: date | None = None) -> list[str]: ...
     def asked_prompts(self) -> AskedPrompts: ...
     def changelog(self, repo: str, period: str, repo_path: Path | None, write: bool) -> str: ...
@@ -118,10 +118,12 @@ class LocalClient:
         if repo_root(cwd) is not None and main is not None:
             self.vault.index.remember_repo(repo_name(cwd), str(main))
 
-    def log_text(self, repo: str) -> str:
+    def log_text(self, repo: str) -> str | None:
         vault = self.synced()
         try:
             text, _ = vault.backend.get(vault.schema.log_key(repo))
+        except NoHome:
+            return None
         except Exception:
             return ""
         return text
@@ -308,10 +310,12 @@ class RemoteClient:
     def remember_repo(self, cwd: str) -> None:
         self.state.remember_repo(cwd)
 
-    def log_text(self, repo: str) -> str:
+    def log_text(self, repo: str) -> str | None:
         try:
             return self.read(self.schema().log_key(repo))
-        except (RemoteError, NoHome):
+        except NoHome:
+            return None
+        except RemoteError:
             return ""
 
     def write_pages(self, repos: list[tuple[str, str]], periods: list[str]) -> list[str]:

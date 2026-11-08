@@ -35,6 +35,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 
 ### Fixed
 - `/vault:login` signs in with the same mindin version the plugin runs.
+- The stop hook asks to log commits only when the vault's layout has a log folder.
 
 ## 0.15.2
 

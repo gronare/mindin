@@ -327,7 +327,8 @@ def stop_verdict(client: VaultClient, target: StopTarget) -> str | None:
         return verdict(target, [], [], asked)
     with contextlib.suppress(Exception):
         client.refresh_month_pages()
-    commits = unlogged_in(client.log_text(target.repo), target.root)
+    logged = client.log_text(target.repo)
+    commits = [] if logged is None else unlogged_in(logged, target.root)
     stale = stale_labels(client.context(target.cwd)["triage"])
     return verdict(target, commits, stale, asked)
 

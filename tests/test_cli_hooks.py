@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from mindin import git, hooks, notes
+from mindin import git, hooks, notes, provision
+from mindin.backends.local import LocalBackend
 from mindin.cli import main
 from mindin.config import env
 from mindin.vault import Vault
@@ -102,6 +103,17 @@ def test_stop_blocks_when_a_commit_is_not_logged(vault: Vault, monkeypatch: pyte
     payload = json.loads(capsys.readouterr().out)
     assert payload["decision"] == "block"
     assert head_sha(repo) in payload["reason"]
+
+
+def test_stop_is_silent_about_commits_on_a_layout_without_a_log(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys):
+    folder = tmp_path / "simple"
+    provision.initialize(LocalBackend(folder), preset="simple")
+    monkeypatch.setenv("VAULT_PATH", str(folder))
+    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "cache"))
+    repo = make_repo(tmp_path / "repos", "frame")
+    feed(monkeypatch, {"cwd": str(repo)})
+    assert main(["hook", "stop"]) == 0
+    assert capsys.readouterr().out.strip() == ""
 
 
 def commit_in(repo: Path, message: str) -> str:

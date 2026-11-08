@@ -168,6 +168,22 @@ def test_stop_asks_for_unlogged_commits_and_unsaved_prompts_once(
     assert "the user wrote 3 messages since" in json.loads(hook_output(monkeypatch, capsys, payload, "stop"))["reason"]
 
 
+def test_stop_leaves_commits_alone_on_a_layout_without_a_log(
+    place_name: str, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    folder = tmp_path / "simple"
+    provision.initialize(LocalBackend(folder), preset="simple")
+    open_place(place_name, folder, request, monkeypatch, tmp_path)
+    repo = make_repo(tmp_path / "repos", "frame")
+    assert hook_output(monkeypatch, capsys, {"cwd": str(repo), "session_id": "s1"}, "stop").strip() == ""
+    transcript = str(transcript_of(tmp_path / "t.jsonl", prompts("p1", "p2", "p3")))
+    payload = {"cwd": str(repo), "session_id": "s2", "transcript_path": transcript}
+    reason = json.loads(hook_output(monkeypatch, capsys, payload, "stop"))["reason"]
+    assert "the user wrote 3 messages since" in reason and "log_append" not in reason
+    assert main(["log", "append", "--cwd", str(repo), "--line", "Ramade in lunden"]) == 1
+    assert "has no log folder" in capsys.readouterr().err
+
+
 def test_the_weekly_lint_writes_and_parks_as_the_vault_does(
     place: Place, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
 ):

@@ -100,6 +100,16 @@ async def test_every_method_appears_when_configured(site: Hosted):
     assert "navigator.credentials.get" in script.text
 
 
+@pytest.mark.anyio
+async def test_each_method_is_its_own_choice_in_the_list(site: Hosted):
+    async with site.browser() as http:
+        page = await http.get("/signin")
+    listed = page.text.split('<div class="methods">', 1)[1].split("</main>", 1)[0]
+    choices = listed.split("</div><div>")
+    labels = ("Sign in with a passkey", "Email me a link", "Continue with GitHub", "Continue with Pocket ID")
+    assert [[label in choice for label in labels].index(True) for choice in choices] == [0, 1, 2, 3]
+
+
 # --- email links --------------------------------------------------------------------------------------------
 
 

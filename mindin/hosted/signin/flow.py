@@ -61,8 +61,9 @@ class Login:
         return self.render(next_url)
 
     def render(self, next_url: str, notice: str = "", status_code: int = 200) -> Response:
-        buttons = "".join(method.button(next_url) for method in self.methods)
-        response = page("Sign in", "Choose how to sign in to your vault.", notice + buttons, status_code=status_code)
+        choices = "".join(f"<div>{method.button(next_url)}</div>" for method in self.methods)
+        body = f'{notice}<div class="methods">{choices}</div>'
+        response = page("Sign in", "Choose how to sign in to your vault.", body, status_code=status_code)
         if self.checks:
             response.headers["Content-Security-Policy"] = content_security_policy(added_sources(self.checks))
         return response

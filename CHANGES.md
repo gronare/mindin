@@ -12,6 +12,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 
 ### Fixed
 - The stop hook's reminder shows in Claude Code as hook feedback, not as a hook error.
+- The sign-in page spaces each way to sign in apart, with the first one highlighted.
 
 ## 0.16.0
 

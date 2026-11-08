@@ -35,6 +35,8 @@ input[type=text], input[type=email] { display: block; width: 100%; box-sizing: b
   padding: .55rem .6rem; font-size: 1rem; border: 1px solid #cbc8c0; border-radius: 6px; }
 fieldset label { font-family: inherit; }
 button.secondary { color: #1d1c1a; background: #fff; border: 1px solid #cbc8c0; margin-top: .5rem; }
+.methods { display: grid; gap: 1.25rem; }
+.methods > * + * button { color: #1d1c1a; background: #fff; border: 1px solid #cbc8c0; }
 button.inline { width: auto; padding: .3rem .7rem; font-size: .9rem; }
 table { width: 100%; border-collapse: collapse; margin-bottom: 1.25rem; font-size: .9rem; }
 th, td { text-align: left; padding: .4rem .3rem; border-bottom: 1px solid #e2e0da; vertical-align: top; }

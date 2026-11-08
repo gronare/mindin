@@ -1,6 +1,6 @@
 # Extensions
 
-An extension is a Python package installed beside the server that adds to it: tables in the account store, pages, routes, readiness checks, CLI commands, or a limit on what an account may do. The server finds it through an entry point and calls its hooks while it starts.
+An extension is a Python package installed beside the server that adds to it: tables in the account store, pages, routes, readiness checks, background work, CLI commands, a say in which new accounts are made, a check on the email-link form, or a limit on what an account may do or store. The server finds it through an entry point and calls its hooks while it starts.
 
 Import everything an extension builds on from `mindin.extension_api`. The names there stay put between releases; the modules they come from may move.
 
@@ -34,6 +34,12 @@ Every hook has a default that does nothing, so a class overrides only what it ne
 | `attach(server)` | Once, while the HTTP server is built. | Nothing. Add to the lists on `server`. |
 | `bus(server)` | Once, right after `attach`. | A `ChangeBus`, or `None` for none. The first extension that returns one wins. |
 | `access(account)` | On every request an account makes. | `"full"`, `"read"` or `"none"`. The strictest answer of all extensions applies. |
+| `storage_limits(account, limits)` | On every write to a vault the account owns, through MCP tools, WebDAV, a zip import and `mindin accounts import`. | The `StorageLimits` for that account, given the ones earlier extensions chose, which start with none; `with_defaults(limits, file_bytes=…)` fills only those left unset. The server refuses a write past them with the limit named; reading, export and deleting still work. Without an extension there are no limits. |
+| `admits(registrant)` | Before sign-in makes a new account. | `""` to make it, or the reason it is refused, shown on the page. The first refusal wins. |
+| `sign_in_check()` | Once, while the HTTP server is built with email links on. | A `SignInCheck(html, sources, passed)`, or `None` for none. `html` goes inside the email-link form, `sources` adds to the sign-in page's `Content-Security-Policy` (such as `{"script-src": ("https://check.example",)}`), and `await passed(fields, address)` gets the submitted form's fields and the client's address; a `False` from any check answers the form with an error and sends no link. |
+| `registered(connection, account, registrant)` | Inside the transaction that makes an account from a sign-in. | Nothing. Write rows for the new account on `connection`; they commit with it. |
+
+A `Registrant` carries the sign-in's `method`, `subject` (for GitHub the numeric user id), its verified `emails`, its `label`, and `invited`, whether a shared vault invited one of the addresses.
 
 ## The server an extension attaches to
 
@@ -53,6 +59,7 @@ Every hook has a default that does nothing, so a class overrides only what it ne
 | `account_sections` | Functions `(account, csrf) -> html` that add a section to the Account page (`/account/settings`). |
 | `vault_sections` | Functions `(account, vault, csrf) -> html` that add a section to a vault's page. |
 | `health_checks` | Functions `() -> bool` that `/ready` runs; any that returns `False` or raises makes it answer 503 and name the check. |
+| `periodic` | `Periodic(name, seconds, run)` entries: the server calls `run()` in a thread of its own when it starts, then every `seconds` until it stops. A run that raises is logged and the next one still comes. Servers that share one account store take turns: each period, only the one that claims the job's name runs it. Make `run` safe to repeat. |
 
 Escape everything a section prints with `esc`, and wrap a route that takes a form or a secret in `limited` so it shares the server's rate limits.
 
@@ -68,9 +75,10 @@ A `ChangeBus` (`publish`, `listen`, `close`) carries `Change(vault_id, kind, ori
 
 `mindin.extension_api` exports:
 
-- Hooks and the server: `Extension`, `Server`, `Access`, `Section`, `VaultSection`, `HealthCheck`, `Subcommands`.
+- Hooks and the server: `Extension`, `Server`, `Access`, `Section`, `VaultSection`, `HealthCheck`, `SignInCheck`, `Subcommands`.
 - The account store: `Database`, `Connection`, `HostedStore`, `Account`, `Vault`, `Identities`, `STORE_VERSION`, `rewrite_slugs`, `has_table`, `account_of`, `digest`, `scope_label`, `MACHINE_KEY_PURPOSE`, `INVITATION_TTL`.
-- Pages and mail: `Browser`, `page`, `esc`, `stamp`, `limited`, `Mailer`, `SmtpFactory`, `EMAIL_ADDRESS`.
+- Pages and mail: `Browser`, `page`, `esc`, `stamp`, `limited`, `Mailer`, `SmtpFactory`, `EMAIL_ADDRESS`, and `branded(subject, heading, lead, button, link, note)`, a `Mail` in the sign-in mails' look whose `images()` go with it to `Mailer.send`.
+- Accounts made and storage kept: `Registrant`, `Periodic`, `StorageLimits`, `with_defaults`, `LimitReached`.
 - Vaults and storage: `SubjectVaults`, `SealedVaults`, `SelfDeletion`, `VaultFacts`, `VaultBackend`, `make_subject_backend`, `MUST_NOT_EXIST`, `VersionConflict`, `honours_conditions`.
 - Changes: `ChangeBus`, `Change`, `Kind`, `Listener`.
 - Settings: `AuthConfig`, `ConfigError`, `env`, `local_root`, `auth_dir`, `semantic_requested`.

@@ -27,6 +27,7 @@ from mindin.auth.hosted_layout import (
     layout_options,
     layout_title,
 )
+from mindin.auth.hosted_limits import LimitReached
 from mindin.auth.hosted_store import Account, VaultNameError, scope_label
 from mindin.auth.hosted_transfer import (
     CHUNK_BYTES,
@@ -480,6 +481,9 @@ references. Every change is kept with who made it.</span></label>
         except (zipfile.BadZipFile, BadArchive) as exc:
             notice = error_box(str(exc) if isinstance(exc, BadArchive) else "That file is not a zip archive.")
             return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, 400))
+        except LimitReached as exc:
+            notice, status = error_box(f"Nothing was imported. {exc}"), exc.status
+            return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, status))
         notice = f'<div class="notice"><p>Imported: {esc(counts.summary())}.</p></div>'
         return await anyio.to_thread.run_sync(self.render_vault, account, csrf, vault, notice)
 

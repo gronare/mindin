@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import sqlite3
+import threading
 import typing
 from importlib.metadata import EntryPoint
 from pathlib import Path
@@ -14,7 +15,8 @@ from starlette.routing import Route
 
 from mindin import cli, extension_api, extensions
 from mindin.auth.hosted_store import Account, HostedStore
-from mindin.extensions import Access, Extension, Server, Subcommands
+from mindin.auth.periodic import Leases, PeriodicRunner
+from mindin.extensions import Access, Extension, Periodic, Server, Subcommands
 from mindin.vault import SubjectVaults
 
 
@@ -153,26 +155,35 @@ EXTENSION_NEEDS = {
     "Listener",
     "MACHINE_KEY_PURPOSE",
     "MUST_NOT_EXIST",
+    "LimitReached",
+    "Mail",
     "Mailer",
+    "Periodic",
+    "Registrant",
     "STORE_VERSION",
     "Server",
+    "SignInCheck",
     "SmtpFactory",
+    "StorageLimits",
     "Vault",
     "VaultFacts",
     "VersionConflict",
     "account_of",
     "auth_dir",
+    "branded",
     "digest",
     "env",
     "esc",
     "has_table",
     "honours_conditions",
+    "images",
     "limited",
     "local_root",
     "make_subject_backend",
     "page",
     "scope_label",
     "stamp",
+    "with_defaults",
 }
 
 
@@ -202,3 +213,50 @@ def test_storage_that_checks_versions_itself_honours_conditions():
 
     assert extension_api.honours_conditions(Checking()) is False
     assert extension_api.honours_conditions(object()) is True
+
+
+class Ticker(Extension):
+    def __init__(self) -> None:
+        self.ticks = 0
+        self.ticked = threading.Event()
+
+    def attach(self, server: Server) -> None:
+        server.periodic.append(Periodic("tick", 0.01, self.tick))
+
+    def tick(self) -> None:
+        self.ticks += 1
+        if self.ticks >= 3:
+            self.ticked.set()
+        if self.ticks == 1:
+            raise RuntimeError("a failing run does not stop the next one")
+
+
+@pytest.mark.anyio
+async def test_periodic_work_runs_while_the_server_runs_and_stops_with_it(vaults: SubjectVaults, tmp_path: Path):
+    ticker = Ticker()
+    async with hosted(vaults, tmp_path, extensions=[ticker]):
+        assert ticker.ticked.wait(5)
+    stopped = ticker.ticks
+    threading.Event().wait(0.05)
+    assert ticker.ticks == stopped
+
+
+def test_two_replicas_run_a_periodic_job_once_per_period(tmp_path: Path):
+    store = HostedStore(tmp_path)
+    moment = [1_800_000_000.0]
+    runs: list[str] = []
+    job = Periodic("organisation-departures", 3600.0, lambda: runs.append("ran"))
+    replicas = [PeriodicRunner([job], Leases(store, lambda: moment[0], holder).claim) for holder in ("a", "b")]
+    assert [runner.tick(job) for runner in replicas] == [True, False]
+    moment[0] += 1800
+    assert [runner.tick(job) for runner in replicas] == [False, False]
+    moment[0] += 1800
+    assert [runner.tick(job) for runner in reversed(replicas)] == [True, False]
+    assert runs == ["ran", "ran"]
+
+
+def test_a_branded_mail_has_the_sign_in_look_and_a_plain_part():
+    mail = extension_api.branded("Ends soon", "It ends", "In three days.", "Open", "https://x.test/a", "Note <b>.")
+    assert mail.subject == "Ends soon"
+    assert "Open: https://x.test/a" in mail.text and "Note <b>." in mail.text
+    assert "Note &lt;b&gt;." in mail.html and 'href="https://x.test/a"' in mail.html and "cid:mark@mindin" in mail.html

@@ -74,6 +74,7 @@ class EmailSignIn:
         return (
             f'<form method="post" action="{esc(self.login.local("/signin/email"))}">{next_field(next_url)}'
             '<label>Email<input type="email" name="email" autocomplete="email" required></label>'
+            f"{''.join(check.html for check in self.login.checks)}"
             '<button type="submit">Email me a link</button></form>'
         )
 
@@ -97,6 +98,14 @@ class EmailSignIn:
         email = found[0]
         if not self.per_client.allow(client_address(request)) or not self.per_address.allow(email):
             return page("Slow down", "Too many links asked for. Try again in a quarter of an hour.", status_code=429)
+        fields = {name: str(value) for name, value in form.items() if isinstance(value, str)}
+        for check in self.login.checks:
+            if not await check.passed(fields, client_address(request)):
+                notice = '<p class="error">The check on this form did not pass. Try again.</p>'
+                return self.login.render(next_url, notice, status_code=400)
+        refused = await anyio.to_thread.run_sync(self.login.identities.registering, email)
+        if refused and self.login.config.registration == "open":
+            return self.login.render(next_url, f'<p class="error">{esc(refused)}</p>', status_code=403)
         if self.known(email):
             token = secrets.token_urlsafe(32)
             self.login.identities.begin("email", token, "", {"email": email, "next": next_url}, LINK_TTL)

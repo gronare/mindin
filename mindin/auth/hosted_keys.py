@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from mindin.auth import DEFAULT_SUBJECT_PREFIX, auth_dir
 from mindin.auth.database import account_tables
 from mindin.auth.hosted_history import HISTORY_PREFIX, History, history_key
+from mindin.auth.hosted_limits import Quotas
 from mindin.auth.hosted_store import Account, HostedStore
 from mindin.auth.hosted_vaults import DATA_KEY_TABLES, Vault
 from mindin.backends import Entry, VaultBackend, VaultError, is_vault_key, make_subject_backend
@@ -206,6 +207,7 @@ class SealedVaults:
         self.store = store
         self.keys = keys
         self.prefix = prefix.strip("/")
+        self.quotas: Quotas | None = None
 
     def __call__(self, subject: str) -> tuple[VaultBackend, str]:
         from mindin.vault import NoSubject
@@ -213,7 +215,8 @@ class SealedVaults:
         vault = self.store.vault(subject)
         if vault is None:
             raise NoSubject("no vault for this subject")
-        backend, identifier = self.for_vault(vault.id)
+        sealed, identifier = self.for_vault(vault.id)
+        backend = sealed if self.quotas is None else self.quotas.guard(vault, sealed)
         if not vault.shared:
             return backend, identifier
         return SharedBackend(backend, SharedRules(vault.name), self.history(vault.id)), identifier

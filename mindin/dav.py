@@ -16,7 +16,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from mindin.backends import MUST_NOT_EXIST, Entry, NotFound, VaultBackend, VersionConflict
+from mindin.backends import MUST_NOT_EXIST, Entry, LimitReached, NotFound, VaultBackend, VersionConflict
 from mindin.shared import SharedRefusal, acting_as
 from mindin.vault import SubjectVaults
 
@@ -172,6 +172,8 @@ class WebDav:
             return Response("not found", 404)
         except SharedRefusal as exc:
             return Response(str(exc), 403)
+        except LimitReached as exc:
+            return Response(str(exc), exc.status)
         if request.method.upper() in WRITING_METHODS and response.status_code < 300:
             self.vaults.wrote(subject)
         return response

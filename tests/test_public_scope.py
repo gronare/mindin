@@ -11,7 +11,9 @@ EVERYWHERE = re.compile(
     r"billing|handoff|/v1/admin|--plans\b|VAULT_PLAN|\bplan_(status|until|set_at|kind)\b|\badmin[ _-](token|api)\b"
     r"|subscri(be|ption)|stripe|\bpaid\b|\binvited_at\b|(?<!actions)/checkout"
     r"|vault[-_]service|pricing|\bpaying\b|premium|\btiers?\b|customer|\.gronare\.(com|se)\b|registry\.gronare"
-    r"|homelab|home-vault",
+    r"|homelab|home-vault|refund|free[ -]trial|trial[ -](plans?|periods?|ends?|ended)\b"
+    r"|VAULT_STORAGE_(PER_ACCOUNT|PER_FILE|TYPES)|VAULT_TURNSTILE|turnstile|VAULT_EMAIL_DOMAIN_BLOCKLIST"
+    r"|VAULT_REGISTRATIONS_PER_DAY",
     re.IGNORECASE,
 )
 SHIPPED = re.compile(r'"checkout"')
@@ -59,5 +61,9 @@ def test_the_scan_reaches_every_tracked_folder():
 
 def test_the_guard_catches_what_it_names():
     assert EVERYWHERE.search("pip install vault-service") and EVERYWHERE.search("registry.gronare.com/x")
+    assert EVERYWHERE.search("one refund per person") and EVERYWHERE.search("your trial ends in 3 days")
+    assert not EVERYWHERE.search("http://localhost for a trial on your own machine")
     assert IN_PROSE.search("run several servers behind one address") and not IN_PROSE.search("one replica")
+    assert EVERYWHERE.search("VAULT_STORAGE_PER_FILE=5MB") and EVERYWHERE.search("VAULT_REGISTRATIONS_PER_DAY")
+    assert EVERYWHERE.search("cf-turnstile-response") and not EVERYWHERE.search("VAULT_STORAGE_DIR")
     assert not EVERYWHERE.search("ghcr.io/gronare/mindin") and not EVERYWHERE.search("actions/checkout@v4")

@@ -9,9 +9,11 @@ from typing import Any, Literal
 from mindin.auth import Registration
 from mindin.auth.hosted_store import Account, HostedStore, account_of, digest, now
 from mindin.auth.hosted_vaults import accept_invitations, add_first_vault, invited
+from mindin.auth.registration import Registrant
+from mindin.extensions import refusal
 
 Method = Literal["passkey", "email", "github", "oidc", "forwarded"]
-Refusal = Literal["", "unverified", "uninvited"]
+Refusal = Literal["", "unverified", "uninvited", "refused"]
 Removal = Literal["removed", "last", "missing"]
 METHOD_NAMES: dict[str, str] = {
     "passkey": "Passkey",
@@ -64,6 +66,7 @@ class Proof:
 class Outcome:
     account: Account | None
     refusal: Refusal = ""
+    reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -120,9 +123,15 @@ class Identities:
                 return Outcome(None, "unverified")
             account = self._by_email(connection, emails)
             if account is None:
-                if registration != "open" and not invited(connection, emails):
+                registrant = Registrant(proof.method, proof.subject, emails, proof.label, invited(connection, emails))
+                if registration != "open" and not registrant.invited:
                     return Outcome(None, "uninvited")
+                refused = refusal(self.store.extensions, registrant)
+                if refused:
+                    return Outcome(None, "refused", refused)
                 account = self._create(connection, emails[0])
+                for extension in self.store.extensions:
+                    extension.registered(connection, account, registrant)
             if account.status == "suspended":
                 return Outcome(account)
             self._attach(connection, account.id, proof, emails)
@@ -134,6 +143,15 @@ class Identities:
                 )
             accept_invitations(connection, account.id, tuple(dict.fromkeys((*emails, account.email.lower()))))
             return Outcome(self._signed_in(connection, account.id, proof.name))
+
+    def registering(self, email: str) -> str:
+        """Why an email link for this address would not make an account, or "" when it would or one exists."""
+        emails = addresses((email,))
+        with self.store.connect() as connection:
+            if self._by_email(connection, emails) is not None:
+                return ""
+            registrant = Registrant("email", emails[0], emails, emails[0], invited(connection, emails))
+            return refusal(self.store.extensions, registrant)
 
     def account_for(self, method: str, subject: str) -> Account | None:
         with self.store.connect() as connection:

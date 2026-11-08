@@ -11,11 +11,13 @@ URL = TypeAdapter(AnyHttpUrl, config=ConfigDict(url_preserve_empty_path=True))
 
 
 def inner_lifespan(
-    app: Starlette, on_exit: Callable[[], None] | None = None
+    app: Starlette, on_exit: Callable[[], None] | None = None, on_start: Callable[[], None] | None = None
 ) -> Callable[[Starlette], AbstractAsyncContextManager[None]]:
     @asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
         try:
+            if on_start is not None:
+                on_start()
             async with app.router.lifespan_context(app):
                 yield
         finally:

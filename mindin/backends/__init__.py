@@ -22,6 +22,12 @@ class VersionConflict(VaultError):
     pass
 
 
+class LimitReached(VaultError):
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 @dataclass(frozen=True)
 class Entry:
     key: str

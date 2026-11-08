@@ -23,4 +23,6 @@ mindin accounts import ann@example.com --from-s3-bucket old-vault --from-s3-pref
 
 From a bucket it reads with `IMPORT_S3_ACCESS_KEY` and `IMPORT_S3_SECRET_KEY`, or the server's own `S3_ACCESS_KEY` and `S3_SECRET_KEY` when those are not set. `--from-s3-endpoint` and `--from-s3-region` name the old bucket's endpoint and region when they differ from the server's.
 
-A person can import a zip into a personal vault themselves on its page; files with the same path are replaced. A shared vault refuses both imports: its notes arrive through its connections, so each change is kept in its [history](../explanation/shared-vaults.md#history).
+Before it writes, the import lists what it leaves behind (`.git/`, `.DS_Store`, `._*` files, `__MACOSX/`, `.trash/`, `Thumbs.db`, `desktop.ini`) and every file the server's [storage limits](../reference/extensions.md#hooks) refuse. One refused file stops the import with nothing written. `--dry-run` prints the same list and writes nothing.
+
+A person can import a zip into a personal vault themselves on its page; files with the same path are replaced, and a file the server refuses stops the import before anything is written. A shared vault refuses both imports: its notes arrive through its connections, so each change is kept in its [history](../explanation/shared-vaults.md#history).

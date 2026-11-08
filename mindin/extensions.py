@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from functools import cache
 from importlib.metadata import entry_points
@@ -18,9 +18,11 @@ if TYPE_CHECKING:
     from mindin.auth.database import Connection, Database
     from mindin.auth.hosted_deletion import SelfDeletion
     from mindin.auth.hosted_keys import SealedVaults
+    from mindin.auth.hosted_limits import StorageLimits
     from mindin.auth.hosted_store import Account, HostedStore
     from mindin.auth.hosted_vaults import Vault
     from mindin.auth.hosted_web import Browser
+    from mindin.auth.identities import Registrant
     from mindin.auth.login_email import SmtpFactory
     from mindin.changes import ChangeBus
     from mindin.vault import SubjectVaults
@@ -31,6 +33,24 @@ ACCESS_RANK: dict[str, int] = {"none": 0, "read": 1, "full": 2}
 Section = Callable[["Account", str], str]
 VaultSection = Callable[["Account", "Vault", str], str]
 HealthCheck = Callable[[], bool]
+
+
+@dataclass(frozen=True)
+class Periodic:
+    """Background work run once when the server starts, then every `seconds`, by one server per period."""
+
+    name: str
+    seconds: float
+    run: Callable[[], None]
+
+
+@dataclass(frozen=True)
+class SignInCheck:
+    """A check on the email-link form: its markup, the page policy's added sources, and the test a link waits on."""
+
+    html: str
+    sources: Mapping[str, tuple[str, ...]]
+    passed: Callable[[Mapping[str, str], str], Awaitable[bool]]
 
 
 class Subcommands(Protocol):
@@ -55,6 +75,7 @@ class Server:
     account_sections: list[Section] = field(default_factory=list)
     vault_sections: list[VaultSection] = field(default_factory=list)
     health_checks: list[HealthCheck] = field(default_factory=list)
+    periodic: list[Periodic] = field(default_factory=list)
 
 
 class Extension:
@@ -81,6 +102,21 @@ class Extension:
         """How much of its vaults an active account may use right now."""
         return "full"
 
+    def storage_limits(self, account: Account, limits: StorageLimits) -> StorageLimits:
+        """The storage limits for the vaults this account owns, given those earlier hooks chose; none to start with."""
+        return limits
+
+    def admits(self, registrant: Registrant) -> str:
+        """Why a new account for this sign-in is refused, shown to the person, or "" to make it."""
+        return ""
+
+    def sign_in_check(self) -> SignInCheck | None:
+        """A check the email-link form carries and passes before it sends a link, or None for none."""
+        return None
+
+    def registered(self, connection: Connection, account: Account, registrant: Registrant) -> None:
+        """Called inside the transaction that makes an account from a sign-in, before it commits."""
+
 
 @cache
 def installed() -> tuple[Extension, ...]:
@@ -89,6 +125,14 @@ def installed() -> tuple[Extension, ...]:
 
 def access(extensions: Iterable[Extension], account: Account) -> Access:
     return min((extension.access(account) for extension in extensions), key=ACCESS_RANK.__getitem__, default="full")
+
+
+def refusal(extensions: Iterable[Extension], registrant: Registrant) -> str:
+    return next((found for extension in extensions if (found := extension.admits(registrant))), "")
+
+
+def sign_in_checks(extensions: Iterable[Extension]) -> tuple[SignInCheck, ...]:
+    return tuple(found for extension in extensions if (found := extension.sign_in_check()) is not None)
 
 
 def supplied_database(extensions: Iterable[Extension], directory: Path) -> Database | None:

@@ -5,6 +5,9 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+- `mindin accounts import` leaves `.git/` and Mac leftovers behind, and `--dry-run` lists what it would do.
+- Extensions can add background work, storage limits and an email-link check.
+- Extensions can decide on every new account.
 
 ### Fixed
 

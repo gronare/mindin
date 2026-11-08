@@ -76,9 +76,9 @@ At least one of `VAULT_SMTP_HOST`, `VAULT_GITHUB_CLIENT_ID`, `VAULT_OIDC_ISSUER`
 | `VAULT_IDENTITY_ISSUER` | with `VAULT_IDENTITY_PUBLIC_KEY` | | The `iss` in the proxy's tokens. |
 | `VAULT_IDENTITY_HEADER` | no | `X-Forwarded-Identity` | The header carrying the token. |
 | `VAULT_IDENTITY_TYP` | no | | When set, the token's `typ` must match. |
+| `VAULT_IDENTITY_NAME` | no | `your company's sign-in` | The proxy's button label. |
 | `VAULT_IDENTITY_WRITE_CLAIMS` | no | `vault:write` | Entitlements that grant read and write, space separated. |
 | `VAULT_IDENTITY_READ_CLAIMS` | no | `vault:read` | Entitlements that grant read only. A token with neither is refused. |
-| `VAULT_IDENTITY_NAME` | no | `your company's sign-in` | The proxy's button label. |
 
 ## Import
 

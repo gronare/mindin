@@ -4,15 +4,14 @@ import argparse
 import sys
 import zipfile
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
-from typing import IO, TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import IO
 
 from mindin.auth import auth_dir
+from mindin.auth.hosted_limits import size_text
 from mindin.auth.hosted_store import HostedStore
-from mindin.backends import VaultBackend, VaultError
-
-if TYPE_CHECKING:
-    pass
+from mindin.backends import LimitReached, VaultBackend, VaultError
+from mindin.transfer import count_text, skipped_as, skipped_lines
 
 MAX_UPLOAD_BYTES = 512 * 1024 * 1024
 MAX_EXPANDED_BYTES = 2 * 1024 * 1024 * 1024
@@ -21,11 +20,17 @@ SPOOL_BYTES = 16 * 1024 * 1024
 CHUNK_BYTES = 1024 * 1024
 ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 
-Source = Iterator[tuple[str, Callable[[], bytes] | None]]
+Source = Iterator[tuple[str, int, Callable[[], bytes] | None]]
 
 
 class BadArchive(VaultError):
     pass
+
+
+class Refused(LimitReached):
+    def __init__(self, refusals: list[LimitReached]) -> None:
+        super().__init__("; ".join(str(refusal) for refusal in refusals), refusals[0].status)
+        self.refusals = refusals
 
 
 @dataclass
@@ -33,9 +38,29 @@ class Imported:
     written: int = 0
     unchanged: int = 0
     folders: int = 0
+    skipped: int = 0
 
     def summary(self) -> str:
-        return f"{self.written} files written, {self.unchanged} unchanged, {self.folders} folders made"
+        left = f", {self.skipped} skipped" if self.skipped else ""
+        return f"{self.written} files written, {self.unchanged} unchanged, {self.folders} folders made{left}"
+
+
+@dataclass
+class ImportPlan:
+    files: list[tuple[str, int, Callable[[], bytes]]] = field(default_factory=list)
+    folders: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    refusals: list[LimitReached] = field(default_factory=list)
+
+    @property
+    def size(self) -> int:
+        return sum(size for _, size, _ in self.files)
+
+    def lines(self) -> list[str]:
+        lines = [f"{count_text(len(self.files))} files, {size_text(self.size)}"]
+        lines += [f"skipped: {line}" for line in skipped_lines(self.skipped)]
+        lines += [f"refused: {refusal}" for refusal in self.refusals]
+        return lines
 
 
 def valid_path(name: str) -> bool:
@@ -48,19 +73,31 @@ def valid_path(name: str) -> bool:
     )
 
 
-def import_files(target: VaultBackend, source: Source) -> Imported:
-    existing = {entry.key: entry for entry in target.list_all()}
-    files: list[tuple[str, Callable[[], bytes]]] = []
-    folders: list[str] = []
-    for name, read in source:
+def prepare_import(target: VaultBackend, source: Source) -> ImportPlan:
+    plan = ImportPlan()
+    for name, size, read in source:
         if not valid_path(name):
             raise BadArchive(f"refusing the path {name!r}")
-        if read is None:
-            folders.append(name if name.endswith("/") else name + "/")
+        if skipped_as(name) is not None:
+            if read is not None:
+                plan.skipped.append(name)
+        elif read is None:
+            plan.folders.append(name if name.endswith("/") else name + "/")
         else:
-            files.append((name, read))
-    counts = Imported()
-    for name, read in files:
+            plan.files.append((name, size, read))
+    check = getattr(target, "preflight", None)
+    if check is not None:
+        plan.refusals = check({name: size for name, size, _ in plan.files})
+    return plan
+
+
+def import_files(target: VaultBackend, source: Source | ImportPlan) -> Imported:
+    plan = source if isinstance(source, ImportPlan) else prepare_import(target, source)
+    if plan.refusals:
+        raise Refused(plan.refusals)
+    existing = {entry.key: entry for entry in target.list_all()}
+    counts = Imported(skipped=len(plan.skipped))
+    for name, _, read in plan.files:
         data = read()
         known = existing.get(name)
         if known is not None and known.size == len(data) and target.get_bytes(name)[0] == data:
@@ -68,9 +105,9 @@ def import_files(target: VaultBackend, source: Source) -> Imported:
             continue
         target.put_bytes(name, data)
         counts.written += 1
-    taken = set(existing) | {name for name, _ in files}
+    taken = set(existing) | {name for name, _, _ in plan.files}
     occupied = taken | {key[: index + 1] for key in taken for index, char in enumerate(key) if char == "/"}
-    for folder in folders:
+    for folder in plan.folders:
         if folder in occupied:
             continue
         target.mkdir(folder)
@@ -82,9 +119,9 @@ def import_files(target: VaultBackend, source: Source) -> Imported:
 def backend_source(source: VaultBackend) -> Source:
     for entry in source.list_all():
         if entry.is_dir:
-            yield entry.key, None
+            yield entry.key, 0, None
         else:
-            yield entry.key, lambda key=entry.key: source.get_bytes(key)[0]
+            yield entry.key, entry.size, lambda key=entry.key: source.get_bytes(key)[0]
 
 
 def zip_source(archive: zipfile.ZipFile) -> Source:
@@ -95,9 +132,9 @@ def zip_source(archive: zipfile.ZipFile) -> Source:
         raise BadArchive("the archive expands beyond what one import takes")
     for member in members:
         if member.is_dir():
-            yield member.filename, None
+            yield member.filename, 0, None
         else:
-            yield member.filename, lambda member=member: archive.read(member)
+            yield member.filename, member.file_size, lambda member=member: archive.read(member)
 
 
 def export_zip(backend: VaultBackend, out: IO[bytes]) -> int:
@@ -147,6 +184,7 @@ def import_source(args: argparse.Namespace) -> VaultBackend:
 def command_import(args: argparse.Namespace) -> int:
     from mindin.auth.hosted_access import NoGrant, SupportAccess, chosen_vault
     from mindin.auth.hosted_keys import sealed_vaults_from_env
+    from mindin.auth.hosted_limits import Quotas
 
     store = HostedStore(auth_dir())
     account = store.account(args.account)
@@ -171,10 +209,29 @@ def command_import(args: argparse.Namespace) -> int:
     except NoGrant as exc:
         print(f"mindin: refused for {account.email}: {exc}", file=sys.stderr)
         return 1
-    target, _ = sealed.for_vault(vault.id)
+    sealed_target, _ = sealed.for_vault(vault.id)
+    quotas = Quotas(store, store.extensions, lambda vault_id: sealed.facts(vault_id).size)
+    target = quotas.guard(vault, sealed_target)
     try:
-        counts = import_files(target, backend_source(source))
+        plan = prepare_import(target, backend_source(source))
     except BadArchive as exc:
+        print(f"mindin: {exc}", file=sys.stderr)
+        return 1
+    out = sys.stderr if plan.refusals else sys.stdout
+    for line in plan.lines():
+        print(f"mindin: {line}", file=out)
+    if plan.refusals:
+        print(
+            f"mindin: nothing imported into {account.email}'s {vault.slug}; the server refuses the files above",
+            file=sys.stderr,
+        )
+        return 1
+    if args.dry_run:
+        print(f"mindin: dry run; nothing imported into {account.email}'s {vault.slug}")
+        return 0
+    try:
+        counts = import_files(target, plan)
+    except LimitReached as exc:
         print(f"mindin: {exc}", file=sys.stderr)
         return 1
     print(f"mindin: imported into {account.email}'s {vault.slug}: {counts.summary()}")

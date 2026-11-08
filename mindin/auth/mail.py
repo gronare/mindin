@@ -138,6 +138,23 @@ def invitation(public_url: str, link: str, owner: str, vault: str) -> Mail:
     return Mail(f"{owner} invites you to {vault}", text, html)
 
 
+def branded(subject: str, heading: str, lead: str, button: str, link: str, note: str, ignore: str = "") -> Mail:
+    """A mail in the sign-in mails' look, from plain text: one heading, one paragraph, one button."""
+    parts = (heading, lead, f"{button}: {link}", note, ignore, FOOTER)
+    text = "\n\n".join(part for part in parts if part) + "\n"
+    html = document(
+        subject,
+        preheader=note,
+        heading=escape(heading),
+        lead=escape(lead),
+        button=button,
+        link=link,
+        note=escape(note),
+        ignore=escape(ignore),
+    )
+    return Mail(subject, text, html)
+
+
 def unlinked(text: str) -> str:
     return escape(text).replace(".", "&#8203;.")
 

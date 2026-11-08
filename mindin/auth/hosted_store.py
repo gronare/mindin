@@ -242,6 +242,7 @@ class HostedStore:
         self, directory: Path, extensions: Sequence[Extension] | None = None, database: Database | None = None
     ) -> None:
         chosen = installed() if extensions is None else extensions
+        self.extensions = tuple(chosen)
         self.database = (
             database or supplied_database(chosen, directory) or SqliteDatabase(private_dir(directory) / "hosted.sqlite")
         )

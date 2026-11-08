@@ -12,12 +12,23 @@ from pathlib import Path
 import boto3
 import httpx2
 import pytest
-from hosted_support import NOTE_BODY, Hosted, call_tool, csrf_of, hosted, hosted_config, key_for_subject, text_of
+from hosted_support import (
+    NOTE_BODY,
+    FixedLimits,
+    Hosted,
+    call_tool,
+    csrf_of,
+    hosted,
+    hosted_config,
+    key_for_subject,
+    text_of,
+)
 from moto import mock_aws
 
 from mindin.auth.hosted import build_hosted_app
 from mindin.auth.hosted_access import SupportAccess
 from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
+from mindin.auth.hosted_limits import StorageLimits
 from mindin.auth.hosted_store import HostedStore
 from mindin.auth.hosted_transfer import export_zip
 from mindin.backends import VaultError
@@ -362,6 +373,7 @@ def grant_first_vault(store: HostedStore, account_id: str) -> None:
     SupportAccess(store).grant(store.first_vault(account_id), 3600)
 
 
+TEXT_ONLY = StorageLimits(content_types=("text/*",))
 IMPORT = ["accounts", "import", "ann@example.com", "--operator", "quill", "--reason", "moving my vault in"]
 
 
@@ -399,6 +411,57 @@ def test_importing_from_a_bucket_preserves_paths_and_bytes(
         bucket = ["--from-s3-bucket", "old-vault", "--from-s3-prefix", "quill", "--from-s3-endpoint", ENDPOINT]
         assert main([*IMPORT, *bucket]) == 0
     assert files_of(sealed_target(store, account_id)) == source
+
+
+def test_importing_stops_at_an_extensions_storage_limits(
+    account_env: tuple[HostedStore, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+):
+    store, account_id = account_env
+    grant_first_vault(store, account_id)
+    source = tmp_path / "with-film"
+    source.mkdir()
+    (source / "film.mkv").write_bytes(b"\x00" * 10)
+    monkeypatch.setattr("mindin.auth.hosted_store.installed", lambda: (FixedLimits(TEXT_ONLY),))
+    assert main([*IMPORT, "--from-path", str(source)]) == 1
+    assert "film.mkv is refused" in capsys.readouterr().err
+    assert files_of(sealed_target(store, account_id)) == {}
+
+
+def test_importing_lists_every_refused_file_and_writes_none_of_them(
+    account_env: tuple[HostedStore, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+):
+    store, account_id = account_env
+    grant_first_vault(store, account_id)
+    source = tmp_path / "mixed"
+    (source / "Areas").mkdir(parents=True)
+    (source / "Areas" / "a.md").write_text("first, sorted before the refused files\n")
+    (source / "clip.mp4").write_bytes(b"\x00" * 10)
+    (source / "film.mkv").write_bytes(b"\x00" * 10)
+    monkeypatch.setattr("mindin.auth.hosted_store.installed", lambda: (FixedLimits(TEXT_ONLY),))
+    assert main([*IMPORT, "--from-path", str(source)]) == 1
+    err = capsys.readouterr().err
+    assert "clip.mp4 is refused" in err and "film.mkv is refused" in err and "nothing imported" in err
+    assert files_of(sealed_target(store, account_id)) == {}
+
+
+def test_importing_skips_mac_and_git_leftovers_and_a_dry_run_writes_nothing(
+    account_env: tuple[HostedStore, str], tmp_path: Path, capsys: pytest.CaptureFixture
+):
+    store, account_id = account_env
+    grant_first_vault(store, account_id)
+    source = tmp_path / "mac"
+    (source / ".git" / "objects").mkdir(parents=True)
+    (source / ".git" / "objects" / "ab").write_bytes(b"blob")
+    (source / ".DS_Store").write_bytes(b"\x00")
+    (source / "Areas").mkdir()
+    (source / "Areas" / "a.md").write_text("note\n")
+    assert main([*IMPORT, "--from-path", str(source), "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "skipped: .DS_Store" in out and "skipped: .git/ (1 files)" in out and "dry run" in out
+    assert files_of(sealed_target(store, account_id)) == {}
+    assert main([*IMPORT, "--from-path", str(source)]) == 0
+    assert "1 files written, 0 unchanged, 0 folders made, 2 skipped" in capsys.readouterr().out
+    assert files_of(sealed_target(store, account_id)) == {"Areas/a.md": b"note\n"}
 
 
 def test_import_is_refused_without_the_accounts_grant(

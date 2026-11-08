@@ -2,12 +2,26 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+PAGE_POLICY: dict[str, tuple[str, ...]] = {
+    "default-src": ("'none'",),
+    "script-src": ("'self'",),
+    "style-src": ("'unsafe-inline'",),
+    "connect-src": ("'self'",),
+    "base-uri": ("'none'",),
+    "frame-ancestors": ("'none'",),
+}
+
+
+def content_security_policy(added: dict[str, tuple[str, ...]] | None = None) -> str:
+    extra = added or {}
+    merged = {name: (*sources, *extra.get(name, ())) for name, sources in PAGE_POLICY.items()}
+    merged.update({name: sources for name, sources in extra.items() if name not in PAGE_POLICY})
+    return "; ".join(f"{name} {' '.join(sources)}" for name, sources in merged.items())
+
+
 PAGE_HEADERS = {
     "Cache-Control": "no-store",
-    "Content-Security-Policy": (
-        "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; "
-        "base-uri 'none'; frame-ancestors 'none'"
-    ),
+    "Content-Security-Policy": content_security_policy(),
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
 }

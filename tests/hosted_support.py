@@ -21,8 +21,10 @@ from login_support import GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, FakeGithub, Fa
 from mindin.auth import AuthConfig, GithubConfig, OidcConfig, SmtpConfig
 from mindin.auth.hosted import build_hosted_app
 from mindin.auth.hosted_keys import Keyring, MasterKey
-from mindin.auth.hosted_store import HostedStore
+from mindin.auth.hosted_limits import StorageLimits
+from mindin.auth.hosted_store import Account, HostedStore
 from mindin.auth.identities import Identities
+from mindin.extensions import Extension
 
 BASE = "http://localhost"
 IDP = "https://id.example.test"
@@ -140,6 +142,14 @@ def hosted_config(tmp_path: Path, **overrides: Any) -> AuthConfig:
     return AuthConfig(**settings)
 
 
+class FixedLimits(Extension):
+    def __init__(self, limits: StorageLimits) -> None:
+        self.fixed = limits
+
+    def storage_limits(self, account: Account, limits: StorageLimits) -> StorageLimits:
+        return self.fixed
+
+
 class Clock:
     def __init__(self) -> None:
         self.now = time.time()
@@ -244,7 +254,14 @@ async def hosted(
     )
     async with app.router.lifespan_context(app):
         yield Hosted(
-            app=app, config=config, idp=idp, metadata=metadata, clock=clock, github=github, smtp=smtp, keyring=keyring
+            app=app,
+            config=config,
+            idp=idp,
+            metadata=metadata,
+            clock=clock,
+            github=github,
+            smtp=smtp,
+            keyring=keyring,
         )
 
 

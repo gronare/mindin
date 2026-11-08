@@ -55,6 +55,7 @@ from mindin.auth.device import DEVICE_GRANT, DeviceFlow
 from mindin.auth.hosted_access import SupportAccess, SupportDesk
 from mindin.auth.hosted_deletion import SelfDeletion
 from mindin.auth.hosted_keys import Keyring, SealedVaults, VaultKeys
+from mindin.auth.hosted_limits import Quotas
 from mindin.auth.hosted_ready import built_in_checks
 from mindin.auth.hosted_snapshots import IndexSnapshots
 from mindin.auth.hosted_store import Account, ApiKeyCredentials, HostedStore
@@ -67,10 +68,11 @@ from mindin.auth.login_forwarded import ForwardedSignIn, IdentityError
 from mindin.auth.login_github import GithubSignIn
 from mindin.auth.login_oidc import OidcSignIn
 from mindin.auth.login_passkey import PasskeySignIn
+from mindin.auth.periodic import Leases, PeriodicRunner
 from mindin.auth.prefix import URL, inner_lifespan
 from mindin.changes import NULL_BUS
 from mindin.config import ConfigError
-from mindin.extensions import Extension, HealthCheck, Server, installed, narrowed, supplied_bus
+from mindin.extensions import Extension, HealthCheck, Server, installed, narrowed, sign_in_checks, supplied_bus
 from mindin.extensions import access as extended_access
 
 logger = logging.getLogger(__name__)
@@ -540,6 +542,7 @@ def sign_in_methods(
     if auth.passkeys:
         login.add(PasskeySignIn(login))
     if auth.smtp:
+        login.checks = sign_in_checks(login.store.extensions)
         login.add(EmailSignIn(login, Mailer(auth.smtp, smtp_factory)))
     if auth.github:
         login.add(GithubSignIn(login, auth.github, github_transport))
@@ -585,6 +588,7 @@ def build_hosted_app(
     keys = VaultKeys(store, keyring or Keyring.from_env())
     keys.verify()
     sealed = SealedVaults(store, keys, vaults.prefix)
+    sealed.quotas = Quotas(store, extensions, lambda vault_id: sealed.facts(vault_id).size)
     vaults.use_backends(sealed, identify=sealed.identifier)
     if auth.index_snapshots:
         vaults.use_snapshots(IndexSnapshots(sealed), auth.snapshot_minutes * 60.0)
@@ -702,4 +706,11 @@ def build_hosted_app(
         metadata_url=resource_metadata_url,
         forwarded=forwarded,
     )
-    return Starlette(routes=routes, middleware=[guard], lifespan=inner_lifespan(mcp_app, vaults.close))
+    periodic = PeriodicRunner(extended.periodic, Leases(store, clock).claim)
+
+    def close() -> None:
+        periodic.stop()
+        vaults.close()
+
+    lifespan = inner_lifespan(mcp_app, close, on_start=periodic.start)
+    return Starlette(routes=routes, middleware=[guard], lifespan=lifespan)

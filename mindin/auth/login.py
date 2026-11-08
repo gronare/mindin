@@ -13,7 +13,8 @@ from mindin.auth import AuthConfig
 from mindin.auth.hosted_store import LOGIN_TTL, Account, HostedStore, digest
 from mindin.auth.hosted_web import LOGIN_COOKIE, Browser, Limits, client_address, error_box, esc, page
 from mindin.auth.identities import Identities, Outcome, Proof
-from mindin.auth.pages import stamp
+from mindin.auth.pages import content_security_policy, stamp
+from mindin.extensions import SignInCheck
 
 
 class SignInMethod(Protocol):
@@ -38,6 +39,7 @@ class Login:
         self.browser = browser
         self.limits = limits
         self.methods: list[SignInMethod] = []
+        self.checks: tuple[SignInCheck, ...] = ()
         self.ambient: Callable[[Request, str], Any] | None = None
         browser.sections.append(self.account_section)
 
@@ -63,7 +65,10 @@ class Login:
 
     def render(self, next_url: str, notice: str = "", status_code: int = 200) -> Response:
         buttons = "".join(method.button(next_url) for method in self.methods)
-        return page("Sign in", "Choose how to sign in to your vault.", notice + buttons, status_code=status_code)
+        response = page("Sign in", "Choose how to sign in to your vault.", notice + buttons, status_code=status_code)
+        if self.checks:
+            response.headers["Content-Security-Policy"] = content_security_policy(added_sources(self.checks))
+        return response
 
     def begin(self, kind: str, document: dict[str, Any], target: str, state: str) -> Response:
         binding = secrets.token_urlsafe(32)
@@ -107,6 +112,8 @@ class Login:
     def refused(self, proof: Proof, outcome: Outcome) -> Response:
         if outcome.account is not None:
             return self.browser.no_access(outcome.account.email, suspended=True)
+        if outcome.refusal == "refused":
+            return page("No account made", outcome.reason, status_code=403)
         if outcome.refusal == "unverified":
             return self.browser.no_access("", verified=False)
         return self.browser.no_access(proof.emails[0] if proof.emails else proof.label)
@@ -158,6 +165,14 @@ class Login:
         for method in self.methods:
             routes += method.routes(prefix)
         return routes
+
+
+def added_sources(checks: tuple[SignInCheck, ...]) -> dict[str, tuple[str, ...]]:
+    merged: dict[str, tuple[str, ...]] = {}
+    for check in checks:
+        for name, sources in check.sources.items():
+            merged[name] = tuple(dict.fromkeys((*merged.get(name, ()), *sources)))
+    return merged
 
 
 def next_field(next_url: str) -> str:

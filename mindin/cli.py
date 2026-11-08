@@ -826,6 +826,7 @@ def build_parser() -> argparse.ArgumentParser:
     importing.add_argument("--from-s3-prefix", default="", help="the vault's prefix in that bucket")
     importing.add_argument("--from-s3-endpoint", help="defaults to S3_ENDPOINT")
     importing.add_argument("--from-s3-region", help="defaults to S3_REGION, then us-east-1")
+    importing.add_argument("--dry-run", action="store_true", help="list what would be imported, skipped and refused")
     add_operator(importing)
     importing.set_defaults(func=command_import)
 

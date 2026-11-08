@@ -60,7 +60,7 @@ mindin accounts add-vault <account> <name> [--slug <slug>] [--preset <layout> | 
 mindin accounts rename-vault <account> <slug> [--name <name>] [--slug <slug>]
 mindin accounts members <owner> <slug>
 mindin accounts add-member | remove-member <owner> <slug> <email>
-mindin accounts import <account> [--vault <slug>] (--from-path <dir> | --from-s3-bucket <bucket> [--from-s3-prefix <prefix>] [--from-s3-endpoint <url>] [--from-s3-region <region>]) --operator <name> --reason <text>
+mindin accounts import <account> [--vault <slug>] (--from-path <dir> | --from-s3-bucket <bucket> [--from-s3-prefix <prefix>] [--from-s3-endpoint <url>] [--from-s3-region <region>]) [--dry-run] --operator <name> --reason <text>
 mindin support files <account> [--vault <slug>] --operator <name> --reason <text>
 mindin support read <account> <path> [--vault <slug>] --operator <name> --reason <text>
 mindin master-key generate | status | rewrap

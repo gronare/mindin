@@ -60,8 +60,8 @@ def index_file(path: Path, *notes: tuple[str, str]) -> Path:
 
 
 def settle(vaults: SubjectVaults) -> None:
-    assert vaults._snapshotting is not None
-    vaults._snapshotting.submit(lambda: None).result(5)
+    assert vaults.snapshotting is not None
+    vaults.snapshotting.executor.submit(lambda: None).result(5)
 
 
 def sealed_vaults(sealed: SealedVaults, cache: Path, **kwargs) -> SubjectVaults:

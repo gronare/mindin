@@ -13,7 +13,7 @@ tag="v$version"
 image=ghcr.io/gronare/mindin
 former=notes-vault-mcp
 pinned="deploy/k8s/deployment.yaml deploy/docker/compose.yml docs/install/semantic-search.md"
-plugin="plugin/.claude-plugin/plugin.json plugin/.mcp.json plugin/hooks/hooks.json"
+plugin="plugin/.claude-plugin/plugin.json plugin/.mcp.json plugin/hooks/hooks.json plugin/commands/login.md"
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"
 
@@ -44,7 +44,7 @@ perl -pi -e 's/^(# \{.*?"version": )"[^"]*"/$1"'"$version"'"/' docs/reference/ag
 # shellcheck disable=SC2086
 perl -pi -e 's#(\Q'"$image"'\E):v[0-9][0-9.]*(-semantic)?$#$1:'"$tag"'$2#' $pinned
 perl -pi -e 's/"version": "[^"]*"/"version": "'"$version"'"/' plugin/.claude-plugin/plugin.json
-perl -pi -e 's/\b(mindin|notes-vault-mcp)==[0-9][0-9.]*/$1=='"$version"'/g' plugin/.mcp.json plugin/hooks/hooks.json
+perl -pi -e 's/\b(mindin|notes-vault-mcp)==[0-9][0-9.]*/$1=='"$version"'/g' plugin/.mcp.json plugin/hooks/hooks.json plugin/commands/login.md
 
 expect pyproject.toml "version = \"$version\"" 1
 expect shim/pyproject.toml "version = \"$version\"" 1
@@ -58,6 +58,7 @@ for file in deploy/k8s/deployment.yaml deploy/docker/compose.yml; do expect "$fi
 expect plugin/.claude-plugin/plugin.json "\"version\": \"$version\"" 1
 expect plugin/.mcp.json "==$version\"" 1
 expect plugin/hooks/hooks.json "==$version hook" 2
+expect plugin/commands/login.md "mindin==$version login" 2
 stale=$(grep -rnE "$image:v[0-9]|\"version\": \"[0-9]" README.md docs deploy | grep -vF -e "$image:$tag" -e "\"version\": \"$version\"" || true)
 [ -z "$stale" ] || fail "the bump did not reach: $stale"
 stale=$(grep -rnoE "(mindin|notes-vault-mcp)==[0-9][0-9.]*" plugin | grep -vE "==$version\$" || true)

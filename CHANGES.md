@@ -29,6 +29,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - Extensions can decide on every new account.
 
 ### Fixed
+- `/vault:login` signs in with the same mindin version the plugin runs.
 
 ## 0.15.2
 

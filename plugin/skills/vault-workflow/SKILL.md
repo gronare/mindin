@@ -1,6 +1,6 @@
 ---
 name: vault-workflow
-description: How to work with the `vault` MCP server (notes-vault-mcp) as persistent memory across sessions - session-start context, the area gate before editing, the repo log line at the end, closing notes, and search that hides the archive. Load at the start of any session where the vault server is connected, and whenever you are about to write a note.
+description: How to work with the `vault` MCP server (mindin) as persistent memory across sessions - session-start context, the area gate before editing, the repo log line at the end, closing notes, and search that hides the archive. Load at the start of any session where the vault server is connected, and whenever you are about to write a note.
 ---
 
 # Vault workflow

@@ -30,7 +30,7 @@ from mindin.hosted import cli as hosted_cli
 from mindin.hosted.config import auth_config
 from mindin.places import adopt_config
 from mindin.presets import PERSONAL_LAYOUTS, PRESETS
-from mindin.schema import CLAIM_KEY
+from mindin.schema import CLAIM_KEY, Schema, capabilities, schema_from_text
 from mindin.server import run_stdio
 from mindin.terminal import Terminal, terminal
 from mindin.vault import SubjectVaults, Unconfigured, Vault, open_vault
@@ -171,6 +171,45 @@ def command_lint(args: argparse.Namespace) -> int:
     if args.write:
         print(f"wrote {args.write}", file=sys.stderr)
     return 0
+
+
+def schema_report(schema: Schema) -> dict:
+    return {
+        "layout": schema.preset,
+        "problems": list(schema.problems),
+        "notices": list(schema.notices),
+        "folders": [{"name": folder.name, "kind": folder.kind} for folder in schema.folders.values()],
+        "capabilities": [{"tool": c.tool, "on": c.on, "reason": c.reason} for c in capabilities(schema)],
+    }
+
+
+def schema_report_text(report: dict) -> str:
+    lines = [f"note: {notice}" for notice in report["notices"]]
+    if report["problems"]:
+        lines.append(f"problems, so the vault runs on the {report['layout']} layout until they are fixed:")
+        lines += [f"- {problem}" for problem in report["problems"]]
+    else:
+        lines.append(f"no problems; layout {report['layout']}")
+    folders = ", ".join(f"{folder['name']} ({folder['kind']})" for folder in report["folders"]) or "none"
+    lines.append(f"folders: {folders}")
+    for found in report["capabilities"]:
+        lines.append(f"{found['tool']}: {'on' if found['on'] else 'off'} ({found['reason']})")
+    return "\n".join(lines)
+
+
+def command_schema_check(args: argparse.Namespace) -> int:
+    if args.path:
+        try:
+            schema = schema_from_text(Path(args.path).expanduser().read_text(encoding="utf-8"))
+        except OSError as exc:
+            print(f"mindin: cannot read {args.path}: {exc.strerror or exc}", file=sys.stderr)
+            return 2
+    else:
+        with open_client() as client:
+            schema = client.schema()
+    report = schema_report(schema)
+    print(json.dumps(report, ensure_ascii=False) if args.json else schema_report_text(report))
+    return 1 if report["problems"] else 0
 
 
 def command_embed_worker(args: argparse.Namespace) -> int:
@@ -562,6 +601,15 @@ def build_parser() -> argparse.ArgumentParser:
     lint.add_argument("--kind", help="list the findings of one kind, e.g. orphans or unresolved-links")
     add_plain(lint)
     lint.set_defaults(func=command_lint)
+
+    schema = sub.add_parser("schema", help="the vault's .vault/schema.yml")
+    schema_sub = schema.add_subparsers(dest="schema_command", required=True)
+    checking = schema_sub.add_parser(
+        "check", help="list the schema's problems and what its layout supports; exit 1 when it has problems"
+    )
+    checking.add_argument("path", nargs="?", help="a schema file to check instead of the vault's own")
+    checking.add_argument("--json", action="store_true", help="the report as JSON, for tools")
+    checking.set_defaults(func=command_schema_check)
 
     sync = sub.add_parser("sync", help="refresh the index")
     sync.add_argument("--rebuild", action="store_true", help="drop the index and read every note again")

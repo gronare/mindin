@@ -463,6 +463,34 @@ def broken_schema_lines(schema: Schema) -> list[str]:
     return lines
 
 
+@dataclass(frozen=True)
+class Capability:
+    tool: str
+    on: bool
+    reason: str
+
+
+def _named(word: str, folders: list[str]) -> str:
+    return f"{word} folder{'s' if len(folders) > 1 else ''} {', '.join(folders)}"
+
+
+def capabilities(schema: Schema) -> list[Capability]:
+    tasks, log, archive, systems = schema.task_folders, schema.log_folder, schema.archive_folder, schema.system_folders
+    task_reason = _named("task", tasks) if tasks else "no task folder"
+    log_reason = _named("log", [log]) if log else "no log folder"
+    close_reason = f"moves notes to {archive}" if archive else "keeps notes in place, no archive folder"
+    if systems:
+        loads = f"system notes from {', '.join(systems)}"
+    else:
+        loads = "notes of kind system" if "system" in schema.kind_values else ""
+    return [
+        Capability("backlog_add, backlog and task open", bool(tasks), task_reason),
+        Capability("log_append and the stop hook's commit check", bool(log), log_reason),
+        Capability("close", True, close_reason),
+        Capability("session start", bool(loads), f"loads {loads}" if loads else "loads no system notes"),
+    ]
+
+
 def _folder_lines(schema: Schema) -> list[str]:
     root = schema.data.get("root_description")
     lines = [f"- the root — {root}"] if root else []

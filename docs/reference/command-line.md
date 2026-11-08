@@ -35,13 +35,14 @@ mindin search "bokning" --limit 5       # the same ranking, from a shell
 mindin context [--path ~/projects/myapp] # what a session in this repo starts with
 mindin read Projects/myapp-idea.md [--body] [--raw]
 mindin lint [--kind orphans] [--write Log/lint.md] [--park-stale]
+mindin schema check [schema.yml] [--json]  # the schema's problems and what its layout supports
 mindin backlog [--area myapp] [--priority high] [--paths] [--all]
 mindin changelog myapp 2026-08 --repo-path ~/projects/myapp [--write]
 mindin changelog --all                  # this month, and last month during its first week
 mindin hook session-start | stop        # the Claude Code hooks, JSON on stdin
 ```
 
-`serve --host` defaults to `127.0.0.1` and `--port` to `8765`. `embed-worker` is described in [Search by meaning](../install/semantic-search.md#the-model-in-its-own-process). `search --limit` defaults to the schema's `search.default_limit`. Through a server, `sync` only says that the server keeps the index.
+`serve --host` defaults to `127.0.0.1` and `--port` to `8765`. `embed-worker` is described in [Search by meaning](../install/semantic-search.md#the-model-in-its-own-process). `search --limit` defaults to the schema's `search.default_limit`. Through a server, `sync` only says that the server keeps the index. `schema check` reads the vault's own schema, or the file it names, and exits 1 when the schema has problems.
 
 ## Signing in to a server
 

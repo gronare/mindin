@@ -133,6 +133,6 @@ task:
 
 ## When the schema does not hold
 
-The schema is checked when it is loaded. A schema that does not hold leaves the vault on its preset, and `context`, `lint` and the vault's page on a server list each problem, for example `folders.Inbox.kind 'todo' is not one of: system, reference, task, log, archive`. A running server picks up an edited schema on its next refresh.
+The schema is checked when it is loaded. A schema that does not hold leaves the vault on its preset, and `context`, `lint` and the vault's page on a server list each problem, for example `folders.Inbox.kind 'todo' is not one of: system, reference, task, log, archive`. A running server picks up an edited schema on its next refresh. `mindin schema check` lists the same problems before you save, together with the tools the layout turns on; see [Command line](command-line.md#vault-and-search).
 
 A vault whose schema names a preset this version does not ship is read as written, over the empty custom schema, and `context`, `lint` and the vault's page say so; `init` keeps that schema until `--preset <name> --force` switches it.

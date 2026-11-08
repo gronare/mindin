@@ -250,3 +250,11 @@ def test_the_terminal_renders_what_the_vault_holds(
     assert printed[0].startswith("4 notes · ")
     assert printed[2].startswith("15 findings in 9 kinds")
     assert "1 commit since the note" in printed[3]
+
+
+def test_schema_check_reads_the_vaults_own_schema(place: Place, capsys):
+    place.write(".vault/schema.yml", "preset: default\nfolders:\n  Inbox: { kind: todo }\n")
+    assert main(["schema", "check", "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["problems"] == ["folders.Inbox.kind 'todo' is not one of: system, reference, task, log, archive"]
+    assert {"tool": "close", "on": True, "reason": "moves notes to Archive"} in report["capabilities"]

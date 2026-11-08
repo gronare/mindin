@@ -21,19 +21,19 @@ from hosted_support import (
     query,
     text_of,
 )
-from test_auth_device import decide, poll, start
-from test_auth_hosted import authorize, consent, register
+from test_hosted_app import authorize, consent, register
+from test_signin_device import decide, poll, start
 
-from mindin.auth.database import SqliteDatabase
-from mindin.auth.hosted_access import SupportAccess
-from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
-from mindin.auth.hosted_store import HostedStore, digest
-from mindin.auth.hosted_web import RECENT_SIGN_IN
-from mindin.auth.schema import STEPS, STORE_TABLES
 from mindin.backends import make_subject_backend
 from mindin.backends.local import LocalBackend
 from mindin.backends.sealed import SealedBackend, Unreadable, new_data_key
 from mindin.cli import main
+from mindin.hosted.accounts.access import SupportAccess
+from mindin.hosted.accounts.keys import Keyring, MasterKey, SealedVaults, VaultKeys
+from mindin.hosted.accounts.store import HostedStore, digest
+from mindin.hosted.database import SqliteDatabase
+from mindin.hosted.pages.web import RECENT_SIGN_IN
+from mindin.hosted.schema import STEPS, STORE_TABLES
 from mindin.vault import SubjectVaults
 
 STORE_SCRIPT = "".join(f"{statement};\n" for statement in STORE_TABLES)
@@ -612,7 +612,7 @@ async def test_the_migration_keeps_an_existing_vault_where_it_is_and_readable(
 def test_a_migration_that_cannot_move_every_key_changes_nothing(
     storage: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    from mindin.auth import schema
+    from mindin.hosted import schema
 
     keyring = Keyring(MasterKey.generate())
     legacy_store(tmp_path / "auth", keyring, {})

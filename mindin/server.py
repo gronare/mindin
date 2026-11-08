@@ -13,11 +13,11 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import Tool as MCPTool
 
 from mindin import changelog, notes, provision, repo_pages, tasks, views
-from mindin.auth import MACHINE_KEY_PURPOSE, WRITE_SCOPE, AuthConfig
-from mindin.auth.scopes import ScopeError, require_write
 from mindin.backends import VaultError
 from mindin.dav import DavCredentials
 from mindin.frontmatter import FrontmatterError
+from mindin.hosted.config import MACHINE_KEY_PURPOSE, WRITE_SCOPE, AuthConfig
+from mindin.hosted.scopes import ScopeError, require_write
 from mindin.presets import PERSONAL_LAYOUTS
 from mindin.schema import CLAIM_KEY, NoHome, instructions, shared_instructions
 from mindin.search import QueryError, Searched, SearchResult, across, render, search
@@ -635,7 +635,7 @@ def uvicorn_options(auth: AuthConfig) -> dict[str, Any]:
 def run_http(vaults: SubjectVaults, host: str, port: int, auth: AuthConfig) -> None:
     import uvicorn
 
-    from mindin.auth.hosted import build_hosted_app
+    from mindin.hosted.app import build_hosted_app
 
     uvicorn.run(build_hosted_app(vaults, auth, host), host=host, port=port, **uvicorn_options(auth))
 

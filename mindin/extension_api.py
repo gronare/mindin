@@ -2,25 +2,6 @@
 
 from __future__ import annotations
 
-from mindin.auth import MACHINE_KEY_PURPOSE, AuthConfig, auth_dir
-from mindin.auth.database import Connection, Database, has_table
-from mindin.auth.hosted import limited
-from mindin.auth.hosted_account_pages import SelfDeletion
-from mindin.auth.hosted_keys import SealedVaults, VaultFacts
-from mindin.auth.hosted_limits import StorageLimits, with_defaults
-from mindin.auth.hosted_members import INVITATION_TTL
-from mindin.auth.hosted_orgs import Organisation
-from mindin.auth.hosted_store import Account, HostedStore, account_of, digest, scope_label
-from mindin.auth.hosted_vaults import Vault, rewrite_slugs
-from mindin.auth.hosted_web import Browser, page
-from mindin.auth.html import esc
-from mindin.auth.identities import Identities
-from mindin.auth.login_email import ADDRESS as EMAIL_ADDRESS
-from mindin.auth.login_email import Mailer, SmtpFactory
-from mindin.auth.mail import Mail, branded, images
-from mindin.auth.pages import stamp
-from mindin.auth.registration import Registrant
-from mindin.auth.schema import STEPS
 from mindin.backends import MUST_NOT_EXIST, LimitReached, VaultBackend, VersionConflict, make_subject_backend
 from mindin.changes import Change, ChangeBus, Kind, Listener
 from mindin.config import ConfigError, env, local_root
@@ -37,6 +18,25 @@ from mindin.extensions import (
     Subcommands,
     VaultSection,
 )
+from mindin.hosted.accounts.keys import SealedVaults, VaultFacts
+from mindin.hosted.accounts.limits import StorageLimits, with_defaults
+from mindin.hosted.accounts.members import INVITATION_TTL
+from mindin.hosted.accounts.store import Account, HostedStore, account_of, digest, scope_label
+from mindin.hosted.accounts.vaults import Vault, rewrite_slugs
+from mindin.hosted.app import limited
+from mindin.hosted.config import MACHINE_KEY_PURPOSE, AuthConfig, auth_dir
+from mindin.hosted.database import Connection, Database, has_table
+from mindin.hosted.orgs.organisations import Organisation
+from mindin.hosted.pages.account import SelfDeletion
+from mindin.hosted.pages.html import esc
+from mindin.hosted.pages.mail import Mail, branded, images
+from mindin.hosted.pages.templates import stamp
+from mindin.hosted.pages.web import Browser, page
+from mindin.hosted.schema import STEPS
+from mindin.hosted.signin.email import ADDRESS as EMAIL_ADDRESS
+from mindin.hosted.signin.email import Mailer, SmtpFactory
+from mindin.hosted.signin.identities import Identities
+from mindin.hosted.signin.registration import Registrant
 from mindin.vault import SubjectVaults
 
 STORE_VERSION = len(STEPS)

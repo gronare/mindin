@@ -7,10 +7,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from mindin.auth.database import SqliteDatabase
-from mindin.auth.hosted_store import HostedStore
-from mindin.auth.identities import Identities, Proof
 from mindin.extensions import Extension
+from mindin.hosted.accounts.store import HostedStore
+from mindin.hosted.database import SqliteDatabase
+from mindin.hosted.signin.identities import Identities, Proof
 
 
 class Clash(Exception):

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from hosted_support import INITIALIZE, hosted, key_for_subject, post_mcp, sse_payload, text_of
 
-from mindin.auth.hosted_keys import Keyring, MasterKey
+from mindin.hosted.accounts.keys import Keyring, MasterKey
 from mindin.vault import SubjectVaults
 
 LIST_FILES = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_files", "arguments": {}}}

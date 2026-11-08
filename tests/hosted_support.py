@@ -18,15 +18,15 @@ from cimd_support import MetadataHost
 from forwarded_support import _keys
 from login_support import GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, FakeGithub, FakeSmtp
 
-from mindin.auth import AuthConfig, GithubConfig, OidcConfig, SmtpConfig
-from mindin.auth.hosted import build_hosted_app
-from mindin.auth.hosted_keys import Keyring, MasterKey
-from mindin.auth.hosted_limits import StorageLimits
-from mindin.auth.hosted_store import Account, HostedStore
-from mindin.auth.hosted_vaults import Vault
-from mindin.auth.identities import Identities
 from mindin.backends import LimitReached
 from mindin.extensions import Extension
+from mindin.hosted.accounts.keys import Keyring, MasterKey
+from mindin.hosted.accounts.limits import StorageLimits
+from mindin.hosted.accounts.store import Account, HostedStore
+from mindin.hosted.accounts.vaults import Vault
+from mindin.hosted.app import build_hosted_app
+from mindin.hosted.config import AuthConfig, GithubConfig, OidcConfig, SmtpConfig
+from mindin.hosted.signin.identities import Identities
 
 BASE = "http://localhost"
 IDP = "https://id.example.test"

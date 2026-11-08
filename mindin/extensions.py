@@ -9,24 +9,24 @@ from importlib.metadata import entry_points
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
-from mindin.auth import READ_SCOPE
+from mindin.hosted.config import READ_SCOPE
 
 if TYPE_CHECKING:
     from starlette.routing import BaseRoute
 
-    from mindin.auth import AuthConfig
-    from mindin.auth.database import Connection, Database
-    from mindin.auth.hosted_account_pages import SelfDeletion
-    from mindin.auth.hosted_keys import SealedVaults
-    from mindin.auth.hosted_limits import StorageLimits
-    from mindin.auth.hosted_orgs import Organisation
-    from mindin.auth.hosted_store import Account, HostedStore
-    from mindin.auth.hosted_vaults import Vault
-    from mindin.auth.hosted_web import Browser
-    from mindin.auth.identities import Registrant
-    from mindin.auth.login_email import SmtpFactory
     from mindin.backends import LimitReached
     from mindin.changes import ChangeBus
+    from mindin.hosted.accounts.keys import SealedVaults
+    from mindin.hosted.accounts.limits import StorageLimits
+    from mindin.hosted.accounts.store import Account, HostedStore
+    from mindin.hosted.accounts.vaults import Vault
+    from mindin.hosted.config import AuthConfig
+    from mindin.hosted.database import Connection, Database
+    from mindin.hosted.orgs.organisations import Organisation
+    from mindin.hosted.pages.account import SelfDeletion
+    from mindin.hosted.pages.web import Browser
+    from mindin.hosted.signin.email import SmtpFactory
+    from mindin.hosted.signin.identities import Registrant
     from mindin.vault import SubjectVaults
 
 GROUP = "mindin.extensions"

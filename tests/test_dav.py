@@ -11,8 +11,8 @@ import httpx2 as httpx
 import pytest
 from hosted_support import first_vault_id, hosted_config, key_for_subject
 
-from mindin.auth.hosted import build_hosted_app
-from mindin.auth.hosted_keys import Keyring, MasterKey
+from mindin.hosted.accounts.keys import Keyring, MasterKey
+from mindin.hosted.app import build_hosted_app
 from mindin.vault import SubjectVaults
 
 PROPFIND_ALL = '<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:allprop/></D:propfind>'

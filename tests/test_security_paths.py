@@ -11,13 +11,13 @@ from moto import mock_aws
 from test_notes import VALID
 
 from mindin import notes
-from mindin.auth.hosted import build_hosted_app
-from mindin.auth.hosted_keys import Keyring, MasterKey
-from mindin.auth.hosted_store import ApiKeyCredentials, HostedStore
 from mindin.backends import NotFound, VaultError, make_subject_backend
 from mindin.backends.local import LocalBackend
 from mindin.backends.s3 import S3Backend
 from mindin.dav import _clean
+from mindin.hosted.accounts.keys import Keyring, MasterKey
+from mindin.hosted.accounts.store import ApiKeyCredentials, HostedStore
+from mindin.hosted.app import build_hosted_app
 from mindin.server import _listing
 from mindin.vault import SubjectVaults, subject_key
 
@@ -389,8 +389,8 @@ async def test_dav_put_refuses_a_streamed_body_over_the_cap(vaults: SubjectVault
 
 
 def test_the_cache_and_auth_directories_are_private(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    from mindin.auth import auth_dir
     from mindin.config import cache_dir
+    from mindin.hosted.config import auth_dir
 
     existing = tmp_path / "cache"
     existing.mkdir(mode=0o755)

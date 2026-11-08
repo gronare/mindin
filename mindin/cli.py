@@ -20,13 +20,13 @@ from mindin import (
     provision,
     tasks,
 )
-from mindin.auth import auth_config
 from mindin.backends import NotFound
 from mindin.client import open_client
 from mindin.config import FORMER_NAMES, NO_VAULT_YET, ConfigError, adopt_config, cache_dir, env, local_root, s3_settings
 from mindin.embedding import keep_warm
 from mindin.extensions import installed
 from mindin.frontmatter import parse
+from mindin.hosted.config import auth_config
 from mindin.presets import PERSONAL_LAYOUTS, PRESETS
 from mindin.schema import CLAIM_KEY
 from mindin.server import run_http, run_stdio
@@ -196,43 +196,43 @@ def command_sync(args: argparse.Namespace) -> int:
 
 
 def command_accounts(args: argparse.Namespace) -> int:
-    from mindin.auth import hosted_store
+    from mindin.hosted.accounts import store as hosted_store
 
     return hosted_store.command_accounts(args)
 
 
 def command_members(args: argparse.Namespace) -> int:
-    from mindin.auth import hosted_members
+    from mindin.hosted.accounts import members as hosted_members
 
     return hosted_members.command_members(args)
 
 
 def command_org(args: argparse.Namespace) -> int:
-    from mindin.auth import hosted_orgs
+    from mindin.hosted.orgs import organisations as hosted_orgs
 
     return hosted_orgs.command_org(args)
 
 
 def command_delete_account(args: argparse.Namespace) -> int:
-    from mindin.auth import hosted_keys
+    from mindin.hosted.accounts import keys as hosted_keys
 
     return hosted_keys.command_delete_account(args)
 
 
 def command_import(args: argparse.Namespace) -> int:
-    from mindin.auth import hosted_transfer
+    from mindin.hosted.accounts import import_export as hosted_transfer
 
     return hosted_transfer.command_import(args)
 
 
 def command_master_key(args: argparse.Namespace) -> int:
-    from mindin.auth import hosted_keys
+    from mindin.hosted.accounts import keys as hosted_keys
 
     return hosted_keys.command_master_key(args)
 
 
 def command_support(args: argparse.Namespace) -> int:
-    from mindin.auth import hosted_access
+    from mindin.hosted.accounts import access as hosted_access
 
     return hosted_access.command_support(args)
 
@@ -686,7 +686,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_operator(importing)
     importing.set_defaults(func=command_import)
 
-    from mindin.auth.hosted_orgs import add_commands as add_org_commands
+    from mindin.hosted.orgs.organisations import add_commands as add_org_commands
 
     add_org_commands(sub, command_org)
 

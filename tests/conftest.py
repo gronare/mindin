@@ -10,9 +10,9 @@ from pathlib import Path
 import pytest
 from forwarded_support import Proxy
 
-from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
-from mindin.auth.hosted_store import HostedStore
 from mindin.backends import s3
+from mindin.hosted.accounts.keys import Keyring, MasterKey, SealedVaults, VaultKeys
+from mindin.hosted.accounts.store import HostedStore
 from mindin.vault import SubjectVaults, Vault, open_vault
 
 FIXTURE_VAULT = Path(__file__).parent / "fixtures" / "vault"

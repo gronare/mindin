@@ -7,8 +7,8 @@ import httpx2
 import pytest
 from hosted_support import NOTE_BODY, Hosted, call_tool, csrf_of, hosted, post_mcp, text_of
 
-from mindin.auth.hosted_keys import VaultKeys
-from mindin.auth.hosted_web import RECENT_SIGN_IN
+from mindin.hosted.accounts.keys import VaultKeys
+from mindin.hosted.pages.web import RECENT_SIGN_IN
 from mindin.vault import SubjectVaults
 
 

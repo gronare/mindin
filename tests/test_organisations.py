@@ -11,17 +11,18 @@ import pytest
 from hosted_support import INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_session, post_mcp, sse_payload, text_of
 
 from mindin import provision
-from mindin.auth import hosted_orgs, hosted_store
-from mindin.auth.hosted_access import SupportAccess
-from mindin.auth.hosted_deletion import delete_departed
-from mindin.auth.hosted_keys import SealedVaults, StillShared, VaultKeys, delete_account
-from mindin.auth.hosted_orgs import OrganisationError, Organisations, OrgDomain, clean_domain
-from mindin.auth.hosted_store import HostedStore, MembershipError
-from mindin.auth.identities import Identities, Proof
 from mindin.backends import SCHEMA_KEY
 from mindin.backends.local import LocalBackend
 from mindin.cli import main
 from mindin.extensions import Extension
+from mindin.hosted.accounts import store as hosted_store
+from mindin.hosted.accounts.access import SupportAccess
+from mindin.hosted.accounts.deletion import delete_departed
+from mindin.hosted.accounts.keys import SealedVaults, StillShared, VaultKeys, delete_account
+from mindin.hosted.accounts.store import HostedStore, MembershipError
+from mindin.hosted.orgs import organisations as hosted_orgs
+from mindin.hosted.orgs.organisations import OrganisationError, Organisations, OrgDomain, clean_domain
+from mindin.hosted.signin.identities import Identities, Proof
 from mindin.shared import Actor, SharedBackend, SharedRefusal, SharedRules, acting_as
 from mindin.vault import SubjectVaults
 

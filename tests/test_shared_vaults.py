@@ -10,15 +10,15 @@ import pytest
 from hosted_support import BASE, INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_session, post_mcp, query, text_of
 from login_support import branded, hrefs
 
-from mindin.auth import MACHINE_KEY_PURPOSE
-from mindin.auth.database import SqliteDatabase
-from mindin.auth.hosted_access import SupportAccess
-from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
-from mindin.auth.hosted_store import HostedStore, MembershipError, VaultNameError
-from mindin.auth.hosted_vaults import Vault
-from mindin.auth.schema import STEPS
 from mindin.backends import SCHEMA_KEY
 from mindin.cli import main
+from mindin.hosted.accounts.access import SupportAccess
+from mindin.hosted.accounts.keys import Keyring, MasterKey, SealedVaults, VaultKeys
+from mindin.hosted.accounts.store import HostedStore, MembershipError, VaultNameError
+from mindin.hosted.accounts.vaults import Vault
+from mindin.hosted.config import MACHINE_KEY_PURPOSE
+from mindin.hosted.database import SqliteDatabase
+from mindin.hosted.schema import STEPS
 from mindin.vault import SubjectVaults
 
 WRITE = ["vault:read", "vault:write"]
@@ -266,7 +266,7 @@ async def test_a_deleted_members_changes_stay_in_the_history_under_their_email(s
 
 @pytest.mark.anyio
 async def test_a_member_connects_a_client_to_the_shared_vault_and_is_never_offered_the_owners(site: Hosted):
-    from test_auth_hosted import REDIRECT, authorize, consent, register
+    from test_hosted_app import REDIRECT, authorize, consent, register
 
     ann, bo = await club(site)
     async with ann, bo:
@@ -511,7 +511,7 @@ def test_the_shell_makes_a_shared_vault_and_manages_its_members(
     assert main(["accounts", "add-member", "ann@example.com", "workshop", "bo@example.com"]) == 0
     assert main(["accounts", "add-member", "ann@example.com", "ann", "bo@example.com"]) == 1
     with store.connect() as connection:
-        from mindin.auth.hosted_vaults import accept_invitations
+        from mindin.hosted.accounts.vaults import accept_invitations
 
         accept_invitations(connection, bo.id, ("bo@example.com",))
     assert main(["accounts", "members", "ann@example.com", "workshop"]) == 0
@@ -539,7 +539,7 @@ def test_the_shell_makes_a_shared_vault_and_manages_its_members(
 def test_the_migration_adds_shared_vaults_and_leaves_a_personal_vault_as_it_was(storage: Path, tmp_path: Path):
     from test_hosted_vaults import ORCHARD_NOTE, legacy_store
 
-    from mindin.auth.schema import to_vaults
+    from mindin.hosted.schema import to_vaults
 
     keyring = Keyring(MasterKey.generate())
     account_id, _ = legacy_store(tmp_path / "auth", keyring, {"Areas/trees.md": ORCHARD_NOTE})

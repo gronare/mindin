@@ -7,9 +7,9 @@ import pytest
 from hosted_support import Hosted, call_tool, csrf_of, hosted, text_of
 
 from mindin import notes, provision
-from mindin.auth.hosted_orgs import Organisations
 from mindin.backends.local import LocalBackend
 from mindin.guard import GuardSettings, findings
+from mindin.hosted.orgs.organisations import Organisations
 from mindin.presets import preset_data
 from mindin.schema import load_schema, schema_problems
 from mindin.vault import SubjectVaults, Vault

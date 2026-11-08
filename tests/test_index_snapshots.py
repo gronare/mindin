@@ -7,8 +7,8 @@ import pytest
 from fake_models import concept_vector
 from hosted_support import Hosted, hosted
 
-from mindin.auth.hosted_keys import SealedVaults, VaultKeys, delete_vault
-from mindin.auth.hosted_snapshots import IndexSnapshots
+from mindin.hosted.accounts.index_snapshots import IndexSnapshots
+from mindin.hosted.accounts.keys import SealedVaults, VaultKeys, delete_vault
 from mindin.vault import NoSubject, SubjectVaults
 
 NOTE = "---\ntitle: Kopian\ndate: 2026-10-01\nupdated: 2026-10-01\ntags: []\nstatus: active\n---\nsäkerhetskopia\n"

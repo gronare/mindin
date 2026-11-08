@@ -8,11 +8,11 @@ import yaml
 from hosted_support import INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_session, post_mcp, sse_payload, text_of
 
 from mindin import notes, provision, repo_pages
-from mindin.auth.hosted_keys import SealedVaults, VaultKeys
-from mindin.auth.hosted_orgs import Organisations
 from mindin.backends import PREVIOUS_SCHEMA_KEY, SCHEMA_KEY
 from mindin.backends.local import LocalBackend
 from mindin.bundle import SessionRules, bundle_of
+from mindin.hosted.accounts.keys import SealedVaults, VaultKeys
+from mindin.hosted.orgs.organisations import Organisations
 from mindin.presets import OFFERED, PERSONAL_LAYOUTS, PRESETS, preset_data
 from mindin.schema import Schema, load_schema, schema_problems, shared_instructions
 from mindin.vault import SubjectVaults, Vault

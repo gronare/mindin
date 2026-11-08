@@ -14,11 +14,11 @@ import uvicorn
 from cimd_support import MetadataHost
 from hosted_support import Clock, FakeIdentityProvider, hosted_config
 
-from mindin.auth import MACHINE_KEY_PURPOSE
-from mindin.auth.hosted import build_hosted_app
-from mindin.auth.hosted_keys import Keyring, MasterKey
-from mindin.auth.hosted_store import HostedStore
 from mindin.backends import VaultBackend
+from mindin.hosted.accounts.keys import Keyring, MasterKey
+from mindin.hosted.accounts.store import HostedStore
+from mindin.hosted.app import build_hosted_app
+from mindin.hosted.config import MACHINE_KEY_PURPOSE
 from mindin.vault import SubjectVaults
 
 EMAIL = "ann@example.com"

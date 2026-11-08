@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from hosted_support import hosted
 
-from mindin.auth.hosted_ready import Cached, account_store_check
 from mindin.extensions import Extension, Server
+from mindin.hosted.ready import Cached, account_store_check
 from mindin.vault import SubjectVaults
 
 

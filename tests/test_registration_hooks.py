@@ -6,9 +6,9 @@ import httpx2
 import pytest
 from hosted_support import Hosted, hosted
 
-from mindin.auth.hosted_store import Account
-from mindin.auth.pages import content_security_policy
 from mindin.extensions import Extension, SignInCheck
+from mindin.hosted.accounts.store import Account
+from mindin.hosted.pages.templates import content_security_policy
 from mindin.vault import SubjectVaults
 
 

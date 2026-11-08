@@ -10,11 +10,11 @@ import httpx2
 import pytest
 from hosted_support import NOTE_BODY, FixedLimits, Hosted, Watching, call_tool, csrf_of, hosted, text_of
 
-from mindin.auth.hosted_limits import StorageLimits, content_type_of
-from mindin.auth.hosted_store import Account
-from mindin.auth.hosted_vaults import Vault
 from mindin.backends import LimitReached
 from mindin.extensions import Extension
+from mindin.hosted.accounts.limits import StorageLimits, content_type_of
+from mindin.hosted.accounts.store import Account
+from mindin.hosted.accounts.vaults import Vault
 from mindin.vault import SubjectVaults
 
 HOSTED = StorageLimits(account_bytes=40_000, file_bytes=10_000, content_types=("text/*", "image/*", "application/pdf"))

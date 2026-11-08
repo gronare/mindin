@@ -173,8 +173,8 @@ def test_provisioning_keeps_a_file_another_server_wrote_first(tmp_path: Path):
 async def dav(tmp_path: Path) -> AsyncIterator[httpx.AsyncClient]:
     from hosted_support import first_vault_id, hosted_config, key_for_subject
 
-    from mindin.auth.hosted import build_hosted_app
-    from mindin.auth.hosted_keys import Keyring, MasterKey
+    from mindin.hosted.accounts.keys import Keyring, MasterKey
+    from mindin.hosted.app import build_hosted_app
     from mindin.vault import SubjectVaults
 
     vaults = SubjectVaults(cache=tmp_path / "cache", prefix="users")

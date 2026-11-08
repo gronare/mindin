@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from mindin.auth.hosted_keys import SealedVaults, delete_vault
-from mindin.auth.hosted_snapshots import IndexSnapshots
 from mindin.backends import SCHEMA_KEY
 from mindin.changes import Announcing, Change, LocalBus
+from mindin.hosted.accounts.index_snapshots import IndexSnapshots
+from mindin.hosted.accounts.keys import SealedVaults, delete_vault
 from mindin.vault import SubjectVaults, Vault
 
 FRONT = "date: 2026-09-01\nupdated: 2026-09-01\ntags: [workshop]\nstatus: active\n"

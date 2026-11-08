@@ -4,10 +4,10 @@ import json
 import sqlite3
 from pathlib import Path
 
-from mindin.auth.hosted_access import SupportAccess
-from mindin.auth.hosted_store import HostedStore
-from mindin.auth.schema import STEPS, STORE_TABLES
 from mindin.extension_api import STORE_VERSION
+from mindin.hosted.accounts.access import SupportAccess
+from mindin.hosted.accounts.store import HostedStore
+from mindin.hosted.schema import STEPS, STORE_TABLES
 
 FIXTURE = Path(__file__).parent / "fixtures" / "hosted_schema.json"
 RELEASED = Path(__file__).parent / "fixtures" / "hosted_schema_0.15.2.json"

@@ -11,9 +11,9 @@ from hosted_support import FixedLimits
 from remote_support import Served, serve
 
 from mindin import credentials, move, places
-from mindin.auth.hosted_limits import StorageLimits
 from mindin.cli import build_parser, main
 from mindin.config import config_dir
+from mindin.hosted.accounts.limits import StorageLimits
 from mindin.vault import SubjectVaults
 
 LIMITS = StorageLimits(

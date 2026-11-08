@@ -16,9 +16,9 @@ from xml.etree import ElementTree
 import httpx2
 
 from mindin import config, credentials, places
-from mindin.auth.hosted_limits import content_type_of, full, limits_of, refusal, size_text
 from mindin.backends import MUST_NOT_EXIST, SCHEMA_KEY, NotFound, VaultBackend, VaultError, VersionConflict
 from mindin.config import PLUGIN_OPTIONS, ConfigError
+from mindin.hosted.accounts.limits import content_type_of, full, limits_of, refusal, size_text
 from mindin.places import Ask, Place
 from mindin.presets import PRESETS
 from mindin.provision import WELCOME_KEY

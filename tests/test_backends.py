@@ -12,11 +12,11 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from mindin.auth.hosted_transfer import export_zip
 from mindin.backends import FETCH_WORKERS, MUST_NOT_EXIST, NotFound, VersionConflict, delete_checked
 from mindin.backends.local import LocalBackend
 from mindin.backends.s3 import PROBE_FOLDER, S3Backend
 from mindin.backends.sealed import SealedBackend
+from mindin.hosted.accounts.import_export import export_zip
 
 BUCKET = "vault-test"
 ENDPOINT = "https://s3.amazonaws.com"

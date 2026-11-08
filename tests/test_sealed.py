@@ -284,8 +284,8 @@ def test_a_checked_delete_refuses_a_changed_file_and_removes_an_unchanged_one(se
 
 
 def test_the_key_contexts_keep_the_former_name_so_existing_vaults_stay_readable():
-    from mindin.auth.hosted_history import history_key
-    from mindin.auth.hosted_keys import MasterKey, _wrap_context
+    from mindin.hosted.accounts.history import history_key
+    from mindin.hosted.accounts.keys import MasterKey, _wrap_context
 
     key = bytes(range(32))
     sealed = SealedBackend(None, key)

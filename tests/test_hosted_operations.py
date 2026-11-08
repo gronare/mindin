@@ -8,16 +8,16 @@ import pytest
 from hosted_support import Hosted, hosted
 
 from mindin import provision
-from mindin.auth.hosted_deletion import erase_account, erase_vault
-from mindin.auth.hosted_history import NothingToRestore, restore_change
-from mindin.auth.hosted_keys import SealedVaults, VaultKeys
-from mindin.auth.hosted_layout import BUILT_IN, LayoutKept, provision_vault, switch_layout
-from mindin.auth.hosted_org_mail import RESEND_AFTER, OrgMail
-from mindin.auth.hosted_orgs import Organisations
-from mindin.auth.hosted_transfer import import_zip
-from mindin.auth.hosted_vaults import SHARED, Vault
-from mindin.auth.login_email import Mailer
 from mindin.backends import SCHEMA_KEY
+from mindin.hosted.accounts.deletion import erase_account, erase_vault
+from mindin.hosted.accounts.history import NothingToRestore, restore_change
+from mindin.hosted.accounts.import_export import import_zip
+from mindin.hosted.accounts.keys import SealedVaults, VaultKeys
+from mindin.hosted.accounts.layout import BUILT_IN, LayoutKept, provision_vault, switch_layout
+from mindin.hosted.accounts.vaults import SHARED, Vault
+from mindin.hosted.orgs.mail import RESEND_AFTER, OrgMail
+from mindin.hosted.orgs.organisations import Organisations
+from mindin.hosted.signin.email import Mailer
 from mindin.presets import OFFERED, SHARED_PRESET
 from mindin.shared import Actor
 from mindin.vault import SubjectVaults

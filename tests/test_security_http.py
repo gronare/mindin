@@ -8,11 +8,11 @@ import jwt
 import pytest
 from forwarded_support import HOST, ISSUER, TYP, Proxy
 
-from mindin.auth import AuthConfig, ForwardedConfig
-from mindin.auth.hosted_store import HostedStore
-from mindin.auth.hosted_web import Browser, Limits
-from mindin.auth.login import Login
-from mindin.auth.login_forwarded import ForwardedSignIn, IdentityError, header_value
+from mindin.hosted.accounts.store import HostedStore
+from mindin.hosted.config import AuthConfig, ForwardedConfig
+from mindin.hosted.pages.web import Browser, Limits
+from mindin.hosted.signin.flow import Login
+from mindin.hosted.signin.forwarded import ForwardedSignIn, IdentityError, header_value
 
 
 def verifier(proxy: Proxy, tmp_path: Path) -> ForwardedSignIn:

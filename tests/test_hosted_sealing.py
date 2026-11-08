@@ -26,17 +26,17 @@ from hosted_support import (
 )
 from moto import mock_aws
 
-from mindin.auth.hosted import build_hosted_app
-from mindin.auth.hosted_access import SupportAccess
-from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
-from mindin.auth.hosted_limits import StorageLimits
-from mindin.auth.hosted_store import HostedStore
-from mindin.auth.hosted_transfer import export_zip
 from mindin.backends import VaultError
 from mindin.backends.local import LocalBackend
 from mindin.backends.sealed import MAGIC, SealedBackend, Unreadable
 from mindin.cli import main
 from mindin.config import ConfigError
+from mindin.hosted.accounts.access import SupportAccess
+from mindin.hosted.accounts.import_export import export_zip
+from mindin.hosted.accounts.keys import Keyring, MasterKey, SealedVaults, VaultKeys
+from mindin.hosted.accounts.limits import StorageLimits
+from mindin.hosted.accounts.store import HostedStore
+from mindin.hosted.app import build_hosted_app
 from mindin.vault import SingleVault, SubjectVaults, Vault
 
 BUCKET = "hosted-vaults"
@@ -422,7 +422,7 @@ def test_importing_stops_at_an_extensions_storage_limits(
     source = tmp_path / "with-film"
     source.mkdir()
     (source / "film.mkv").write_bytes(b"\x00" * 10)
-    monkeypatch.setattr("mindin.auth.hosted_store.installed", lambda: (FixedLimits(TEXT_ONLY),))
+    monkeypatch.setattr("mindin.hosted.accounts.store.installed", lambda: (FixedLimits(TEXT_ONLY),))
     assert main([*IMPORT, "--from-path", str(source)]) == 1
     assert "film.mkv is refused" in capsys.readouterr().err
     assert files_of(sealed_target(store, account_id)) == {}
@@ -437,7 +437,7 @@ def test_an_import_refused_by_the_limits_is_reported_to_extensions_and_a_dry_run
     source.mkdir()
     (source / "film.mkv").write_bytes(b"\x00" * 10)
     watching = Watching(TEXT_ONLY)
-    monkeypatch.setattr("mindin.auth.hosted_store.installed", lambda: (watching,))
+    monkeypatch.setattr("mindin.hosted.accounts.store.installed", lambda: (watching,))
     assert main([*IMPORT, "--from-path", str(source), "--dry-run"]) == 1
     assert watching.refused == []
     assert main([*IMPORT, "--from-path", str(source)]) == 1
@@ -456,7 +456,7 @@ def test_importing_lists_every_refused_file_and_writes_none_of_them(
     (source / "Areas" / "a.md").write_text("first, sorted before the refused files\n")
     (source / "clip.mp4").write_bytes(b"\x00" * 10)
     (source / "film.mkv").write_bytes(b"\x00" * 10)
-    monkeypatch.setattr("mindin.auth.hosted_store.installed", lambda: (FixedLimits(TEXT_ONLY),))
+    monkeypatch.setattr("mindin.hosted.accounts.store.installed", lambda: (FixedLimits(TEXT_ONLY),))
     assert main([*IMPORT, "--from-path", str(source)]) == 1
     err = capsys.readouterr().err
     assert "clip.mp4 is refused" in err and "film.mkv is refused" in err and "nothing imported" in err
@@ -497,7 +497,7 @@ def test_import_is_refused_without_the_accounts_grant(
 async def test_the_data_key_is_shredded_before_any_object_is_deleted(
     site: Hosted, vaults: SubjectVaults, monkeypatch: pytest.MonkeyPatch
 ):
-    from mindin.auth.hosted_keys import delete_account
+    from mindin.hosted.accounts.keys import delete_account
 
     await site.member("ann@example.com", sub="sub-ann")
     vaults.for_subject(site.vault_of("ann@example.com"))

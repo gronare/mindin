@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from mindin.auth.hosted_store import HostedStore
-from mindin.auth.identities import Identities, Proof
 from mindin.cli import main
+from mindin.hosted.accounts.store import HostedStore
+from mindin.hosted.signin.identities import Identities, Proof
 
 
 @pytest.fixture

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from hosted_support import BASE, Hosted, call_tool, hosted, open_session, post_mcp, sse_payload, text_of
 
-from mindin.auth import MACHINE_KEY_PURPOSE
+from mindin.hosted.config import MACHINE_KEY_PURPOSE
 from mindin.server import MACHINE_TOOLS, build_server
 from mindin.vault import SubjectVaults, Vault
 

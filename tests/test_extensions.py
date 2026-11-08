@@ -14,10 +14,10 @@ from starlette.responses import PlainTextResponse, Response
 from starlette.routing import Route
 
 from mindin import cli, extension_api, extensions
-from mindin.auth.hosted_orgs import Organisations
-from mindin.auth.hosted_store import Account, HostedStore
-from mindin.auth.periodic import Leases, PeriodicRunner
 from mindin.extensions import Access, Extension, Periodic, Server, Subcommands
+from mindin.hosted.accounts.store import Account, HostedStore
+from mindin.hosted.orgs.organisations import Organisations
+from mindin.hosted.periodic import Leases, PeriodicRunner
 from mindin.vault import SubjectVaults
 
 

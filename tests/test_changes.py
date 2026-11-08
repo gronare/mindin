@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from mindin.auth.hosted_keys import SealedVaults, delete_vault
 from mindin.backends import SCHEMA_KEY
 from mindin.changes import NULL_BUS, Announcing, Change, LocalBus
+from mindin.hosted.accounts.keys import SealedVaults, delete_vault
 from mindin.search import search
 from mindin.vault import SubjectVaults, Vault
 

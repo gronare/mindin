@@ -9,10 +9,10 @@ import yaml
 from starlette.requests import Request
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from mindin.auth import AuthConfig, auth_config
-from mindin.auth.hosted_store import HostedStore
-from mindin.auth.hosted_web import Limits, client_address
 from mindin.config import ConfigError
+from mindin.hosted.accounts.store import HostedStore
+from mindin.hosted.config import AuthConfig, auth_config
+from mindin.hosted.pages.web import Limits, client_address
 from mindin.server import uvicorn_options
 
 ORCHARD = "203.0.113.7"

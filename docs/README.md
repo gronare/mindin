@@ -23,6 +23,7 @@ Connecting:
 - [Use it with Claude Code](how-to/claude-code.md): the plugin, or the server and hooks by hand.
 - [Use it with Codex, Cursor and other clients](how-to/other-clients.md): stdio clients, URL clients, keys, kebbie.
 - [Open a server vault in Obsidian](how-to/obsidian.md)
+- [Move a vault](how-to/move-a-vault.md): from a folder onto a server, back to a folder, into a bucket, and reconnecting afterwards.
 
 Running a server:
 

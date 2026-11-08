@@ -10,10 +10,14 @@ mindin setup --folder ~/vault
 mindin setup --s3 <bucket> --endpoint <url> [--prefix <prefix>] [--region <region>]
 mindin setup --server <url> [--vault <slug>] [--no-browser]
 mindin setup --signals yes|no           # share anonymous usage data, or stop
+mindin move --to (--folder <path> | --s3 <bucket> --endpoint <url> [--prefix <prefix>] [--region <region>] | --server <url> [--vault <slug>])
+            [--dry-run] [--merge] [--include-skipped] [--skip-refused] [--no-browser]
 mindin about [--json]                   # name, version and the commands for tools
 ```
 
-`setup` saves the choice in `mindin/config.toml` under `XDG_CONFIG_HOME` (default `~/.config/mindin/config.toml`), as a `[vault]` table with `kind` set to `folder`, `s3` or `server`. A folder must exist; asked in a terminal, setup offers to create it. `--s3` reads the bucket's keys from `S3_ACCESS_KEY` and `S3_SECRET_KEY`, or asks for them in a terminal, and keeps them in `credentials.json` next to the config, readable only by you, never in `config.toml`. `--server` signs the machine in with [`login`](../how-to/sign-in-a-machine.md) unless it holds a key already. Running `setup` again replaces the choice.
+`setup` saves the choice in `mindin/config.toml` under `XDG_CONFIG_HOME` (default `~/.config/mindin/config.toml`), as a `[vault]` table with `kind` set to `folder`, `s3` or `server`. A folder must exist; asked in a terminal, setup offers to create it. `--s3` reads the bucket's keys from `S3_ACCESS_KEY` and `S3_SECRET_KEY`, or asks for them in a terminal, and keeps them in `credentials.json` next to the config, readable only by you, never in `config.toml`. `--server` signs the machine in with [`login`](../how-to/sign-in-a-machine.md) unless it holds a key already, and when the vault it replaces is a folder or a bucket with notes, asks whether to bring them along. Running `setup` again replaces the choice.
+
+`move` copies this machine's vault to the place it names, reads every file back to check it, and then saves that place as `setup` would; the old place is left as it was. [Move a vault](../how-to/move-a-vault.md) shows each direction.
 
 In a terminal, `setup` also asks once whether to share anonymous usage data, the [install signal](install-signal.md); an empty answer is no. The answer is saved as `[signals] install = true` or `false`, and `setup` asks again only while it is missing. `--signals yes|no` gives the answer from a script, and alone it changes only that.
 

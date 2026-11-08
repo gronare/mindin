@@ -52,6 +52,8 @@ Areas/myapp.md
 - **Memory tied to code.** A note names the paths it describes; the session-start hook prints the commits newer than the note.
 - **Search that reads your languages.** Stemming, folded diacritics, synonyms, and optional search by meaning that runs on your machine.
 - **Your own vault server.** Accounts with passkeys, email links, GitHub or your identity provider, several vaults each, shared vaults, sealed in storage.
+- **A wiki for your team.** Everyone at your company's email domain joins an organisation and its wiki; their Claude searches it beside their own vault, and a guard refuses secrets.
+- **A vault that moves.** `mindin move` copies a vault between a folder, a bucket and a server, and checks every file.
 
 ## Documentation
 

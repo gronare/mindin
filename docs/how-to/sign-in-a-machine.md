@@ -12,6 +12,8 @@ uvx mindin login https://vault.example.com --vault notes
 2. Check that the code matches, and approve read and write. Without `--vault` the approval page asks which vault the machine gets.
 3. Set `VAULT_SERVER_URL=https://vault.example.com` where your clients run.
 
+To bring a vault you keep in a folder onto the server, see [Move a vault](move-a-vault.md).
+
 The machine gets its own key, named after its host name (`--name` picks another), stored in `~/.config/mindin/credentials.json` (under `XDG_CONFIG_HOME` when set) and readable only by you. Over ssh it works the same way, and `--no-browser` only prints the link.
 
 With `VAULT_SERVER_URL` set, the stdio MCP server, the hooks and every command work through the server as with a folder or a bucket, except `sync`, since the server keeps the index. `VAULT_SERVER_URL` wins over `VAULT_PATH` and `S3_*` when both are set. Until the machine is signed in, the server's instructions tell the agent to ask for `login`.

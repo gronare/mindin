@@ -402,7 +402,12 @@ class HostedStore:
             raise MembershipError("Only a shared vault takes members.")
         if "@" not in address or len(address) > 254:
             raise MembershipError("Enter an email address.")
+        from mindin.auth.hosted_orgs import sharing_refusal
+
         with self.connect() as connection:
+            refusal = sharing_refusal(connection, vault, address)
+            if refusal:
+                raise MembershipError(refusal)
             known = account_of(connection.execute("SELECT * FROM accounts WHERE email = ?", (address,)).fetchone())
             if known is not None and reaches(connection, vault, known.id):
                 raise MembershipError(f"{address} is already in this vault.")

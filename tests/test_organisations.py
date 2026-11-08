@@ -13,7 +13,7 @@ from mindin.auth.hosted_access import SupportAccess
 from mindin.auth.hosted_keys import SealedVaults, VaultKeys, delete_account
 from mindin.auth.hosted_org_pages import delete_departed
 from mindin.auth.hosted_orgs import OrganisationError, Organisations, clean_domain
-from mindin.auth.hosted_store import HostedStore
+from mindin.auth.hosted_store import HostedStore, MembershipError
 from mindin.auth.identities import Identities, Proof
 from mindin.cli import main
 from mindin.extensions import Extension
@@ -367,11 +367,12 @@ def test_the_cli_sets_up_an_organisation(tmp_path: Path, monkeypatch: pytest.Mon
     assert main(["org", "vault", "lock", "Acme", "wiki"]) == 0
     assert main(["org", "vault", "editor-add", "Acme", "wiki", "bea@acme.test"]) == 0
     assert main(["org", "removal", "Acme", "export-and-delete", "--days", "10"]) == 0
+    assert main(["org", "sharing", "Acme", "allowed"]) == 0
     assert main(["org", "admin", "remove", "Acme", "zed@acme.test"]) == 2
     capsys.readouterr()
     assert main(["org", "show", "Acme"]) == 0
     shown = capsys.readouterr().out
-    assert "removed members: export-and-delete after 10 days" in shown
+    assert "removed members: export-and-delete after 10 days  sharing outside: allowed" in shown
     assert "domain  @acme.test" in shown and "admin  ada@acme.test" in shown and "admin  bea@acme.test" in shown
     assert "vault  wiki  Wiki  locked, editors: bea@acme.test" in shown
 
@@ -519,6 +520,49 @@ async def test_flow_2_session_start_lists_the_wikis_pages_for_the_repo_capped(si
     assert "wiki | Resources/klarna.md | Klarna | How klarna works." in rows
     assert "search.md" not in text and "read_file(path, vault=<vault>)" in section[-1]
     assert text.index("## system notes") < text.index("## organisation pages")
+
+
+async def invite_to(http: httpx2.AsyncClient, slug: str, email: str) -> httpx2.Response:
+    page = await http.get(f"/account/vaults/{slug}")
+    return await http.post(f"/account/vaults/{slug}/members/invite", data={"csrf": csrf_of(page.text), "email": email})
+
+
+@pytest.mark.anyio
+async def test_sharing_a_members_own_vault_outside_follows_the_organisations_policy(site: Hosted):
+    ada, bea = await company(site)
+    async with ada, bea:
+        form = await bea.get("/account/vaults/new")
+        made = await bea.post("/account/vaults", data={"csrf": csrf_of(form.text), "name": "Side", "kind": "shared"})
+        assert made.status_code == 303, made.text
+        shown = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
+        outside = await invite_to(bea, "side", "eve@elsewhere.test")
+        colleague = await invite_to(bea, "side", "cy@acme.test")
+        allowed = await post_org(site, ada, "/external-sharing", external_sharing="allowed")
+        later = await invite_to(bea, "side", "eve@elsewhere.test")
+        closed = await post_org(site, ada, "/external-sharing", external_sharing="denied")
+    assert "Sharing outside Acme" in shown.text
+    assert 'value="denied" checked><b>Members only</b>' in shown.text, "the default keeps sharing inside"
+    assert outside.status_code == 400
+    assert "Acme does not let its members share vaults with people outside it, and eve@elsewhere.test" in outside.text
+    assert colleague.status_code == 200 and "cy@acme.test" in colleague.text
+    assert "may share the vaults they own with anyone" in allowed.text
+    assert later.status_code == 200 and "eve@elsewhere.test" in later.text
+    assert "share the vaults they own only with each other" in closed.text
+    pending = {
+        member.email
+        for member in site.store.members(site.store.vault_at(site.store.account("bea@acme.test").id, "side"))
+    }
+    assert {"cy@acme.test", "eve@elsewhere.test"} <= pending, "a stricter policy ends no sharing that exists"
+
+
+@pytest.mark.anyio
+async def test_an_organisation_vault_is_never_shared_outside_whatever_the_policy(site: Hosted):
+    await company(site)
+    organisation = orgs(site).set_external_sharing(orgs(site).require("Acme"), "allowed")
+    wiki = orgs(site).vault_named(organisation, "wiki").vault
+    ada = site.store.account("ada@acme.test")
+    with pytest.raises(MembershipError, match="eve@elsewhere.test is outside Acme, and an organisation's vaults"):
+        site.store.invite_member(wiki, "eve@elsewhere.test", ada.id)
 
 
 class Plans(Extension):

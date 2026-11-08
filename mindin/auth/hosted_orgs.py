@@ -21,6 +21,9 @@ MEMBER = "member"
 KEEP = "keep"
 EXPORT_AND_DELETE = "export-and-delete"
 REMOVALS = (KEEP, EXPORT_AND_DELETE)
+ALLOWED = "allowed"
+DENIED = "denied"
+SHARING = (ALLOWED, DENIED)
 DEFAULT_REMOVAL_DAYS = 30
 DOMAIN_RE = re.compile(r"(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
 Removal = Literal["keep", "export-and-delete"]
@@ -33,6 +36,7 @@ CREATE TABLE IF NOT EXISTS organisations (
     name TEXT NOT NULL,
     removal TEXT NOT NULL DEFAULT 'keep' CHECK (removal IN ('keep', 'export-and-delete')),
     removal_days INTEGER NOT NULL DEFAULT {DEFAULT_REMOVAL_DAYS},
+    external_sharing TEXT NOT NULL DEFAULT 'denied' CHECK (external_sharing IN ('allowed', 'denied')),
     created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS organisation_domains (
@@ -83,6 +87,7 @@ class Organisation:
     removal: Removal
     removal_days: int
     created_at: int
+    external_sharing: str = DENIED
 
 
 @dataclass(frozen=True)
@@ -119,7 +124,9 @@ def now() -> int:
 def organisation_of(row: Any) -> Organisation | None:
     if row is None:
         return None
-    return Organisation(row["id"], row["name"], row["removal"], row["removal_days"], row["created_at"])
+    return Organisation(
+        row["id"], row["name"], row["removal"], row["removal_days"], row["created_at"], row["external_sharing"]
+    )
 
 
 def domain_of(email: str) -> str:
@@ -217,6 +224,46 @@ def join_by_domain(connection: Any, account_id: str, emails: tuple[str, ...]) ->
 
 def domain_address(connection: Any, emails: tuple[str, ...]) -> str:
     return next((email for organisation_id, email in matching(connection, emails)), "")
+
+
+def inside(connection: Any, organisation_id: str, email: str) -> bool:
+    if departed(connection, organisation_id, email):
+        return False
+    member = connection.execute(
+        "SELECT 1 FROM organisation_members JOIN accounts ON accounts.id = organisation_members.account_id"
+        " WHERE organisation_members.organisation_id = ? AND accounts.email = ?",
+        (organisation_id, email),
+    ).fetchone()
+    return member is not None or any(found == organisation_id for found, _ in matching(connection, (email,)))
+
+
+def sharing_refusal(connection: Any, vault: Vault, email: str) -> str:
+    owning = connection.execute(
+        "SELECT organisations.* FROM organisation_vaults JOIN organisations"
+        " ON organisations.id = organisation_vaults.organisation_id WHERE organisation_vaults.vault_id = ?",
+        (vault.id,),
+    ).fetchone()
+    if owning is not None:
+        if inside(connection, owning["id"], email):
+            return ""
+        return (
+            f"{email} is outside {owning['name']}, and an organisation's vaults are only for its members. "
+            f"An admin of {owning['name']} can add them to the organisation instead."
+        )
+    rows = connection.execute(
+        "SELECT organisations.* FROM organisation_members JOIN organisations"
+        " ON organisations.id = organisation_members.organisation_id"
+        " WHERE organisation_members.account_id = ? AND organisations.external_sharing = ?"
+        " ORDER BY organisations.created_at",
+        (vault.account_id, DENIED),
+    ).fetchall()
+    for row in rows:
+        if not inside(connection, row["id"], email):
+            return (
+                f"{row['name']} does not let its members share vaults with people outside it, and {email} is "
+                f"outside. An admin of {row['name']} can allow it on the organisation's page."
+            )
+    return ""
 
 
 def locked_out(connection: Any, vault_id: str, actor: Actor) -> str:
@@ -421,6 +468,13 @@ class Organisations:
             )
         return self.require(organisation.id)
 
+    def set_external_sharing(self, organisation: Organisation, setting: str) -> Organisation:
+        if setting not in SHARING:
+            raise OrganisationError(f"Sharing outside the organisation is either {' or '.join(SHARING)}.")
+        with self.store.connect() as connection:
+            connection.execute("UPDATE organisations SET external_sharing = ? WHERE id = ?", (setting, organisation.id))
+        return self.require(organisation.id)
+
     def remove_member(self, organisation: Organisation, email: str) -> Departure:
         account = self.member_account(organisation, email)
         admins = [admin for admin in self.admins(organisation) if admin.id != account.id]
@@ -603,6 +657,7 @@ def describe(organisations: Organisations, organisation: Organisation) -> list[s
     lines = [f"{organisation.id}  {organisation.name}  removed members: {organisation.removal}"]
     if organisation.removal == EXPORT_AND_DELETE:
         lines[0] += f" after {organisation.removal_days} days"
+    lines[0] += f"  sharing outside: {organisation.external_sharing}"
     lines += [f"domain  @{domain}" for domain in organisations.domains(organisation)]
     lines += [f"{member.role}  {member.account.email}" for member in organisations.members(organisation)]
     for item in organisations.vaults(organisation):
@@ -661,6 +716,10 @@ def command_org(args: argparse.Namespace) -> int:
         if action == "removal":
             changed = organisations.set_removal(organisation, args.setting, args.days)
             print(f"mindin: removed members of {changed.name}: {changed.removal}, {changed.removal_days} days")
+            return 0
+        if action == "sharing":
+            changed = organisations.set_external_sharing(organisation, args.setting)
+            print(f"mindin: members of {changed.name} sharing their own vaults outside it: {changed.external_sharing}")
             return 0
         return command_org_change(organisations, organisation, args)
     except (OrganisationError, MembershipError, VaultNameError) as exc:
@@ -769,3 +828,9 @@ def add_commands(sub: Any, run: Callable[[argparse.Namespace], int]) -> None:
     removal.add_argument("setting", choices=REMOVALS)
     removal.add_argument("--days", type=int, help="days before an exported account is deleted")
     removal.set_defaults(func=run)
+    sharing = org_sub.add_parser(
+        "sharing", help="whether members may share their own shared vaults with people outside the organisation"
+    )
+    sharing.add_argument("organisation", help="the organisation's name or id")
+    sharing.add_argument("setting", choices=SHARING)
+    sharing.set_defaults(func=run)

@@ -14,6 +14,8 @@ from mindin.auth import mail
 from mindin.auth.hosted_keys import StillShared
 from mindin.auth.hosted_orgs import (
     ADMIN,
+    ALLOWED,
+    DENIED,
     EXPORT_AND_DELETE,
     KEEP,
     Departure,
@@ -234,6 +236,22 @@ under their name. Their own vaults follow this setting.</p>
 pattern="[0-9]{{1,3}}" value="{organisation.removal_days}" required></label>
 <div><button class="btn" type="submit">Save</button></div></form></div>"""
 
+    def sharing_section(self, organisation: Organisation, csrf: str) -> str:
+        allowed = " checked" if organisation.external_sharing == ALLOWED else ""
+        denied = " checked" if organisation.external_sharing == DENIED else ""
+        name = esc(organisation.name)
+        return f"""<div class="box"><h2>Sharing outside {name}</h2>
+<p class="small muted">Whether members may invite people outside {name} to the shared vaults they own. Members can
+always invite each other, and {name}'s own vaults are only ever for its members. Changing this ends no sharing that
+already exists.</p>
+{self.form(csrf, organisation, "/external-sharing", ' class="stack"')}
+<fieldset class="choice"><legend>Members' own shared vaults</legend>
+<label class="option"><input type="radio" name="external_sharing" value="denied"{denied}><b>Members only</b>
+<span>An invitation to anyone outside {name} is refused.</span></label>
+<label class="option"><input type="radio" name="external_sharing" value="allowed"{allowed}><b>Anyone</b>
+<span>Members invite whoever they like to the vaults they own.</span></label></fieldset>
+<div><button class="btn" type="submit">Save</button></div></form></div>"""
+
     def render(
         self, account: Account, csrf: str, organisation: Organisation, notice: str = "", status_code: int = 200
     ) -> Response:
@@ -246,6 +264,7 @@ pattern="[0-9]{{1,3}}" value="{organisation.removal_days}" required></label>
 {self.domains_section(organisation, csrf)}
 {self.people_section(account, organisation, csrf)}
 {self.vaults_section(organisation, csrf)}
+{self.sharing_section(organisation, csrf)}
 {self.removal_section(organisation, csrf)}"""
         return self.browser.app(organisation.name, body, on="account", status_code=status_code)
 
@@ -349,6 +368,12 @@ pattern="[0-9]{{1,3}}" value="{organisation.removal_days}" required></label>
         self.organisations.set_removal(organisation, form.get("removal", ""), days)
         return "Saved."
 
+    def external_sharing(self, _: Account, organisation: Organisation, form: dict) -> str:
+        changed = self.organisations.set_external_sharing(organisation, form.get("external_sharing", ""))
+        if changed.external_sharing == ALLOWED:
+            return f"Members of {changed.name} may share the vaults they own with anyone."
+        return f"Members of {changed.name} share the vaults they own only with each other."
+
     def create_vault(self, account: Account, organisation: Organisation, form: dict) -> str:
         slug = form.get("slug", "").strip() or None
         vault = self.organisations.create_vault(organisation, account, form.get("name", ""), slug)
@@ -390,6 +415,7 @@ pattern="[0-9]{{1,3}}" value="{organisation.removal_days}" required></label>
             "/admins": self.add_admin,
             "/admins/remove": self.remove_admin,
             "/removal": self.removal,
+            "/external-sharing": self.external_sharing,
             "/vaults": self.create_vault,
             "/vaults/lock": self.lock,
             "/vaults/editors": self.add_editor,

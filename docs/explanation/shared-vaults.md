@@ -14,7 +14,7 @@ Members sign in with their own account and make their own keys and connections t
 
 ## Organisation vaults
 
-An organisation's vault is a shared vault whose members are the organisation's members: everyone who joins the organisation reaches it, and someone removed from the organisation leaves it at once. Its admins manage it from the organisation's page instead of inviting people one by one. An admin can lock it, and then only its editors write; everyone else reads. See [Run mindin for a team](../how-to/run-mindin-for-a-team.md).
+An organisation's vault is a shared vault whose members are the organisation's members: everyone who joins the organisation reaches it, and someone removed from the organisation leaves it at once. Its admins manage it from the organisation's page instead of inviting people one by one. An admin can lock it, and then only its editors write; everyone else reads. It is never shared with anyone outside the organisation. The organisation also decides whether its members may invite outsiders to the shared vaults they own themselves. See [Run mindin for a team](../how-to/run-mindin-for-a-team.md).
 
 ## History
 

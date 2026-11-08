@@ -66,6 +66,16 @@ Each member signs in at `VAULT_PUBLIC_URL/signin` with the company sign-in. Thei
 
 A member's connection to their own vault is enough for Claude to use the wiki: `search` covers their own vault and the organisation's vaults together, labels each row with its vault, and `read_file` reads a wiki row on the same connection. See [Search across vaults](../explanation/search.md#across-vaults).
 
+## Sharing outside the organisation
+
+A member's own shared vaults are theirs to share, within what the organisation allows. By default members share them only with each other: an invitation to an address outside the organisation is refused with a message saying so. Members, and addresses at the organisation's domains, can always be invited. To let members invite anyone, choose Anyone under Sharing outside on the organisation's page, or:
+
+```sh
+mindin org sharing Example allowed
+```
+
+`denied` closes it again. The setting applies to new invitations; members and invitations already in a vault stay. The organisation's own vaults are never shared outside it, whatever the setting: their members are the organisation's members.
+
 ## Remove someone
 
 ```sh

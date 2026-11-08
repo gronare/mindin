@@ -276,7 +276,7 @@
     "table",
     "organisations",
     "organisations",
-    "CREATE TABLE organisations (\n    id TEXT PRIMARY KEY,\n    name TEXT NOT NULL,\n    removal TEXT NOT NULL DEFAULT 'keep' CHECK (removal IN ('keep', 'export-and-delete')),\n    removal_days INTEGER NOT NULL DEFAULT 30,\n    created_at INTEGER NOT NULL\n)"
+    "CREATE TABLE organisations (\n    id TEXT PRIMARY KEY,\n    name TEXT NOT NULL,\n    removal TEXT NOT NULL DEFAULT 'keep' CHECK (removal IN ('keep', 'export-and-delete')),\n    removal_days INTEGER NOT NULL DEFAULT 30,\n    external_sharing TEXT NOT NULL DEFAULT 'denied' CHECK (external_sharing IN ('allowed', 'denied')),\n    created_at INTEGER NOT NULL\n)"
    ],
    [
     "table",
@@ -623,7 +623,7 @@
     "table",
     "organisations",
     "organisations",
-    "CREATE TABLE organisations (\n    id TEXT PRIMARY KEY,\n    name TEXT NOT NULL,\n    removal TEXT NOT NULL DEFAULT 'keep' CHECK (removal IN ('keep', 'export-and-delete')),\n    removal_days INTEGER NOT NULL DEFAULT 30,\n    created_at INTEGER NOT NULL\n)"
+    "CREATE TABLE organisations (\n    id TEXT PRIMARY KEY,\n    name TEXT NOT NULL,\n    removal TEXT NOT NULL DEFAULT 'keep' CHECK (removal IN ('keep', 'export-and-delete')),\n    removal_days INTEGER NOT NULL DEFAULT 30,\n    external_sharing TEXT NOT NULL DEFAULT 'denied' CHECK (external_sharing IN ('allowed', 'denied')),\n    created_at INTEGER NOT NULL\n)"
    ],
    [
     "table",

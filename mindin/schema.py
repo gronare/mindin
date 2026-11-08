@@ -10,7 +10,7 @@ import yaml
 
 from mindin.backends import SCHEMA_KEY, VaultBackend
 from mindin.bundle import bundle_problems, bundle_text
-from mindin.presets import DEFAULT_PRESET, PRESETS, base_preset, preset_data, template
+from mindin.presets import DEFAULT_PRESET, PRESETS, base_preset, preset_data
 
 CLAIM_KEY = "kebbie"
 CLAIM_STALE_DAYS = 14
@@ -259,10 +259,6 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
 
 def default_schema_data() -> dict[str, Any]:
     return preset_data(DEFAULT_PRESET)
-
-
-def default_schema_text() -> str:
-    return template("schema.yml")
 
 
 def _where(path: list[str]) -> str:

@@ -6,7 +6,7 @@ import shlex
 import sqlite3
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import date
 
 from mindin.index import Index, Note
 from mindin.schema import Schema
@@ -149,11 +149,6 @@ def parse_date(stamp: str) -> date | None:
         return date(year, month, day)
     except ValueError:
         return None
-
-
-def parse_day(stamp: str) -> float | None:
-    day = parse_date(stamp)
-    return None if day is None else datetime(day.year, day.month, day.day, tzinfo=UTC).timestamp()
 
 
 def age_days(note: Note, now: float) -> float:

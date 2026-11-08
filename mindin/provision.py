@@ -18,7 +18,6 @@ from mindin.presets import (
 from mindin.schema import Schema, deep_merge
 
 BASES = PRESETS[DEFAULT_PRESET].files
-TEMPLATES = ("schema.yml", *BASES)
 WELCOME_KEY = "Welcome.md"
 
 
@@ -37,10 +36,6 @@ class Provisioned:
         if self.backup:
             lines.append(f"saved the schema it replaced as {self.backup}")
         return lines
-
-
-def target_key(name: str) -> str:
-    return SCHEMA_KEY if name.startswith("schema") else name
 
 
 def _fill(text: str, values: dict[str, str]) -> str:

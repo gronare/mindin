@@ -19,7 +19,6 @@ FOLDER_KINDS: dict[str, tuple[str, ...]] = {
     "Resources": ("howto", "decision", "reference", "trap"),
     "Archive": CURRENT_KINDS,
 }
-REFUSED_TOOLS = frozenset({"backlog_add", "log_append", "claim", "release", "set_status", "lint_and_park", "init"})
 HOLDS = "A shared vault holds only how things are now, in the folders its layout names."
 ELSEWHERE = "Keep tasks, the backlog and logs in your personal vault, through its own connection."
 WHAT_BELONGS = (

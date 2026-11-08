@@ -8,10 +8,12 @@ from pathlib import Path
 
 import httpx2
 import pytest
-from hosted_support import NOTE_BODY, FixedLimits, Hosted, call_tool, csrf_of, hosted, text_of
+from hosted_support import NOTE_BODY, FixedLimits, Hosted, Watching, call_tool, csrf_of, hosted, text_of
 
 from mindin.auth.hosted_limits import StorageLimits, content_type_of
 from mindin.auth.hosted_store import Account
+from mindin.auth.hosted_vaults import Vault
+from mindin.backends import LimitReached
 from mindin.extensions import Extension
 from mindin.vault import SubjectVaults
 
@@ -178,3 +180,60 @@ async def test_a_machine_key_reads_its_vaults_limits_and_the_accounts_usage(site
     assert found["content_types"] == ["text/*", "image/*", "application/pdf"]
     assert found["used_bytes"] >= 9_000 and found["vault_bytes"] >= 9_000
     assert found["upload_bytes"] == 32 * 1024 * 1024
+
+
+class Failing(Extension):
+    def refused_write(self, account: Account, vault: Vault, key: str, reason: LimitReached) -> None:
+        raise RuntimeError("the extension broke")
+
+
+@pytest.fixture
+async def watched(vaults: SubjectVaults, tmp_path: Path):
+    watching = Watching(HOSTED)
+    async with hosted(vaults, tmp_path, extensions=[Failing(), watching]) as running:
+        running.watching = watching
+        yield running
+
+
+@pytest.mark.anyio
+async def test_extensions_hear_of_each_write_mcp_refuses_and_a_failing_one_changes_no_answer(watched: Hosted):
+    http = await watched.member("ann@example.com")
+    key = watched.key_for("ann@example.com")
+    async with http:
+        big = await write(http, key, "Areas/big.md", 12_000)
+        kept = await write(http, key, "Areas/a.md", 500)
+    assert big.get("isError") and "a file is at most 10 kB" in text_of(big)
+    assert not kept.get("isError"), text_of(kept)
+    slug = watched.store.first_vault(watched.store.account("ann@example.com").id).slug
+    assert watched.watching.refused == [("ann@example.com", slug, "Areas/big.md", 413)]
+
+
+@pytest.mark.anyio
+async def test_extensions_hear_of_each_write_webdav_and_a_zip_upload_refuse(watched: Hosted):
+    http = await watched.member("ann@example.com", sub="sub-ann")
+    key = watched.key_for("ann@example.com")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("Areas/fine.md", b"fine")
+        archive.writestr("film.mkv", b"\x00" * 10)
+    async with http:
+        video = await http.put("/dav/vault/clip.mp4", content=b"\x00" * 100, headers=basic(key))
+        await http.put("/dav/vault/Areas/a.md", content=b"text", headers=basic(key))
+        moved = await http.request(
+            "MOVE", "/dav/vault/Areas/a.md", headers={**basic(key), "Destination": "/dav/vault/clip.mov"}
+        )
+        for name in "pqrs":
+            await http.put(f"/dav/vault/Bilagor/{name}.png", content=b"\x89PNG" + b"\x00" * 9_000, headers=basic(key))
+        csrf = csrf_of((await http.get("/account/vaults/notes")).text)
+        stopped = await http.post(
+            "/account/vaults/notes/import",
+            data={"csrf": csrf},
+            files={"archive": ("vault.zip", buffer.getvalue(), "application/zip")},
+        )
+    assert (video.status_code, moved.status_code, stopped.status_code) == (415, 415, 415)
+    assert [(key, status) for _, _, key, status in watched.watching.refused] == [
+        ("clip.mp4", 415),
+        ("clip.mov", 415),
+        ("Bilagor/s.png", 507),
+        ("film.mkv", 415),
+    ]

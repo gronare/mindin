@@ -91,10 +91,17 @@ def prepare_import(target: VaultBackend, source: Source) -> ImportPlan:
     return plan
 
 
+def refuse_import(target: VaultBackend, plan: ImportPlan) -> Refused:
+    report = getattr(target, "report_refusal", None)
+    for found in plan.refusals if report is not None else ():
+        report(found)
+    return Refused(plan.refusals)
+
+
 def import_files(target: VaultBackend, source: Source | ImportPlan) -> Imported:
     plan = source if isinstance(source, ImportPlan) else prepare_import(target, source)
     if plan.refusals:
-        raise Refused(plan.refusals)
+        raise refuse_import(target, plan)
     existing = {entry.key: entry for entry in target.list_all()}
     counts = Imported(skipped=len(plan.skipped))
     for name, _, read in plan.files:
@@ -220,6 +227,8 @@ def command_import(args: argparse.Namespace) -> int:
     out = sys.stderr if plan.refusals else sys.stdout
     for line in plan.lines():
         print(f"mindin: {line}", file=out)
+    if plan.refusals and not args.dry_run:
+        refuse_import(target, plan)
     if plan.refusals:
         print(
             f"mindin: nothing imported into {account.email}'s {vault.slug}; the server refuses the files above",

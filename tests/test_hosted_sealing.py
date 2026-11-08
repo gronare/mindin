@@ -16,6 +16,7 @@ from hosted_support import (
     NOTE_BODY,
     FixedLimits,
     Hosted,
+    Watching,
     call_tool,
     csrf_of,
     hosted,
@@ -425,6 +426,24 @@ def test_importing_stops_at_an_extensions_storage_limits(
     assert main([*IMPORT, "--from-path", str(source)]) == 1
     assert "film.mkv is refused" in capsys.readouterr().err
     assert files_of(sealed_target(store, account_id)) == {}
+
+
+def test_an_import_refused_by_the_limits_is_reported_to_extensions_and_a_dry_run_is_not(
+    account_env: tuple[HostedStore, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store, account_id = account_env
+    grant_first_vault(store, account_id)
+    source = tmp_path / "with-film"
+    source.mkdir()
+    (source / "film.mkv").write_bytes(b"\x00" * 10)
+    watching = Watching(TEXT_ONLY)
+    monkeypatch.setattr("mindin.auth.hosted_store.installed", lambda: (watching,))
+    assert main([*IMPORT, "--from-path", str(source), "--dry-run"]) == 1
+    assert watching.refused == []
+    assert main([*IMPORT, "--from-path", str(source)]) == 1
+    assert [(email, key, status) for email, _, key, status in watching.refused] == [
+        ("ann@example.com", "film.mkv", 415)
+    ]
 
 
 def test_importing_lists_every_refused_file_and_writes_none_of_them(

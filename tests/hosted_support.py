@@ -23,7 +23,9 @@ from mindin.auth.hosted import build_hosted_app
 from mindin.auth.hosted_keys import Keyring, MasterKey
 from mindin.auth.hosted_limits import StorageLimits
 from mindin.auth.hosted_store import Account, HostedStore
+from mindin.auth.hosted_vaults import Vault
 from mindin.auth.identities import Identities
+from mindin.backends import LimitReached
 from mindin.extensions import Extension
 
 BASE = "http://localhost"
@@ -148,6 +150,15 @@ class FixedLimits(Extension):
 
     def storage_limits(self, account: Account, limits: StorageLimits) -> StorageLimits:
         return self.fixed
+
+
+class Watching(FixedLimits):
+    def __init__(self, limits: StorageLimits) -> None:
+        super().__init__(limits)
+        self.refused: list[tuple[str, str, str, int]] = []
+
+    def refused_write(self, account: Account, vault: Vault, key: str, reason: LimitReached) -> None:
+        self.refused.append((account.email, vault.slug, key, reason.status))
 
 
 class Clock:

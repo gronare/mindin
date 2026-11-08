@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import mimetypes
 import threading
 import time
@@ -33,6 +34,7 @@ KNOWN_TYPES = {
     ".pdf": "application/pdf",
 }
 BUILT_IN_TYPES = mimetypes.MimeTypes(filenames=())
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -65,12 +67,15 @@ def refusal(limits: StorageLimits, key: str, size: int) -> LimitReached | None:
     content_type = content_type_of(key)
     if not limits.allows_type(content_type):
         allowed = ", ".join(limits.content_types)
-        return LimitReached(f"{key} is refused: this server stores only {allowed}, and the file is {content_type}", 415)
+        return LimitReached(
+            f"{key} is refused: this server stores only {allowed}, and the file is {content_type}", 415, key
+        )
     if limits.file_bytes is not None and size > limits.file_bytes:
         return LimitReached(
             f"{key} is refused: it is {size_text(size)}, and a file is at most {size_text(limits.file_bytes)}"
             " on this server",
             413,
+            key,
         )
     return None
 
@@ -126,6 +131,15 @@ class Quotas:
         with self._lock:
             self._used.pop(vault_id, None)
 
+    def report_refusal(self, vault: Vault, refusal: LimitReached) -> LimitReached:
+        owner = self.store.account_by_id(vault.account_id)
+        for extension in self.extensions if owner is not None else ():
+            try:
+                extension.refused_write(owner, vault, refusal.key, refusal)
+            except Exception:
+                logger.exception("an extension failed on a refused write to %s", vault.id)
+        return refusal
+
 
 class LimitedBackend:
     def __init__(self, inner: Any, vault: Vault, quotas: Quotas) -> None:
@@ -144,7 +158,7 @@ class LimitedBackend:
         limits = self.limits()
         found = refusal(limits, key, size)
         if found is not None:
-            raise found
+            raise self.report_refusal(found)
         if limits.account_bytes is None:
             return
         entries: list[Entry] = self.inner.list_all()
@@ -154,11 +168,17 @@ class LimitedBackend:
             return
         used = here + self.quotas.used_elsewhere(self.vault.account_id, self.vault.id)
         if used - before + size > limits.account_bytes:
-            raise LimitReached(
-                f"{key} is refused: the account's storage of {size_text(limits.account_bytes)} is full"
-                f" ({size_text(used)} used). Delete files to make room; reading and export still work.",
-                507,
+            raise self.report_refusal(
+                LimitReached(
+                    f"{key} is refused: the account's storage of {size_text(limits.account_bytes)} is full"
+                    f" ({size_text(used)} used). Delete files to make room; reading and export still work.",
+                    507,
+                    key,
+                )
             )
+
+    def report_refusal(self, found: LimitReached) -> LimitReached:
+        return self.quotas.report_refusal(self.vault, found)
 
     def used(self) -> tuple[dict[str, int], int]:
         here = {entry.key: entry.size for entry in self.inner.list_all() if not entry.is_dir}
@@ -194,7 +214,7 @@ class LimitedBackend:
     def move(self, src: str, dst: str) -> None:
         found = refusal(self.limits(), dst, 0)
         if found is not None:
-            raise found
+            raise self.report_refusal(found)
         self.inner.move(src, dst)
 
     def delete(self, key: str) -> None:

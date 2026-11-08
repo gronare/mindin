@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from mindin.auth.hosted_web import Browser
     from mindin.auth.identities import Registrant
     from mindin.auth.login_email import SmtpFactory
+    from mindin.backends import LimitReached
     from mindin.changes import ChangeBus
     from mindin.vault import SubjectVaults
 
@@ -105,6 +106,9 @@ class Extension:
     def storage_limits(self, account: Account, limits: StorageLimits) -> StorageLimits:
         """The storage limits for the vaults this account owns, given those earlier hooks chose; none to start with."""
         return limits
+
+    def refused_write(self, account: Account, vault: Vault, key: str, reason: LimitReached) -> None:
+        """Called each time the storage limits refuse a write to a vault this account owns, after the refusal."""
 
     def admits(self, registrant: Registrant) -> str:
         """Why a new account for this sign-in is refused, shown to the person, or "" to make it."""

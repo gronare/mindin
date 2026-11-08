@@ -521,7 +521,7 @@ def layout_contents(text: str) -> str:
     typed = any(folder.kinds for folder in schema.folders.values())
     rows = folder_rows(schema, typed)
     folders = (
-        table(["Folder", "What goes there", *(["Kinds"] if typed else [])], rows)
+        table(["Folder", "What goes there", *(["Kinds"] if typed else [])], rows, "tablewrap noact")
         if rows
         else '<p class="small muted">This layout names no folders; a note can go anywhere.</p>'
     )

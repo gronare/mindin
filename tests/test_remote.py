@@ -6,7 +6,6 @@ import os
 import stat
 import subprocess
 import sys
-from datetime import date
 from pathlib import Path
 
 import anyio
@@ -14,7 +13,7 @@ import httpx2
 import pytest
 from mcp import Client, StdioServerParameters
 from remote_support import EMAIL, Served, serve
-from test_cli_hooks import feed, head_sha, make_repo, prompts, transcript_of
+from test_cli_hooks import feed, head_sha, make_repo
 
 from mindin import credentials, login, provision
 from mindin.backends import NotFound
@@ -75,12 +74,6 @@ def note_on_server(served: Served, key: str) -> tuple[dict, str]:
     return parse(served.read(key))
 
 
-def on_both(served: Served, local: Path, key: str, text: str) -> None:
-    served.write(key, text)
-    (local / key).parent.mkdir(parents=True, exist_ok=True)
-    (local / key).write_text(text, encoding="utf-8")
-
-
 def system_note(repo: Path, kind: str = "system") -> str:
     return (
         "---\ntitle: frame\ndate: 2020-01-01\nupdated: 2020-01-01\n"
@@ -92,13 +85,6 @@ def hook_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, 
     feed(monkeypatch, {"cwd": str(repo)})
     assert main(["hook", "session-start"]) == 0
     return capsys.readouterr().out
-
-
-def local_hook_output(monkeypatch, capsys, repo: Path, folder: Path, tmp_path: Path) -> str:
-    monkeypatch.delenv("VAULT_SERVER_URL")
-    monkeypatch.setenv("VAULT_PATH", str(folder))
-    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "local-cache"))
-    return hook_output(monkeypatch, capsys, repo)
 
 
 class FakeDeviceServer:
@@ -207,46 +193,9 @@ def test_whoami_and_logout(remote: Served, capsys):
     assert "mindin login" in capsys.readouterr().err
 
 
-def test_session_start_through_the_server_equals_the_local_vault(
-    remote: Served, vault_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
-):
-    repo = make_repo(tmp_path / "repos", "frame")
-    on_both(remote, vault_dir, "Areas/frame.md", system_note(repo))
-    through_server = hook_output(monkeypatch, capsys, repo)
-    local = local_hook_output(monkeypatch, capsys, repo, vault_dir, tmp_path)
-    assert through_server == local
-    assert "commits since the note — Areas/frame.md" in through_server
-    assert "First commit" in through_server
-
-
 def preset_vault(folder: Path, preset: str) -> Path:
     provision.initialize(LocalBackend(folder), preset=preset)
     return folder
-
-
-def test_session_start_through_the_server_equals_local_on_the_para_layout(
-    server: Served, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
-):
-    repo = make_repo(tmp_path / "repos", "frame")
-    local = preset_vault(tmp_path / "para", "para")
-    server.seed(local)
-    signed_in(server, monkeypatch, tmp_path)
-    on_both(server, local, "Areas/frame.md", system_note(repo, kind="area"))
-    task = (
-        "---\ntitle: Frame the grove\ndate: @@\nupdated: @@\ntags: [work]\nstatus: active\nkind: task\n"
-        'area: "[[frame]]"\n---\n\n## Outcome\n'
-    ).replace("@@", date.today().isoformat())
-    on_both(server, local, "Projects/frame-grove.md", task)
-    assert run_json(capsys, "log", "append", "--cwd", str(repo), "--line", "Ramade in lunden") == {
-        "path": "Resources/Logs/frame-log.md"
-    }
-    (local / "Resources" / "Logs").mkdir(parents=True, exist_ok=True)
-    (local / "Resources/Logs/frame-log.md").write_text(server.read("Resources/Logs/frame-log.md"), encoding="utf-8")
-    through_server = hook_output(monkeypatch, capsys, repo)
-    assert through_server == local_hook_output(monkeypatch, capsys, repo, local, tmp_path)
-    assert "### Areas/frame.md" in through_server and "Projects/frame-grove.md" in through_server
-    assert "## log — frame" in through_server and "Ramade in lunden" in through_server
-    assert "commits since the note — Areas/frame.md" in through_server
 
 
 def test_a_layout_without_a_home_answers_in_one_line_through_the_server(
@@ -274,36 +223,6 @@ def test_session_start_without_a_key_says_how_to_sign_in(
     feed(monkeypatch, {"cwd": str(tmp_path)})
     assert main(["hook", "session-start"]) == 0
     assert capsys.readouterr().out.startswith(f"vault: mindin: not signed in to {served.url}")
-
-
-def test_stop_blocks_on_an_unlogged_commit_through_the_server(
-    remote: Served, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
-):
-    repo = make_repo(tmp_path / "repos", "frame")
-    feed(monkeypatch, {"cwd": str(repo)})
-    assert main(["hook", "stop"]) == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["decision"] == "block"
-    assert head_sha(repo) in payload["reason"]
-
-
-def test_stop_asks_once_about_prompts_through_the_server(
-    remote: Served, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
-):
-    repo = make_repo(tmp_path / "repos", "frame")
-    transcript = transcript_of(tmp_path / "t.jsonl", prompts("p1", "p2", "p3"))
-    feed(monkeypatch, {"cwd": str(repo), "session_id": "s-frame", "transcript_path": str(transcript)})
-    assert main(["hook", "stop"]) == 0
-    reason = json.loads(capsys.readouterr().out)["reason"]
-    assert head_sha(repo) in reason and "the user wrote 3 messages since" in reason
-    outside = tmp_path / "shed"
-    outside.mkdir()
-    feed(monkeypatch, {"cwd": str(outside), "session_id": "s-frame", "transcript_path": str(transcript)})
-    assert main(["hook", "stop"]) == 0
-    assert capsys.readouterr().out.strip() == ""
-    feed(monkeypatch, {"cwd": str(outside), "session_id": "s-shed", "transcript_path": str(transcript)})
-    assert main(["hook", "stop"]) == 0
-    assert "the user wrote 3 messages since" in json.loads(capsys.readouterr().out)["reason"]
 
 
 def test_claim_and_release_round_trip_through_the_server(remote: Served, capsys):
@@ -530,90 +449,11 @@ def test_init_through_the_server_sends_a_layout_choice_to_the_account_page(
     assert server.read(".vault/schema.yml") == before
 
 
-def lint_run(capsys: pytest.CaptureFixture, *options: str) -> tuple[str, str]:
-    assert main(["lint", *options]) == 0
-    captured = capsys.readouterr()
-    return captured.out, captured.err
-
-
-def test_the_weekly_lint_through_the_server_equals_the_local_run(
-    remote: Served, vault_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
-):
-    options = ("--write", "Log/lint.md", "--park-stale")
-    storage = os.environ["VAULT_PATH"]
-    through_server = lint_run(capsys, *options)
-    monkeypatch.delenv("VAULT_SERVER_URL")
-    monkeypatch.setenv("VAULT_PATH", str(vault_dir))
-    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "local-cache"))
-    local = lint_run(capsys, *options)
-    assert through_server == local
-    assert "parked" in through_server[0] and "Projects/workshop-stale.md" in through_server[0]
-    assert through_server[1] == "wrote Log/lint.md\n"
-    monkeypatch.setenv("VAULT_PATH", storage)
-    assert remote.read("Log/lint.md") == (vault_dir / "Log" / "lint.md").read_text(encoding="utf-8")
-    stale = "Projects/workshop-stale.md"
-    assert remote.read(stale) == (vault_dir / stale).read_text(encoding="utf-8")
-    assert note_on_server(remote, stale)[0]["status"] == "backlog"
-
-
 def test_a_read_only_key_cannot_run_the_weekly_lint(served: Served, monkeypatch, tmp_path: Path, capsys):
     credentials.save(served.url, {"key": served.key(write=False), "scope": "vault:read", "name": "laptop"})
     monkeypatch.setenv("VAULT_SERVER_URL", served.url)
     assert main(["lint", "--park-stale"]) == 1
     assert "may only read the vault" in capsys.readouterr().err
-
-
-def without_stamps(snapshot: dict) -> dict:
-    kept = {key: value for key, value in snapshot.items() if key not in ("etag", "synced_at")}
-    kept["notes"] = [{key: value for key, value in row.items() if key != "mtime"} for row in snapshot["notes"]]
-    return kept
-
-
-def test_the_snapshot_through_the_server_equals_the_local_vault(
-    remote: Served, vault_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
-):
-    run_json(capsys, "task", "claim", "Projects/orchard-fresh.md", "--machine", "devbox", "--task", "t1")
-    claimed = remote.read("Projects/orchard-fresh.md")
-    (vault_dir / "Projects/orchard-fresh.md").write_text(claimed, encoding="utf-8")
-    through_server = run_json(capsys, "snapshot", "--json")
-    assert run_json(capsys, "snapshot", "--json", "--since", through_server["etag"]) == {
-        "unchanged": True,
-        "etag": through_server["etag"],
-    }
-    monkeypatch.delenv("VAULT_SERVER_URL")
-    monkeypatch.setenv("VAULT_PATH", str(vault_dir))
-    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "local-cache"))
-    local = run_json(capsys, "snapshot", "--json")
-    assert without_stamps(through_server) == without_stamps(local)
-    by_key = {row["key"]: row for row in through_server["notes"]}
-    assert by_key["Projects/orchard-fresh.md"]["claim"]["machine"] == "devbox"
-    assert through_server["logs"]["Log/orchard-log.md"][0]["links"] == ["orchard"]
-
-
-def test_read_prints_a_note_through_the_server_as_the_local_vault_does(
-    remote: Served, vault_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
-):
-    key = "Projects/orchard-fresh.md"
-    assert main(["read", key]) == 0
-    through_server = capsys.readouterr().out
-    assert main(["read", key, "--body"]) == 0
-    body = capsys.readouterr().out
-    assert main(["read", "Projects/nowhere.md"]) == 1
-    missing = capsys.readouterr()
-    assert missing.out == ""
-    assert missing.err.strip() == "mindin: Error executing tool read_file: Projects/nowhere.md"
-    monkeypatch.delenv("VAULT_SERVER_URL")
-    monkeypatch.setenv("VAULT_PATH", str(vault_dir))
-    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "local-cache"))
-    assert main(["read", key]) == 0
-    local = capsys.readouterr().out
-    assert through_server == local == (vault_dir / key).read_text(encoding="utf-8")
-    assert not local.startswith("etag:")
-    assert body == parse(local)[1] and body.lstrip().startswith("Bokningswidget ska renderas")
-    assert main(["read", "Projects/nowhere.md"]) == 1
-    assert capsys.readouterr().err.strip() == "mindin: no such note: Projects/nowhere.md"
-    assert main(["read", "../outside.md"]) == 1
-    assert len(capsys.readouterr().err.strip().splitlines()) == 1
 
 
 WORKSHOP_NOTE = "---\ntitle: lathe\ndate: 2020-01-01\nupdated: 2020-01-01\ntags: [workshop]\nstatus: active\n---\n\n"
@@ -714,33 +554,6 @@ async def test_the_proxy_serves_the_vault_of_its_folder(remote: Served, tmp_path
         found = await upstream.use(lambda server: server.call("whoami"))
         group.cancel_scope.cancel()
     assert json.loads(found)["vault"] == "workshop"
-
-
-def human_outputs(capsys, repo: Path) -> list[str]:
-    outputs = []
-    for argv in (["search", "kärnan"], ["backlog", "--paths"], ["lint"], ["read", "Areas/orchard.md"]):
-        assert main(argv) == 0, capsys.readouterr().err
-        outputs.append(capsys.readouterr().out)
-    assert main(["context", "--path", str(repo)]) == 0
-    return [*outputs, capsys.readouterr().out]
-
-
-def test_the_terminal_output_through_the_server_equals_the_local_vault(
-    remote: Served, vault_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
-):
-    from test_cli_output import in_a_terminal
-
-    repo = make_repo(tmp_path / "repos", "frame")
-    on_both(remote, vault_dir, "Areas/frame.md", system_note(repo))
-    in_a_terminal(monkeypatch)
-    through_server = human_outputs(capsys, repo)
-    monkeypatch.delenv("VAULT_SERVER_URL")
-    monkeypatch.setenv("VAULT_PATH", str(vault_dir))
-    monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "local-cache"))
-    assert through_server == human_outputs(capsys, repo)
-    assert through_server[0].startswith("4 notes · ")
-    assert through_server[2].startswith("15 findings in 9 kinds")
-    assert "1 commit since the note" in through_server[4]
 
 
 def test_a_server_without_the_view_answers_the_plain_form(

@@ -183,7 +183,7 @@ def test_a_closed_note_in_a_layout_without_an_archive_stays_put_and_lint_accepts
 def test_without_a_preset_init_keeps_the_built_in_layout(tmp_path: Path):
     backend = LocalBackend(tmp_path / "vault")
     assert provision.initialize(backend).preset == "default"
-    assert backend.get(SCHEMA_KEY)[0] == provision.template("schema.yml")
+    assert backend.get(SCHEMA_KEY)[0] == provision.template("presets/default/schema.yml")
     assert load_schema(backend).folders.keys() == {"Areas", "Resources", "Projects", "Log", "Archive"}
 
 

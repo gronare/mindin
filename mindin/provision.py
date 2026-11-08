@@ -8,6 +8,7 @@ import yaml
 from mindin.backends import MUST_NOT_EXIST, PREVIOUS_SCHEMA_KEY, SCHEMA_KEY, NotFound, VaultBackend, VersionConflict
 from mindin.presets import (
     DEFAULT_PRESET,
+    DEFAULT_SCHEMA_TEMPLATE,
     PRESETS,
     Preset,
     base_preset,
@@ -99,7 +100,7 @@ def _untouched_bases(backend: VaultBackend, old: Preset, old_schema: str, keep: 
 def initialize(
     backend: VaultBackend,
     force: bool = False,
-    schema_template: str = "schema.yml",
+    schema_template: str = DEFAULT_SCHEMA_TEMPLATE,
     welcome: dict[str, str] | None = None,
     preset: str | None = None,
 ) -> Provisioned:

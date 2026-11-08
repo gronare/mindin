@@ -272,7 +272,7 @@ class SubjectVaults:
         cache: Path | None = None,
         prefix: str = "users",
         dav_url: str = "",
-        schema_template: str = "schema.yml",
+        schema_template: str = provision.DEFAULT_SCHEMA_TEMPLATE,
         idle_seconds: float = IDLE_SECONDS,
         clock: Callable[[], float] = time.monotonic,
         vectors: Vectoring = "off",

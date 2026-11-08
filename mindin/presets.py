@@ -36,7 +36,7 @@ PRESETS: dict[str, Preset] = {
             "default",
             "Built-in",
             "Areas, Resources, Projects, Log, Archive: one living note per system, open work, a log per repo.",
-            "",
+            "presets/default/",
             ("Areas.base", "Open tasks.base", "Resources.base", "Backlog.base", "Log.base"),
             offered=False,
         ),
@@ -103,6 +103,7 @@ PRESETS: dict[str, Preset] = {
         ),
     )
 }
+DEFAULT_SCHEMA_TEMPLATE = PRESETS[DEFAULT_PRESET].schema_template
 OFFERED = tuple(name for name, preset in PRESETS.items() if preset.offered)
 SHARED_LAYOUTS = (SHARED_PRESET, WIKI_PRESET)
 PERSONAL_LAYOUTS = tuple(name for name in PRESETS if name not in SHARED_LAYOUTS)

@@ -141,7 +141,7 @@ async def test_a_later_extension_changes_the_limits_an_earlier_one_chose(vaults:
 
 
 @pytest.mark.anyio
-async def test_without_an_extension_a_large_file_of_any_type_is_stored(
+async def test_without_an_extension_a_large_file_of_any_type_is_stored_and_no_limit_is_named(
     vaults: SubjectVaults, tmp_path: Path
 ):
     async with hosted(vaults, tmp_path) as site:
@@ -149,7 +149,10 @@ async def test_without_an_extension_a_large_file_of_any_type_is_stored(
         async with http:
             key = site.key_for("ann@example.com")
             stored = await http.put("/dav/vault/clip.mp4", content=b"\x00" * 200_000, headers=basic(key))
+            answer = await http.get("/api/vault/limits", headers={"Authorization": f"Bearer {key}"})
     assert stored.status_code == 201
+    found = answer.json()
+    assert (found["file_bytes"], found["account_bytes"], found["content_types"]) == (None, None, [])
 
 
 def test_content_types_come_from_the_name_alone():
@@ -158,3 +161,20 @@ def test_content_types_come_from_the_name_alone():
     assert content_type_of("Bilagor/scan.PDF") == "application/pdf"
     assert content_type_of("clip.mp4") == "video/mp4"
     assert content_type_of("folder.d/README") == "application/octet-stream"
+
+
+@pytest.mark.anyio
+async def test_a_machine_key_reads_its_vaults_limits_and_the_accounts_usage(site: Hosted):
+    http = await site.member("ann@example.com")
+    key = site.key_for("ann@example.com")
+    async with http:
+        await write(http, key, "Areas/a.md", 9_000)
+        answer = await http.get("/api/vault/limits", headers={"Authorization": f"Bearer {key}"})
+        anonymous = await http.get("/api/vault/limits")
+    found = answer.json()
+    assert answer.status_code == 200 and anonymous.status_code == 401
+    assert found["vault"] == "notes" and found["kind"] == "personal" and found["write"] is True
+    assert (found["file_bytes"], found["account_bytes"]) == (10_000, 40_000)
+    assert found["content_types"] == ["text/*", "image/*", "application/pdf"]
+    assert found["used_bytes"] >= 9_000 and found["vault_bytes"] >= 9_000
+    assert found["upload_bytes"] == 32 * 1024 * 1024

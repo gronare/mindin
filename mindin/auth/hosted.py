@@ -42,7 +42,7 @@ from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import BaseRoute, Mount, Route, request_response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from mindin.auth import READ_SCOPE, SCOPES, AuthConfig, auth_dir
+from mindin.auth import READ_SCOPE, SCOPES, WRITE_SCOPE, AuthConfig, auth_dir
 from mindin.auth.cimd import (
     ClientMetadataError,
     ClientMetadataFetcher,
@@ -55,7 +55,7 @@ from mindin.auth.device import DEVICE_GRANT, DeviceFlow
 from mindin.auth.hosted_access import SupportAccess, SupportDesk
 from mindin.auth.hosted_deletion import SelfDeletion
 from mindin.auth.hosted_keys import Keyring, SealedVaults, VaultKeys
-from mindin.auth.hosted_limits import Quotas
+from mindin.auth.hosted_limits import Quotas, limits_document
 from mindin.auth.hosted_org_pages import OrganisationPages
 from mindin.auth.hosted_orgs import OrganisationReach
 from mindin.auth.hosted_ready import built_in_checks
@@ -579,7 +579,7 @@ def build_hosted_app(
     keyring: Keyring | None = None,
     extensions: Sequence[Extension] | None = None,
 ) -> Starlette:
-    from mindin.dav import WebDav
+    from mindin.dav import MAX_BODY_BYTES, WebDav
     from mindin.server import build_server
     from mindin.vault import SubjectVaults
 
@@ -637,6 +637,20 @@ def build_hosted_app(
         status = 503 if failing else 200
         return JSONResponse({"ready": not failing, "failing": failing}, status, {"Cache-Control": "no-store"})
 
+    def answer_limits(secret: str) -> Response:
+        grant = store.key_grant(secret) if secret else None
+        owner = store.account_by_id(grant.vault.account_id) if grant else None
+        if grant is None or owner is None or not grant.account.active or not grant.account.sub:
+            return JSONResponse({"error": "invalid_token"}, 401, {"WWW-Authenticate": "Bearer"})
+        scopes = provider.allowed(grant.account, grant.scopes)
+        if not scopes:
+            return JSONResponse({"error": "insufficient_scope"}, 403)
+        document = limits_document(sealed.quotas, grant.vault, owner, MAX_BODY_BYTES) | {"write": WRITE_SCOPE in scopes}
+        return JSONResponse(document, headers={"Cache-Control": "no-store"})
+
+    async def vault_limits(request: Request) -> Response:
+        return await anyio.to_thread.run_sync(answer_limits, bearer(request.scope))
+
     async def consent_submit(request: Request) -> Response:
         return await browser.consent_submit(request, provider.mint_code)
 
@@ -671,6 +685,7 @@ def build_hosted_app(
     routes += [
         Route(prefix + "/up", endpoint=health, methods=["GET"]),
         Route(prefix + "/ready", endpoint=ready, methods=["GET"]),
+        Route(prefix + "/api/vault/limits", endpoint=vault_limits, methods=["GET"]),
         Route(prefix + "/authorize", endpoint=limited(AuthorizationHandler(provider).handle), methods=["GET", "POST"]),
         Route(
             prefix + "/token",

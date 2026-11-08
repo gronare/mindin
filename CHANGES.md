@@ -22,6 +22,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - The plugin's team-wiki skill drafts a wiki page when work is finished and writes it on a yes.
 - A trusted proxy's identity token can name the proxy's own host, listed in `VAULT_IDENTITY_AUDIENCE`.
 - `mindin accounts import` leaves `.git/` and Mac leftovers behind, and `--dry-run` lists what it would do.
+- `GET /api/vault/limits` tells a signed-in machine its vault's storage limits and usage.
 - Extensions can add background work, storage limits and an email-link check.
 - Extensions can decide on every new account.
 

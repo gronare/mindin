@@ -219,6 +219,28 @@ class LimitedBackend:
         self.inner.mkdir(key)
 
 
+def limits_document(quotas: Quotas, vault: Vault, owner: Account, upload_bytes: int) -> dict[str, Any]:
+    limits = quotas.limits(owner)
+    return {
+        "vault": vault.slug,
+        "kind": vault.kind,
+        "file_bytes": limits.file_bytes,
+        "account_bytes": limits.account_bytes,
+        "content_types": list(limits.content_types),
+        "used_bytes": sum(quotas.size_of(owned.id) for owned in quotas.store.vaults(owner.id)),
+        "vault_bytes": quotas.size_of(vault.id),
+        "upload_bytes": upload_bytes,
+    }
+
+
+def limits_of(document: dict[str, Any]) -> StorageLimits:
+    return StorageLimits(
+        account_bytes=document.get("account_bytes"),
+        file_bytes=document.get("file_bytes"),
+        content_types=tuple(document.get("content_types") or ()),
+    )
+
+
 def with_defaults(limits: StorageLimits, **defaults: Any) -> StorageLimits:
     """These limits, with each one left unset taken from defaults."""
     return replace(limits, **{name: value for name, value in defaults.items() if not getattr(limits, name)})

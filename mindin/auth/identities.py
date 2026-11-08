@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import secrets
-import sqlite3
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from mindin.auth import Registration
+from mindin.auth.database import Connection
 from mindin.auth.hosted_orgs import domain_address, join_by_domain, keep_departed, on_a_domain
 from mindin.auth.hosted_store import Account, HostedStore, account_of, digest, now
 from mindin.auth.hosted_vaults import accept_invitations, add_first_vault, invited
@@ -283,7 +283,7 @@ class Identities:
             ).fetchone()
         return json.loads(row["document"]) if row else None
 
-    def _by_email(self, connection: sqlite3.Connection, emails: tuple[str, ...]) -> Account | None:
+    def _by_email(self, connection: Connection, emails: tuple[str, ...]) -> Account | None:
         marks = ", ".join("?" for _ in emails)
         row = connection.execute(f"SELECT * FROM accounts WHERE email IN ({marks})", emails).fetchone()
         if row is None:
@@ -294,7 +294,7 @@ class Identities:
             ).fetchone()
         return account_of(row)
 
-    def _create(self, connection: sqlite3.Connection, email: str) -> Account:
+    def _create(self, connection: Connection, email: str) -> Account:
         moment = now()
         account_id = "acc_" + secrets.token_urlsafe(16)
         connection.execute(
@@ -307,14 +307,14 @@ class Identities:
         assert created is not None
         return created
 
-    def _attach(self, connection: sqlite3.Connection, account_id: str, proof: Proof, emails: tuple[str, ...]) -> None:
+    def _attach(self, connection: Connection, account_id: str, proof: Proof, emails: tuple[str, ...]) -> None:
         connection.execute(
             "INSERT INTO identities(method, subject, account_id, email, label, created_at, last_used_at)"
             " VALUES(?, ?, ?, ?, ?, ?, ?)",
             (proof.method, proof.subject, account_id, emails[0] if emails else "", proof.label, now(), now()),
         )
 
-    def _signed_in(self, connection: sqlite3.Connection, account_id: str, name: str) -> Account | None:
+    def _signed_in(self, connection: Connection, account_id: str, name: str) -> Account | None:
         connection.execute(
             "UPDATE accounts SET sub = COALESCE(sub, ?), last_login_at = ?,"
             " name = CASE WHEN ? = '' THEN name ELSE ? END"

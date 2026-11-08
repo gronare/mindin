@@ -13,6 +13,12 @@ class Connection(Protocol):
     def execute(self, sql: str, parameters: Sequence[Any] = (), /) -> Any: ...
 
 
+class Row(Protocol):
+    def __getitem__(self, key: Any, /) -> Any: ...
+
+    def keys(self) -> list[str]: ...
+
+
 Step = Callable[[Any], None]
 
 

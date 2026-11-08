@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import json
 import secrets
-import sqlite3
 import sys
 import time
 from collections.abc import Callable, Sequence
@@ -16,7 +15,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from mindin.auth import READ_SCOPE, WRITE_SCOPE, auth_dir
-from mindin.auth.database import Database, SqliteDatabase
+from mindin.auth.database import Database, Row, SqliteDatabase
 from mindin.auth.hosted_vaults import (
     MEMBER,
     MIGRATIONS,
@@ -260,7 +259,7 @@ def client_label(client_id: str) -> str:
     return (urlsplit(client_id).hostname or client_id) if "://" in client_id else client_id
 
 
-def account_of(row: sqlite3.Row | None) -> Account | None:
+def account_of(row: Row | None) -> Account | None:
     if row is None:
         return None
     return Account(
@@ -579,7 +578,7 @@ class HostedStore:
             purpose=row["purpose"],
         )
 
-    def keys(self, account_id: str, vault_id: str | None = None) -> list[sqlite3.Row]:
+    def keys(self, account_id: str, vault_id: str | None = None) -> list[Row]:
         with self.connect() as connection:
             return connection.execute(
                 "SELECT id, vault_id, name, scopes, purpose, created_at, last_used_at FROM api_keys"
@@ -754,7 +753,7 @@ class HostedStore:
             )
         return issued_at + ttl
 
-    def load_token(self, token: str, kind: str) -> sqlite3.Row | None:
+    def load_token(self, token: str, kind: str) -> Row | None:
         with self.connect() as connection:
             return connection.execute(
                 "SELECT * FROM tokens WHERE token_hash = ? AND kind = ? AND revoked = 0", (digest(token), kind)
@@ -796,11 +795,11 @@ class HostedStore:
                 ),
             )
 
-    def device(self, device_code: str) -> sqlite3.Row | None:
+    def device(self, device_code: str) -> Row | None:
         with self.connect() as connection:
             return connection.execute("SELECT * FROM devices WHERE device_hash = ?", (digest(device_code),)).fetchone()
 
-    def device_by_user_code(self, user_code: str) -> sqlite3.Row | None:
+    def device_by_user_code(self, user_code: str) -> Row | None:
         with self.connect() as connection:
             return connection.execute(
                 "SELECT * FROM devices WHERE user_code = ? AND status = 'pending'", (user_code,)

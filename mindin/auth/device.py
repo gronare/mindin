@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import secrets
-import sqlite3
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -13,6 +12,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from mindin.auth import MACHINE_KEY_PURPOSE, READ_SCOPE, SCOPES, WRITE_SCOPE, AuthConfig
+from mindin.auth.database import Row
 from mindin.auth.hosted_store import Account, HostedStore
 from mindin.auth.hosted_vaults import Vault
 from mindin.auth.hosted_web import NO_STORE, Browser, Limits, client_address, error_box, esc, oauth_error, page
@@ -171,7 +171,7 @@ class DeviceFlow:
             return self.confirm(row, account, csrf)
         return self.entry(csrf, shown(user_code) if user_code else "")
 
-    def pending(self, user_code: str) -> sqlite3.Row | None:
+    def pending(self, user_code: str) -> Row | None:
         row = self.store.device_by_user_code(user_code)
         return row if row is not None and row["expires_at"] >= self.clock() else None
 
@@ -187,7 +187,7 @@ class DeviceFlow:
 </form>"""
         return page("Connect a device", "Enter the code the device shows.", body, status_code=status_code)
 
-    def vault_choice(self, row: sqlite3.Row, account: Account) -> tuple[str, list[Vault]]:
+    def vault_choice(self, row: Row, account: Account) -> tuple[str, list[Vault]]:
         requested = row["requested_vault"]
         if requested:
             vault = self.store.reachable_vault(account.id, requested)
@@ -208,7 +208,7 @@ class DeviceFlow:
         )
         return "", f"<fieldset><legend>The vault it reaches</legend>{radios}</fieldset>"
 
-    def confirm(self, row: sqlite3.Row, account: Account, csrf: str) -> Response:
+    def confirm(self, row: Row, account: Account, csrf: str) -> Response:
         requested, vaults = self.vault_choice(row, account)
         if not vaults:
             lead = (

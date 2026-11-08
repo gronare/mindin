@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import sqlite3
 import sys
 import time
 from collections.abc import Callable
@@ -11,6 +10,7 @@ from starlette.responses import RedirectResponse, Response
 from starlette.routing import Route
 
 from mindin.auth import auth_dir
+from mindin.auth.database import Row
 from mindin.auth.hosted_store import Account, HostedStore
 from mindin.auth.hosted_vaults import SUPPORT_TABLES, Vault
 from mindin.auth.hosted_web import Browser, esc
@@ -73,7 +73,7 @@ class SupportAccess:
                 (vault.account_id, vault.id, int(self.clock()), operator, reason, action),
             )
 
-    def log(self, account_id: str, limit: int = LOG_ROWS) -> list[sqlite3.Row]:
+    def log(self, account_id: str, limit: int = LOG_ROWS) -> list[Row]:
         with self.store.connect() as connection:
             return connection.execute(
                 "SELECT vault_access.at, vault_access.operator, vault_access.reason, vault_access.action,"

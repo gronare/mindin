@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
-from mindin.auth.database import add_column, has_table
+from mindin.auth.database import Connection, Row, add_column, has_table
 
 if TYPE_CHECKING:
     from mindin.auth import AuthConfig
@@ -123,7 +123,7 @@ class Vault:
         return self.kind == SHARED
 
 
-def vault_of(row: sqlite3.Row | None) -> Vault | None:
+def vault_of(row: Row | None) -> Vault | None:
     if row is None:
         return None
     return Vault(
@@ -162,7 +162,7 @@ def free_slug(taken: set[str], base: str) -> str:
     return candidate
 
 
-def holders(connection: sqlite3.Connection, vault_id: str) -> list[str]:
+def holders(connection: Connection, vault_id: str) -> list[str]:
     rows = connection.execute(
         "SELECT account_id FROM vaults WHERE id = ? UNION SELECT account_id FROM vault_members WHERE vault_id = ?",
         (vault_id, vault_id),
@@ -170,7 +170,7 @@ def holders(connection: sqlite3.Connection, vault_id: str) -> list[str]:
     return [row[0] for row in rows]
 
 
-def reached(connection: sqlite3.Connection, account_ids: list[str]) -> list[Vault]:
+def reached(connection: Connection, account_ids: list[str]) -> list[Vault]:
     if not account_ids:
         return []
     marks = ", ".join("?" for _ in account_ids)
@@ -182,18 +182,18 @@ def reached(connection: sqlite3.Connection, account_ids: list[str]) -> list[Vaul
     return [vault for vault in map(vault_of, rows) if vault is not None]
 
 
-def taken_slugs(connection: sqlite3.Connection, account_ids: list[str], other_than: str = "") -> set[str]:
+def taken_slugs(connection: Connection, account_ids: list[str], other_than: str = "") -> set[str]:
     return {vault.slug for vault in reached(connection, account_ids) if vault.id != other_than}
 
 
-def clash(connection: sqlite3.Connection, account_ids: list[str], slug: str, other_than: str = "") -> Vault | None:
+def clash(connection: Connection, account_ids: list[str], slug: str, other_than: str = "") -> Vault | None:
     return next(
         (vault for vault in reached(connection, account_ids) if vault.slug == slug and vault.id != other_than), None
     )
 
 
 def insert_vault(
-    connection: sqlite3.Connection,
+    connection: Connection,
     vault_id: str,
     account_id: str,
     name: str,
@@ -213,7 +213,7 @@ def new_vault_id() -> str:
     return VAULT_ID_PREFIX + secrets.token_urlsafe(16)
 
 
-def add_first_vault(connection: sqlite3.Connection, account_id: str, created_at: int) -> None:
+def add_first_vault(connection: Connection, account_id: str, created_at: int) -> None:
     slug = free_slug(taken_slugs(connection, [account_id]), FIRST_VAULT_SLUG)
     insert_vault(connection, new_vault_id(), account_id, FIRST_VAULT_NAME, slug, created_at)
 
@@ -306,7 +306,7 @@ def to_account_slugs(connection: sqlite3.Connection) -> None:
     connection.execute("UPDATE tokens SET revoked = 1 WHERE resource LIKE '%/v/%'")
 
 
-def rewrite_slugs(connection: sqlite3.Connection) -> None:
+def rewrite_slugs(connection: Connection) -> None:
     rows = connection.execute("SELECT * FROM vaults ORDER BY created_at, rowid").fetchall()
     every = [vault for vault in map(vault_of, rows) if vault is not None]
     first: dict[str, str] = {}
@@ -323,7 +323,7 @@ def rewrite_slugs(connection: sqlite3.Connection) -> None:
 MIGRATIONS = (to_vaults, to_shared, to_account_slugs)
 
 
-def reaches(connection: sqlite3.Connection, vault: Vault, account_id: str) -> bool:
+def reaches(connection: Connection, vault: Vault, account_id: str) -> bool:
     if vault.account_id == account_id:
         return True
     if not vault.shared:
@@ -340,7 +340,7 @@ class Waiting:
     clash: Vault
 
 
-def accept_invitations(connection: sqlite3.Connection, account_id: str, emails: tuple[str, ...]) -> list[Waiting]:
+def accept_invitations(connection: Connection, account_id: str, emails: tuple[str, ...]) -> list[Waiting]:
     if not emails:
         return []
     marks = ", ".join("?" for _ in emails)
@@ -367,7 +367,7 @@ def accept_invitations(connection: sqlite3.Connection, account_id: str, emails: 
     return waiting
 
 
-def invited(connection: sqlite3.Connection, emails: tuple[str, ...]) -> bool:
+def invited(connection: Connection, emails: tuple[str, ...]) -> bool:
     if not emails:
         return False
     marks = ", ".join("?" for _ in emails)

@@ -14,13 +14,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-LEASES = """
-CREATE TABLE IF NOT EXISTS periodic_leases (
-    name TEXT PRIMARY KEY,
-    holder TEXT NOT NULL,
-    held_until INTEGER NOT NULL
-);
-"""
 Claim = Callable[[str, float], bool]
 
 
@@ -29,8 +22,6 @@ class Leases:
         self.store = store
         self.clock = clock
         self.holder = holder or secrets.token_urlsafe(12)
-        with store.connect() as connection:
-            store.database.create(connection, LEASES)
 
     def claim(self, name: str, seconds: float) -> bool:
         moment = int(self.clock())

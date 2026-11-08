@@ -15,7 +15,8 @@ from mindin.auth.database import SqliteDatabase
 from mindin.auth.hosted_access import SupportAccess
 from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
 from mindin.auth.hosted_store import HostedStore, MembershipError, VaultNameError
-from mindin.auth.hosted_vaults import MIGRATIONS, Vault
+from mindin.auth.hosted_vaults import Vault
+from mindin.auth.schema import STEPS
 from mindin.backends import SCHEMA_KEY
 from mindin.cli import main
 from mindin.vault import SubjectVaults
@@ -538,7 +539,7 @@ def test_the_shell_makes_a_shared_vault_and_manages_its_members(
 def test_the_migration_adds_shared_vaults_and_leaves_a_personal_vault_as_it_was(storage: Path, tmp_path: Path):
     from test_hosted_vaults import ORCHARD_NOTE, legacy_store
 
-    from mindin.auth.hosted_vaults import to_vaults
+    from mindin.auth.schema import to_vaults
 
     keyring = Keyring(MasterKey.generate())
     account_id, _ = legacy_store(tmp_path / "auth", keyring, {"Areas/trees.md": ORCHARD_NOTE})
@@ -551,10 +552,10 @@ def test_the_migration_adds_shared_vaults_and_leaves_a_personal_vault_as_it_was(
         vaults_before = connection.execute("SELECT * FROM vaults").fetchall()
         keys_before = connection.execute("SELECT * FROM vault_data_keys").fetchall()
     raw_before = {file: file.read_bytes() for file in storage.rglob("*") if file.is_file()}
-    SqliteDatabase(path).migrate(MIGRATIONS)
-    SqliteDatabase(path).migrate(MIGRATIONS)
+    SqliteDatabase(path).migrate(STEPS)
+    SqliteDatabase(path).migrate(STEPS)
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == len(MIGRATIONS)
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == len(STEPS)
         after = connection.execute("SELECT id, account_id, name, created_at, slug FROM vaults").fetchall()
         assert [tuple(row)[:4] for row in after] == [(row[0], row[1], row[2], row[4]) for row in vaults_before]
         assert [row[4] for row in after] == ["notes"]

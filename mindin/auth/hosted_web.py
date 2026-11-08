@@ -94,15 +94,6 @@ def client_address(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-RATE_TABLE = """
-CREATE TABLE IF NOT EXISTS rate_limit_hits (
-    scope TEXT NOT NULL,
-    address TEXT NOT NULL,
-    slot INTEGER NOT NULL,
-    hits INTEGER NOT NULL,
-    PRIMARY KEY (scope, address, slot)
-)
-"""
 BLOCKED_KEYS = 10_000
 
 
@@ -111,8 +102,6 @@ class RateCounter:
 
     def __init__(self, store: HostedStore) -> None:
         self.store = store
-        with store.connect() as connection:
-            store.database.create(connection, RATE_TABLE)
 
     def hit(self, scope: str, key: str, limit: int, seconds: float, moment: float) -> bool:
         address = digest(key)

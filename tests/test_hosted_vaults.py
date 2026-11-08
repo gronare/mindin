@@ -27,15 +27,16 @@ from test_auth_hosted import authorize, consent, register
 from mindin.auth.database import SqliteDatabase
 from mindin.auth.hosted_access import SupportAccess
 from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
-from mindin.auth.hosted_store import SCHEMA, HostedStore, digest
-from mindin.auth.hosted_vaults import MIGRATIONS
+from mindin.auth.hosted_store import HostedStore, digest
 from mindin.auth.hosted_web import RECENT_SIGN_IN
+from mindin.auth.schema import STEPS, STORE_TABLES
 from mindin.backends import make_subject_backend
 from mindin.backends.local import LocalBackend
 from mindin.backends.sealed import SealedBackend, Unreadable, new_data_key
 from mindin.cli import main
 from mindin.vault import SubjectVaults
 
+STORE_SCRIPT = "".join(f"{statement};\n" for statement in STORE_TABLES)
 FRONT = "date: 2026-09-01\nupdated: 2026-09-01\nstatus: active\n"
 ORCHARD_NOTE = f"---\ntitle: Apple trees\n{FRONT}tags: [orchard]\n---\n\nPrune in March.\n"
 WORKSHOP_NOTE = (
@@ -545,7 +546,7 @@ def legacy_store(folder: Path, keyring: Keyring, notes: dict[str, str]) -> tuple
     folder.mkdir(parents=True, exist_ok=True)
     account_id = "acc_orchardkeeper00000001"
     with sqlite3.connect(path) as connection:
-        connection.executescript(SCHEMA + LEGACY_TABLES)
+        connection.executescript(STORE_SCRIPT + LEGACY_TABLES)
         connection.execute(
             "INSERT INTO accounts(id, email, sub, status, status_changed_at, created_at)"
             " VALUES(?, 'ann@example.com', 'sub-ann', 'active', 1, 1)",
@@ -587,10 +588,10 @@ async def test_the_migration_keeps_an_existing_vault_where_it_is_and_readable(
     account_id, secret = legacy_store(tmp_path / "auth", keyring, notes)
     raw_before = {path: path.read_bytes() for path in storage.rglob("*") if path.is_file()}
     store = HostedStore(tmp_path / "auth")
-    store.database.migrate(MIGRATIONS)
+    store.database.migrate(STEPS)
     HostedStore(tmp_path / "auth")
     with sqlite3.connect(store.database.path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == len(MIGRATIONS)
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == len(STEPS)
         assert connection.execute("SELECT name FROM sqlite_master WHERE name = 'vault_keys'").fetchone() is None
         assert connection.execute("SELECT COUNT(*) FROM vault_data_keys").fetchone()[0] == 1
     vault = store.first_vault(account_id)
@@ -611,13 +612,13 @@ async def test_the_migration_keeps_an_existing_vault_where_it_is_and_readable(
 def test_a_migration_that_cannot_move_every_key_changes_nothing(
     storage: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    from mindin.auth import hosted_vaults
+    from mindin.auth import schema
 
     keyring = Keyring(MasterKey.generate())
     legacy_store(tmp_path / "auth", keyring, {})
-    real = hosted_vaults.count
-    monkeypatch.setattr(hosted_vaults, "count", lambda connection, sql: -1 if "JOIN" in sql else real(connection, sql))
-    with pytest.raises(hosted_vaults.MigrationError):
+    real = schema.count
+    monkeypatch.setattr(schema, "count", lambda connection, sql: -1 if "JOIN" in sql else real(connection, sql))
+    with pytest.raises(schema.MigrationError):
         HostedStore(tmp_path / "auth")
     with sqlite3.connect(tmp_path / "auth" / "hosted.sqlite") as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
@@ -661,8 +662,8 @@ def test_the_migration_gives_every_vault_a_one_word_slug_unique_within_what_each
     folder.mkdir()
     database = SqliteDatabase(folder / "hosted.sqlite")
     with database.connect() as connection:
-        connection.executescript(SCHEMA)
-    database.migrate(MIGRATIONS[:2])
+        connection.executescript(STORE_SCRIPT)
+    database.migrate(STEPS[:2])
     vaults = [
         ("v-ann1", "acc-ann", "Personal", "ann-green", 10, "personal"),
         ("v-ann2", "acc-ann", "Work notes", "work.notes", 11, "personal"),

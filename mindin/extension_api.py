@@ -11,7 +11,7 @@ from mindin.auth.hosted_limits import StorageLimits, with_defaults
 from mindin.auth.hosted_members import INVITATION_TTL
 from mindin.auth.hosted_orgs import Organisation
 from mindin.auth.hosted_store import Account, HostedStore, account_of, digest, scope_label
-from mindin.auth.hosted_vaults import MIGRATIONS, Vault, rewrite_slugs
+from mindin.auth.hosted_vaults import Vault, rewrite_slugs
 from mindin.auth.hosted_web import Browser, esc, page
 from mindin.auth.identities import Identities
 from mindin.auth.login_email import ADDRESS as EMAIL_ADDRESS
@@ -19,6 +19,7 @@ from mindin.auth.login_email import Mailer, SmtpFactory
 from mindin.auth.mail import Mail, branded, images
 from mindin.auth.pages import stamp
 from mindin.auth.registration import Registrant
+from mindin.auth.schema import STEPS
 from mindin.backends import MUST_NOT_EXIST, LimitReached, VaultBackend, VersionConflict, make_subject_backend
 from mindin.changes import Change, ChangeBus, Kind, Listener
 from mindin.config import ConfigError, env, local_root
@@ -37,7 +38,7 @@ from mindin.extensions import (
 )
 from mindin.vault import SubjectVaults
 
-STORE_VERSION = len(MIGRATIONS)
+STORE_VERSION = len(STEPS)
 
 
 def honours_conditions(backend: VaultBackend) -> bool:

@@ -18,7 +18,6 @@ from mindin.auth import READ_SCOPE, WRITE_SCOPE, auth_dir
 from mindin.auth.database import Database, Row, SqliteDatabase
 from mindin.auth.hosted_vaults import (
     MEMBER,
-    MIGRATIONS,
     OWNER,
     PERSONAL,
     SHARED,
@@ -40,6 +39,7 @@ from mindin.auth.hosted_vaults import (
 )
 from mindin.auth.pages import stamp
 from mindin.auth.registration import Registrant
+from mindin.auth.schema import STEPS
 from mindin.config import private_dir
 from mindin.extensions import Extension, installed, supplied_database
 from mindin.shared import Actor
@@ -53,83 +53,6 @@ LOGIN_TTL = 600
 LAST_USED_RESOLUTION = 60
 UNUSED_CLIENT_TTL = 24 * 3600
 WEBDAV_KEY_NAME = "Obsidian (WebDAV)"
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS accounts (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    sub TEXT UNIQUE,
-    name TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'suspended')),
-    status_source TEXT NOT NULL DEFAULT 'operator',
-    status_changed_at INTEGER NOT NULL,
-    created_at INTEGER NOT NULL,
-    last_login_at INTEGER
-);
-CREATE TABLE IF NOT EXISTS api_keys (
-    id TEXT PRIMARY KEY,
-    account_id TEXT NOT NULL REFERENCES accounts(id),
-    name TEXT NOT NULL,
-    key_hash TEXT NOT NULL,
-    scopes TEXT NOT NULL,
-    purpose TEXT NOT NULL DEFAULT 'api',
-    created_at INTEGER NOT NULL,
-    last_used_at INTEGER,
-    revoked_at INTEGER
-);
-CREATE INDEX IF NOT EXISTS api_keys_account ON api_keys(account_id);
-CREATE TABLE IF NOT EXISTS sessions (
-    id_hash TEXT PRIMARY KEY,
-    account_id TEXT NOT NULL REFERENCES accounts(id),
-    csrf TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS clients (
-    client_id TEXT PRIMARY KEY,
-    client_name TEXT NOT NULL,
-    registered_at INTEGER NOT NULL,
-    last_token_at INTEGER,
-    document TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS requests (
-    id TEXT PRIMARY KEY,
-    created_at INTEGER NOT NULL,
-    document TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS codes (
-    code_hash TEXT PRIMARY KEY,
-    expires_at REAL NOT NULL,
-    document TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS tokens (
-    token_hash TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    grant_id TEXT NOT NULL,
-    client_id TEXT NOT NULL,
-    account_id TEXT NOT NULL REFERENCES accounts(id),
-    scopes TEXT NOT NULL,
-    resource TEXT NOT NULL,
-    issued_at INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL,
-    revoked INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS devices (
-    device_hash TEXT PRIMARY KEY,
-    user_code TEXT NOT NULL UNIQUE,
-    client_id TEXT NOT NULL,
-    client_name TEXT NOT NULL,
-    name TEXT NOT NULL,
-    scopes TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    account_id TEXT,
-    granted TEXT,
-    interval INTEGER NOT NULL,
-    created_at INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL,
-    last_poll_at REAL
-);
-"""
 
 
 def digest(secret: str) -> str:
@@ -284,13 +207,7 @@ class HostedStore:
         self.database = (
             database or supplied_database(chosen, directory) or SqliteDatabase(private_dir(directory) / "hosted.sqlite")
         )
-        from mindin.auth.hosted_orgs import SCHEMA as ORGANISATION_SCHEMA
-
-        with self.connect() as connection:
-            self.database.create(connection, SCHEMA)
-        self.database.migrate(MIGRATIONS)
-        with self.connect() as connection:
-            self.database.create(connection, ORGANISATION_SCHEMA)
+        self.database.migrate(STEPS)
         with self.connect() as connection:
             for extension in chosen:
                 extension.migrate(connection)

@@ -24,35 +24,6 @@ METHOD_NAMES: dict[str, str] = {
     "forwarded": "Company sign-in",
 }
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS identities (
-    method TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    account_id TEXT NOT NULL REFERENCES accounts(id),
-    email TEXT NOT NULL DEFAULT '',
-    label TEXT NOT NULL DEFAULT '',
-    public_key BLOB,
-    sign_count INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    last_used_at INTEGER,
-    PRIMARY KEY (method, subject)
-);
-CREATE INDEX IF NOT EXISTS identities_account ON identities(account_id);
-CREATE INDEX IF NOT EXISTS identities_email ON identities(email);
-CREATE TABLE IF NOT EXISTS ceremonies (
-    key_hash TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    binding_hash TEXT NOT NULL,
-    document TEXT NOT NULL,
-    expires_at INTEGER NOT NULL
-);
-"""
-BACKFILL = (
-    "INSERT INTO identities(method, subject, account_id, email, label, created_at)"
-    " SELECT 'oidc', sub, id, email, email, created_at FROM accounts WHERE sub IS NOT NULL"
-    " ON CONFLICT (method, subject) DO NOTHING"
-)
-
 
 @dataclass(frozen=True)
 class Proof:
@@ -98,12 +69,6 @@ def addresses(emails: tuple[str, ...]) -> tuple[str, ...]:
 class Identities:
     def __init__(self, store: HostedStore) -> None:
         self.store = store
-        with store.connect() as connection:
-            fresh = "identities" not in store.database.tables(connection)
-            store.database.create(connection, SCHEMA)
-            if fresh:
-                connection.execute(BACKFILL)
-                connection.execute("DROP TABLE IF EXISTS logins")
 
     def sign_in(self, proof: Proof, registration: Registration) -> Outcome:
         emails = addresses(proof.emails)

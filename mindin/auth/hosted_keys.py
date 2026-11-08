@@ -23,7 +23,7 @@ from mindin.auth.hosted_history import HISTORY_PREFIX, History, history_key
 from mindin.auth.hosted_limits import Quotas
 from mindin.auth.hosted_orgs import locked_out
 from mindin.auth.hosted_store import Account, HostedStore
-from mindin.auth.hosted_vaults import DATA_KEY_TABLES, Vault
+from mindin.auth.hosted_vaults import Vault
 from mindin.backends import Entry, VaultBackend, VaultError, is_vault_key, make_subject_backend
 from mindin.backends.local import LocalBackend
 from mindin.backends.sealed import DATA_KEY_BYTES, NONCE_BYTES, SealedBackend, Storage, new_data_key
@@ -120,8 +120,6 @@ class VaultKeys:
     def __init__(self, store: HostedStore, keyring: Keyring) -> None:
         self.store = store
         self.keyring = keyring
-        with store.connect() as connection:
-            store.database.create(connection, ";\n".join(DATA_KEY_TABLES))
 
     def data_key(self, vault_id: str) -> bytes:
         with self.store.connect() as connection:

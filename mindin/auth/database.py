@@ -36,10 +36,6 @@ class Database(Protocol):
 
     def columns(self, connection: Connection, table: str) -> list[str]: ...
 
-    def create(self, connection: Connection, script: str) -> None:
-        """Run a script of CREATE … IF NOT EXISTS statements, every time the store opens."""
-        ...
-
     def migrate(self, steps: Sequence[Step]) -> None:
         """Run, in one transaction, the upgrade steps numbered from 1 that this database has not run yet."""
         ...
@@ -68,9 +64,6 @@ class SqliteDatabase:
 
     def columns(self, connection: sqlite3.Connection, table: str) -> list[str]:
         return columns(connection, table)
-
-    def create(self, connection: sqlite3.Connection, script: str) -> None:
-        connection.executescript(script)
 
     def migrate(self, steps: Sequence[Step]) -> None:
         connection = sqlite3.connect(self.path, isolation_level=None)

@@ -1,6 +1,6 @@
 {
  "fresh": {
-  "user_version": 3,
+  "user_version": 5,
   "objects": [
    [
     "index",
@@ -138,6 +138,18 @@
     "index",
     "sqlite_autoindex_organisations_1",
     "organisations",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_periodic_leases_1",
+    "periodic_leases",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_rate_limit_hits_1",
+    "rate_limit_hits",
     null
    ],
    [
@@ -301,6 +313,18 @@
     "organisations",
     "organisations",
     "CREATE TABLE organisations (\n    id TEXT PRIMARY KEY,\n    name TEXT NOT NULL,\n    removal TEXT NOT NULL DEFAULT 'keep' CHECK (removal IN ('keep', 'export-and-delete')),\n    removal_days INTEGER NOT NULL DEFAULT 30,\n    external_sharing TEXT NOT NULL DEFAULT 'denied' CHECK (external_sharing IN ('allowed', 'denied')),\n    created_at INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "periodic_leases",
+    "periodic_leases",
+    "CREATE TABLE periodic_leases (\n    name TEXT PRIMARY KEY,\n    holder TEXT NOT NULL,\n    held_until INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "rate_limit_hits",
+    "rate_limit_hits",
+    "CREATE TABLE rate_limit_hits (\n    scope TEXT NOT NULL,\n    address TEXT NOT NULL,\n    slot INTEGER NOT NULL,\n    hits INTEGER NOT NULL,\n    PRIMARY KEY (scope, address, slot)\n)"
    ],
    [
     "table",
@@ -371,7 +395,7 @@
   ]
  },
  "migrated": {
-  "user_version": 3,
+  "user_version": 5,
   "objects": [
    [
     "index",
@@ -509,6 +533,18 @@
     "index",
     "sqlite_autoindex_organisations_1",
     "organisations",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_periodic_leases_1",
+    "periodic_leases",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_rate_limit_hits_1",
+    "rate_limit_hits",
     null
    ],
    [
@@ -672,6 +708,18 @@
     "organisations",
     "organisations",
     "CREATE TABLE organisations (\n    id TEXT PRIMARY KEY,\n    name TEXT NOT NULL,\n    removal TEXT NOT NULL DEFAULT 'keep' CHECK (removal IN ('keep', 'export-and-delete')),\n    removal_days INTEGER NOT NULL DEFAULT 30,\n    external_sharing TEXT NOT NULL DEFAULT 'denied' CHECK (external_sharing IN ('allowed', 'denied')),\n    created_at INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "periodic_leases",
+    "periodic_leases",
+    "CREATE TABLE periodic_leases (\n    name TEXT PRIMARY KEY,\n    holder TEXT NOT NULL,\n    held_until INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "rate_limit_hits",
+    "rate_limit_hits",
+    "CREATE TABLE rate_limit_hits (\n    scope TEXT NOT NULL,\n    address TEXT NOT NULL,\n    slot INTEGER NOT NULL,\n    hits INTEGER NOT NULL,\n    PRIMARY KEY (scope, address, slot)\n)"
    ],
    [
     "table",

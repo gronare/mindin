@@ -5,11 +5,14 @@ import sqlite3
 from pathlib import Path
 
 from mindin.auth.hosted_access import SupportAccess
-from mindin.auth.hosted_keys import Keyring, MasterKey, VaultKeys
-from mindin.auth.hosted_store import SCHEMA, HostedStore
-from mindin.auth.identities import Identities
+from mindin.auth.hosted_store import HostedStore
+from mindin.auth.schema import STEPS, STORE_TABLES
+from mindin.extension_api import STORE_VERSION
 
 FIXTURE = Path(__file__).parent / "fixtures" / "hosted_schema.json"
+RELEASED = Path(__file__).parent / "fixtures" / "hosted_schema_0.15.2.json"
+RELEASED_VERSION = 3
+STORE_SCRIPT = "".join(f"{statement};\n" for statement in STORE_TABLES)
 LEGACY_TABLES = """
 CREATE TABLE vault_keys (
     account_id TEXT PRIMARY KEY REFERENCES accounts(id),
@@ -39,11 +42,7 @@ INSERT INTO support_grants(account_id, granted_at, expires_at) VALUES('acc_orcha
 
 
 def opened(folder: Path) -> HostedStore:
-    store = HostedStore(folder, extensions=())
-    VaultKeys(store, Keyring(MasterKey.generate()))
-    Identities(store)
-    SupportAccess(store)
-    return store
+    return HostedStore(folder, extensions=())
 
 
 def dump(path: Path) -> dict[str, object]:
@@ -58,13 +57,33 @@ def schemas(folder: Path) -> dict[str, object]:
     legacy = folder / "legacy"
     legacy.mkdir(parents=True)
     with sqlite3.connect(legacy / "hosted.sqlite") as connection:
-        connection.executescript(SCHEMA + LEGACY_TABLES)
+        connection.executescript(STORE_SCRIPT + LEGACY_TABLES)
     migrated = opened(legacy)
     return {"fresh": dump(fresh.database.path), "migrated": dump(migrated.database.path)}
 
 
 def test_the_store_lays_out_the_same_tables_as_the_released_schema(tmp_path: Path):
     assert schemas(tmp_path) == json.loads(FIXTURE.read_text())
+
+
+def released_store(folder: Path) -> Path:
+    folder.mkdir(parents=True)
+    path = folder / "hosted.sqlite"
+    objects = json.loads(RELEASED.read_text())["fresh"]["objects"]
+    with sqlite3.connect(path) as connection:
+        for _, name, _, sql in sorted(objects, key=lambda found: found[0] != "table"):
+            if sql is not None and not name.startswith("sqlite_"):
+                connection.execute(sql)
+        connection.execute(f"PRAGMA user_version = {RELEASED_VERSION}")
+    return path
+
+
+def test_a_released_store_upgrades_to_the_same_tables_a_fresh_store_has(tmp_path: Path):
+    path = released_store(tmp_path / "released")
+    opened(tmp_path / "released")
+    fresh = opened(tmp_path / "fresh")
+    assert dump(path) == dump(fresh.database.path)
+    assert dump(path)["user_version"] == len(STEPS) == STORE_VERSION
 
 
 def test_registering_a_client_again_replaces_it_and_forgets_its_last_token(tmp_path: Path):

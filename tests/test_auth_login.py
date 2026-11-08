@@ -13,6 +13,7 @@ from login_support import Authenticator, branded, hrefs
 from mindin.auth import ForwardedConfig
 from mindin.auth.hosted_store import HostedStore, now
 from mindin.auth.identities import Identities, Proof
+from mindin.auth.schema import STEPS, to_opened_tables
 from mindin.vault import SubjectVaults
 
 WEBAUTHN = "https://www.w3.org/TR/webauthn-3/"
@@ -517,7 +518,9 @@ def test_an_existing_store_keeps_its_oidc_subjects_as_identities(tmp_path: Path)
     account, _ = store.invite("ann@example.com")
     with store.connect() as connection:
         connection.execute("UPDATE accounts SET sub = 'pocket-sub', status = 'active' WHERE id = ?", (account.id,))
-    identities = Identities(store)
+        connection.execute("DROP TABLE identities")
+        connection.execute(f"PRAGMA user_version = {STEPS.index(to_opened_tables)}")
+    identities = Identities(HostedStore(tmp_path))
     assert identities.account_for("oidc", "pocket-sub").id == account.id
     signed_in = identities.sign_in(Proof("oidc", "pocket-sub", ("ann@example.com",)), "invite").account
     assert signed_in is not None and signed_in.sub == "pocket-sub", "the vault folder stays where it was"

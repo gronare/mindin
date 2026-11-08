@@ -12,7 +12,7 @@ from starlette.routing import Route
 from mindin.auth import auth_dir
 from mindin.auth.database import Row
 from mindin.auth.hosted_store import Account, HostedStore
-from mindin.auth.hosted_vaults import SUPPORT_TABLES, Vault
+from mindin.auth.hosted_vaults import Vault
 from mindin.auth.hosted_web import Browser, esc
 from mindin.auth.pages import stamp
 from mindin.backends import NotFound
@@ -29,8 +29,6 @@ class SupportAccess:
     def __init__(self, store: HostedStore, clock: Callable[[], float] = time.time) -> None:
         self.store = store
         self.clock = clock
-        with store.connect() as connection:
-            store.database.create(connection, ";\n".join(SUPPORT_TABLES))
 
     def grant(self, vault: Vault, seconds: int) -> int:
         moment = int(self.clock())

@@ -34,7 +34,6 @@ REMOVALS = (KEEP, EXPORT_AND_DELETE)
 ALLOWED = "allowed"
 DENIED = "denied"
 SHARING = (ALLOWED, DENIED)
-DEFAULT_REMOVAL_DAYS = 30
 DOMAIN_RE = re.compile(r"(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
 Removal = Literal["keep", "export-and-delete"]
 SPANNING_PURPOSES = (None, MACHINE_KEY_PURPOSE)
@@ -53,73 +52,6 @@ PUBLIC_DOMAINS = frozenset(
     | {"fastmail.com", "tuta.io", "hey.com", "comcast.net", "telia.com", "bredband.net", "laposte.net", "orange.fr"}
 )
 SECOND_LEVELS = frozenset({"co", "com", "net", "org", "ne", "or"})
-
-SCHEMA = f"""
-CREATE TABLE IF NOT EXISTS organisations (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    removal TEXT NOT NULL DEFAULT 'keep' CHECK (removal IN ('keep', 'export-and-delete')),
-    removal_days INTEGER NOT NULL DEFAULT {DEFAULT_REMOVAL_DAYS},
-    external_sharing TEXT NOT NULL DEFAULT 'denied' CHECK (external_sharing IN ('allowed', 'denied')),
-    created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS organisation_domains (
-    organisation_id TEXT NOT NULL REFERENCES organisations(id),
-    domain TEXT NOT NULL COLLATE NOCASE,
-    token TEXT NOT NULL,
-    verified_at INTEGER,
-    added_at INTEGER NOT NULL,
-    checked_at INTEGER,
-    checked_records INTEGER,
-    PRIMARY KEY (organisation_id, domain)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS organisation_domains_verified ON organisation_domains(domain)
-    WHERE verified_at IS NOT NULL;
-CREATE TABLE IF NOT EXISTS organisation_members (
-    organisation_id TEXT NOT NULL REFERENCES organisations(id),
-    account_id TEXT NOT NULL REFERENCES accounts(id),
-    role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
-    source TEXT NOT NULL,
-    joined_at INTEGER NOT NULL,
-    PRIMARY KEY (organisation_id, account_id)
-);
-CREATE INDEX IF NOT EXISTS organisation_members_account ON organisation_members(account_id);
-CREATE TABLE IF NOT EXISTS organisation_invitations (
-    organisation_id TEXT NOT NULL REFERENCES organisations(id),
-    account_id TEXT NOT NULL REFERENCES accounts(id),
-    role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
-    sent_at INTEGER NOT NULL,
-    invited_by TEXT,
-    mailed_at INTEGER,
-    PRIMARY KEY (organisation_id, account_id)
-);
-CREATE INDEX IF NOT EXISTS organisation_invitations_account ON organisation_invitations(account_id);
-CREATE TABLE IF NOT EXISTS organisation_vaults (
-    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),
-    organisation_id TEXT NOT NULL REFERENCES organisations(id),
-    layout TEXT NOT NULL DEFAULT 'wiki',
-    locked INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS organisation_editors (
-    vault_id TEXT NOT NULL REFERENCES vaults(id),
-    account_id TEXT NOT NULL REFERENCES accounts(id),
-    added_at INTEGER NOT NULL,
-    PRIMARY KEY (vault_id, account_id)
-);
-CREATE TABLE IF NOT EXISTS organisation_departures (
-    organisation_id TEXT NOT NULL REFERENCES organisations(id),
-    email TEXT NOT NULL COLLATE NOCASE,
-    former_account TEXT NOT NULL,
-    removed_at INTEGER NOT NULL,
-    delete_after INTEGER,
-    source TEXT,
-    told_at INTEGER,
-    erased_at INTEGER,
-    kept_at INTEGER,
-    PRIMARY KEY (organisation_id, email)
-);
-"""
 
 
 class OrganisationError(ValueError):

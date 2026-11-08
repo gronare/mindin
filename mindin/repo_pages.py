@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from mindin.bundle import bundle_of
 from mindin.index import Note
 from mindin.notes import RepoPage, path_overlap
 from mindin.vault import Vault
@@ -52,17 +53,21 @@ def pages_for(
     vault: Vault, slug: str, path: str | None, repo: str | None, remote: str | None, areas: set[str]
 ) -> list[tuple[int, str, RepoPage]]:
     schema = vault.schema
+    rules = bundle_of(schema).session
     unsearched = set(schema.unsearched_folders)
     wanted = {area.lower() for area in areas} | ({repo.lower()} if repo else set())
     found = []
     for note in vault.index.all_notes():
         if not note.valid or note.superseded_by or note.status == "superseded":
             continue
-        if schema.folder_of(note.key) in unsearched:
+        if schema.folder_of(note.key) in unsearched or (rules is not None and not rules.shows(note.key)):
             continue
         score = relevance(note, path, repo or "", plain_remote(remote or ""), wanted)
         if score:
             found.append((score, note))
+    if rules is not None:
+        found = sorted(found, key=lambda entry: entry[1].updated, reverse=True)
+        found = sorted(found, key=lambda entry: -entry[0])[: rules.limit]
     bodies = vault.index.bodies([note.key for _, note in found])
     return [
         (score, note.updated, RepoPage(slug, note.key, note.title, first_line(note, bodies.get(note.key, ""))))

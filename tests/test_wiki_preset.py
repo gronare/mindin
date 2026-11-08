@@ -7,7 +7,7 @@ import pytest
 import yaml
 from hosted_support import INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_session, post_mcp, sse_payload, text_of
 
-from mindin import notes, provision
+from mindin import notes, provision, repo_pages
 from mindin.auth.hosted_keys import SealedVaults, VaultKeys
 from mindin.auth.hosted_orgs import Organisations
 from mindin.backends import PREVIOUS_SCHEMA_KEY, SCHEMA_KEY
@@ -264,3 +264,19 @@ async def in_one_session(http, token: str, calls: list[tuple[str, dict]]) -> lis
         assert response.status_code == 200, response.text
         answers.append(sse_payload(response.text)["result"])
     return answers
+
+
+def test_session_start_takes_only_the_folders_and_number_the_wikis_bundle_names(tmp_path: Path):
+    vault = wiki(tmp_path)
+    vault.backend.put(
+        SCHEMA_KEY, "preset: wiki\nbundle:\n  session:\n    folders: [Areas, Guides, Decisions]\n    limit: 2\n"
+    )
+    vault.reload_schema()
+    for day in range(1, 4):
+        guide = GUIDE.replace("title: Adding a payment method", f"title: Guide {day}").replace("11-01", f"11-0{day}")
+        notes.write(vault, f"Guides/guide-{day}.md", guide)
+    team = page("team").replace('area: "[[payments]]"\n', "repos: [shop]\n")
+    notes.write(vault, "Teams/payments.md", team)
+    found = repo_pages.pages_for(vault, "wiki", None, "shop", None, set())
+    keys = [page.key for _, _, page in found]
+    assert len(keys) == 2 and all(key.startswith("Guides/guide-") for key in keys), keys

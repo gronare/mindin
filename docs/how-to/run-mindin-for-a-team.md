@@ -51,7 +51,7 @@ Or use New vault under Vaults on the organisation's page. Every member reaches i
 
 It is laid out as a wiki: Areas, Teams, Guides, Decisions, finished Projects, closed Incidents and Archive. The layout is chosen when the vault is made, with Layout on the New vault form or `--layout shared` on the command line, for Areas, Resources and Archive instead; it stays as chosen. See [What a shared vault holds](../explanation/shared-vaults.md#what-a-shared-vault-holds).
 
-A page that names the repositories it is about reaches people at work in them: when a member starts Claude Code in a matching repo, the session start lists the page's title and one line. Name them in the page's frontmatter:
+A page that names the repositories it is about reaches people at work in them: when a member starts Claude Code in a matching repo, the session start lists the page's title and one line. In a wiki these are pages in Areas, Guides and Decisions, five at most, as its [bundle](../reference/schema.md#bundle) says. Name the repositories in the page's frontmatter:
 
 ```yaml
 repos: [acme/payments, payments-web]

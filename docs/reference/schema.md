@@ -77,7 +77,7 @@ bundle:
 | --- | --- |
 | `instructions` | When to write to this vault and how, in the agent's words. |
 | `session.folders` | The folders whose pages session start shows when their `repos` name the repo. |
-| `session.limit` | At most this many pages, 5 when left out. |
+| `session.limit` | At most this many pages from this vault, 5 when left out. Session start shows 5 pages in total across every vault, so a higher limit shows no more. |
 | `guard.secrets` | `true` refuses a write that holds a secret. |
 | `guard.personal_data` | The personal data a write is refused for: `card_number`, `personnummer`. |
 

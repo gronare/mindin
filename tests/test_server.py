@@ -50,9 +50,10 @@ async def test_every_tool_description_states_its_cost(vault: Vault):
 
 @pytest.mark.anyio
 async def test_the_instructions_carry_the_schema(vault: Vault):
-    server = build_server(vault)
-    assert "Areas/" in server.instructions
-    assert "status is one of: draft, active, backlog, complete, superseded" in server.instructions
+    async with Client(build_server(vault)) as client:
+        told = client.instructions
+    assert "Areas/" in told
+    assert "status is one of: draft, active, backlog, complete, superseded" in told
 
 
 @pytest.mark.anyio

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from hosted_support import INITIALIZE, Hosted, call_tool, hosted, post_mcp, sse_payload, text_of
+from mcp.client import Client
 from test_shared_vaults import PRUNING, club, key_of, write
 
 from mindin.hooks import SHARED_VAULT_HINT, VAULT_HINT, render_session_start
@@ -44,9 +45,11 @@ async def test_a_shared_vault_tells_the_agent_what_belongs_there_and_a_personal_
     assert "`backlog_add` it in the same" in personal
 
 
-def test_a_local_vault_keeps_the_instructions_of_its_schema(vault: Vault):
-    server = build_server(vault)
-    assert server._lowlevel_server.create_initialization_options().instructions == instructions(vault.schema)
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_a_local_vault_keeps_the_instructions_of_its_schema(vault: Vault, mode: str):
+    async with Client(build_server(vault), mode=mode) as client:
+        assert client.instructions == instructions(vault.schema)
 
 
 @pytest.mark.anyio

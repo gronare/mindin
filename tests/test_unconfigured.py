@@ -55,8 +55,11 @@ async def test_every_tool_call_without_a_vault_says_how_to_set_one_up(nothing_co
     assert not Path(os.environ["VAULT_CACHE_DIR"]).exists()
 
 
-def test_the_instructions_without_a_vault_open_with_the_setup_line():
-    assert build_server(Unconfigured("No vault is set up.")).instructions.startswith("No vault is set up.\n\n")
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_the_instructions_without_a_vault_open_with_the_setup_line(mode: str):
+    async with Client(build_server(Unconfigured("No vault is set up.")), mode=mode) as client:
+        assert client.instructions.startswith("No vault is set up.\n\n")
 
 
 def stdio_exchange(home: Path, messages: list[dict]) -> dict[int, dict]:

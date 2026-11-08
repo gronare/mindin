@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import Tool as MCPTool
@@ -63,6 +64,7 @@ MEANING_DESCRIPTION = (
 )
 
 
+INSTRUCTED_METHODS = frozenset({"initialize", "server/discover"})
 MACHINE_TOOLS = frozenset({"claim", "release", "changelog", "lint_and_park", "snapshot", "view"})
 
 
@@ -88,8 +90,13 @@ class VaultServer(MCPServer):
 
 
 def answer_instructions_per_vault(server: MCPServer, answer: Callable[[], str]) -> None:
-    low = server._lowlevel_server
-    low.__class__ = type("PerVaultServer", (type(low),), {"instructions": property(lambda _: answer())})
+    async def per_vault(ctx: ServerRequestContext[Any, Any], call_next: CallNext) -> HandlerResult:
+        result = await call_next(ctx)
+        if ctx.method in INSTRUCTED_METHODS and isinstance(result, dict):
+            return {**result, "instructions": answer()}
+        return result
+
+    server.middleware.append(per_vault)
 
 
 def build_server(

@@ -11,14 +11,17 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
+from mindin import provision
 from mindin.auth import mail
-from mindin.auth.hosted_keys import StillShared
+from mindin.auth.hosted_keys import StillShared, facts_of
+from mindin.auth.hosted_layout import layout_title
 from mindin.auth.hosted_orgs import (
     ADMIN,
     ALLOWED,
     DENIED,
     EXPORT_AND_DELETE,
     KEEP,
+    ORG_LAYOUTS,
     Departure,
     Organisation,
     OrganisationError,
@@ -29,17 +32,26 @@ from mindin.auth.hosted_orgs import (
 )
 from mindin.auth.hosted_store import Account, MembershipError, VaultNameError
 from mindin.auth.hosted_vault_pages import VaultPages, counted
-from mindin.auth.hosted_vaults import NAME_MAX, SLUG_MAX
+from mindin.auth.hosted_vaults import NAME_MAX, SLUG_MAX, Vault
 from mindin.auth.hosted_web import copy_field, error_box, esc, hidden_field
 from mindin.auth.login_email import Mailer
 from mindin.auth.pages import stamp
+from mindin.backends import SCHEMA_KEY
 from mindin.extensions import Periodic
+from mindin.presets import PRESETS, WIKI_PRESET
 
 logger = logging.getLogger(__name__)
 
 DEPARTURES_EVERY = 3600.0
 DAYS_RE = re.compile(r"[0-9]{1,3}")
 SOURCES = {"domain": "email domain", "admin": "added by an admin", "created": "made the organisation"}
+
+
+def layout_choices() -> str:
+    return "".join(
+        f'<option value="{name}" title="{esc(PRESETS[name].summary)}">{esc(PRESETS[name].title)}</option>'
+        for name in ORG_LAYOUTS
+    )
 
 
 def day_label(moment: int, now: float) -> str:
@@ -261,9 +273,15 @@ Every member signs in with their own account and makes their own keys.</p></div>
             rows.append(
                 f'<div class="box"><div class="head"><div><b><a href="{esc(self.pages.vault_url(vault))}">'
                 f"{esc(vault.name)}</a></b> <code>{esc(vault.slug)}</code>"
-                f'<p class="small muted">{esc(state)}</p></div>{toggle}</div>{editing}</div>'
+                f'<p class="small muted">{esc(state)}</p><p class="facts">{esc(self.vault_facts(vault))}</p></div>'
+                f"{toggle}</div>{editing}</div>"
             )
         return "".join(rows)
+
+    def vault_facts(self, vault: Vault) -> str:
+        backend = self.pages.storage(vault)
+        notes = counted(facts_of(backend.list_all()).notes, "note")
+        return f"{notes} · {layout_title(provision.stored(backend, SCHEMA_KEY)).lower()}"
 
     def vaults_section(self, organisation: Organisation, csrf: str) -> str:
         items = self.organisations.vaults(organisation)
@@ -276,6 +294,7 @@ made it. Lock a vault to let only its editors write; everyone else still reads i
 <label class="field">New vault<input type="text" name="name" required maxlength="{NAME_MAX}" placeholder="Wiki"></label>
 <label class="field narrow">Address<input type="text" name="slug" maxlength="{SLUG_MAX}" placeholder="wiki"
 pattern="[a-z][a-z0-9]*" autocomplete="off"></label>
+<label class="field narrow">Layout<select name="layout">{layout_choices()}</select></label>
 <button class="btn" type="submit">Create vault</button></form></div>"""
 
     def removal_section(self, organisation: Organisation, csrf: str) -> str:
@@ -442,8 +461,9 @@ already exists.</p>
 
     def create_vault(self, account: Account, organisation: Organisation, form: dict) -> str:
         slug = form.get("slug", "").strip() or None
-        vault = self.organisations.create_vault(organisation, account, form.get("name", ""), slug)
-        self.pages.provision(vault, "")
+        layout = form.get("layout") or WIKI_PRESET
+        vault = self.organisations.create_vault(organisation, account, form.get("name", ""), slug, layout)
+        self.pages.provision(vault, layout)
         return f"{vault.name} is at /mcp?vault={vault.slug} for every member."
 
     def lock(self, _: Account, organisation: Organisation, form: dict) -> str:

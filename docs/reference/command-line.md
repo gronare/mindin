@@ -74,14 +74,14 @@ mindin org domain add <organisation> <domain> [--verified] [--allow-public]
 mindin org domain check | remove <organisation> <domain>
 mindin org admin add | remove <organisation> <email>
 mindin org member add | remove <organisation> <email>
-mindin org vault create <organisation> <name> [--slug <slug>] [--by <admin>]
+mindin org vault create <organisation> <name> [--slug <slug>] [--by <admin>] [--layout wiki | shared]
 mindin org vault lock | unlock <organisation> <slug>
 mindin org vault editor-add | editor-remove <organisation> <slug> <email>
 mindin org removal <organisation> keep | export-and-delete [--days <days>]
 mindin org sharing <organisation> allowed | denied
 ```
 
-`<organisation>` is its name or id. A domain lets people in once it is verified: `domain add` prints the TXT record to publish at `_mindin-verify.<domain>`, and `domain check` looks it up. `--verified` marks it verified at once, also when the organisation already added it unverified, and `--allow-public` accepts a public email provider's domain, which is otherwise refused. `vault create --by` names the admin who owns the vault and defaults to the first admin. `removal` decides what happens to a removed member's personal vaults; `--days` defaults to 30. `sharing` decides whether members may invite people outside the organisation to the shared vaults they own; it starts as `denied`. See [Run mindin for a team](../how-to/run-mindin-for-a-team.md).
+`<organisation>` is its name or id. A domain lets people in once it is verified: `domain add` prints the TXT record to publish at `_mindin-verify.<domain>`, and `domain check` looks it up. `--verified` marks it verified at once, also when the organisation already added it unverified, and `--allow-public` accepts a public email provider's domain, which is otherwise refused. `vault create --by` names the admin who owns the vault and defaults to the first admin; `--layout` is `wiki` unless you pick `shared`. `removal` decides what happens to a removed member's personal vaults; `--days` defaults to 30. `sharing` decides whether members may invite people outside the organisation to the shared vaults they own; it starts as `denied`. See [Run mindin for a team](../how-to/run-mindin-for-a-team.md).
 
 See [Manage accounts](../how-to/manage-accounts.md), [Support access and import](../how-to/support-access-and-import.md) and [Back up and rotate keys](../how-to/back-up-and-rotate.md).
 

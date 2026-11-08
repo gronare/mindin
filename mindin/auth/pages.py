@@ -161,6 +161,10 @@ form {{ margin: 0; }}
 label.field {{ display: grid; gap: 4px; font-size: 14px; }}
 input[type=text], input[type=email], select {{ width: 100%; padding: 8px 10px; font: inherit;
   border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); color: var(--ink); }}
+select {{ appearance: none; -webkit-appearance: none; padding-right: 30px; background-repeat: no-repeat;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 15px center, right 10px center; background-size: 5px 5px, 5px 5px; }}
 fieldset {{ border: 0; padding: 0; margin: 0; min-width: 0; }}
 legend {{ margin-bottom: 6px; color: var(--muted); font-size: 13px; padding: 0; }}
 .choice {{ display: grid; gap: 8px; }}

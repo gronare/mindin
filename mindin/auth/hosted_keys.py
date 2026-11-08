@@ -29,6 +29,7 @@ from mindin.backends.local import LocalBackend
 from mindin.backends.sealed import DATA_KEY_BYTES, NONCE_BYTES, SealedBackend, Storage, new_data_key
 from mindin.config import ConfigError, cache_dir, env
 from mindin.index import remove_index
+from mindin.presets import SHARED_PRESET
 from mindin.shared import Actor, SharedBackend, SharedRules
 
 MASTER_KEY_ENV = "VAULT_HOSTED_MASTER_KEY"
@@ -222,7 +223,15 @@ class SealedVaults:
         if not vault.shared:
             return backend, identifier
         guard = partial(self.write_refusal, vault.id)
-        return SharedBackend(backend, SharedRules(vault.name), self.history(vault.id), guard), identifier
+        layout = self.layout(vault.id)
+        return SharedBackend(backend, SharedRules(vault.name), self.history(vault.id), guard, layout), identifier
+
+    def layout(self, vault_id: str) -> str:
+        with self.store.connect() as connection:
+            row = connection.execute(
+                "SELECT layout FROM organisation_vaults WHERE vault_id = ?", (vault_id,)
+            ).fetchone()
+        return row["layout"] if row is not None else SHARED_PRESET
 
     def write_refusal(self, vault_id: str, actor: Actor) -> str:
         with self.store.connect() as connection:

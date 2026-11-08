@@ -9,6 +9,7 @@ from typing import Any, Protocol
 from mindin.backends import SCHEMA_KEY, Entry, NotFound, VaultBackend, VaultError, delete_checked
 from mindin.frontmatter import FrontmatterError, parse
 from mindin.presets import SHARED_PRESET
+from mindin.schema import Schema, load_schema
 
 CURRENT_KINDS = ("system", "howto", "decision", "reference", "trap")
 FOLDER_KINDS: dict[str, tuple[str, ...]] = {
@@ -17,10 +18,7 @@ FOLDER_KINDS: dict[str, tuple[str, ...]] = {
     "Archive": CURRENT_KINDS,
 }
 REFUSED_TOOLS = frozenset({"backlog_add", "log_append", "claim", "release", "set_status", "lint_and_park", "init"})
-HOLDS = (
-    "A shared vault holds only how things are now: system notes in Areas/, howto, decision, reference and trap "
-    "notes in Resources/, and retired ones in Archive/."
-)
+HOLDS = "A shared vault holds only how things are now, in the folders its layout names."
 ELSEWHERE = "Keep tasks, the backlog and logs in your personal vault, through its own connection."
 WHAT_BELONGS = (
     "How things are now: systems, how-tos, decisions and references. Plans, logs, backlogs and personal reasoning "
@@ -80,13 +78,15 @@ class SharedRules:
     def context_line(self) -> str:
         return f"## shared vault\n{self.name} is a shared vault, so it has no tasks, backlog or log. {HOLDS}"
 
-    def check_note(self, key: str, frontmatter: dict[str, Any]) -> None:
+    def check_note(self, key: str, frontmatter: dict[str, Any], schema: Schema) -> None:
         folder = key.split("/", 1)[0] if "/" in key else ""
-        kinds = FOLDER_KINDS.get(folder)
+        allowed = folder_kinds(schema)
+        kinds = allowed.get(folder)
         if kinds is None:
+            names = [f"{name}/" for name in allowed]
+            where = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else "".join(names)
             raise SharedRefusal(
-                f"{key} is refused in the shared vault {self.name}: notes go in Areas/, Resources/ or Archive/. "
-                f"{HOLDS} {ELSEWHERE}"
+                f"{key} is refused in the shared vault {self.name}: notes go in {where}. {HOLDS} {ELSEWHERE}"
             )
         kind = frontmatter.get("kind")
         if kind is not None and str(kind) not in kinds:
@@ -95,7 +95,7 @@ class SharedRules:
                 f"not {kind}. {HOLDS} {ELSEWHERE}"
             )
 
-    def check_write(self, key: str, data: bytes) -> None:
+    def check_write(self, key: str, data: bytes, schema: Schema) -> None:
         if key == SCHEMA_KEY or key.startswith(".vault/"):
             raise SharedRefusal(f"{key} is refused: the layout of the shared vault {self.name} is fixed.")
         if not recorded(key) or not key.endswith(".md"):
@@ -104,7 +104,12 @@ class SharedRules:
             frontmatter = parse(data.decode("utf-8"))[0]
         except (UnicodeDecodeError, FrontmatterError):
             frontmatter = {}
-        self.check_note(key, frontmatter)
+        self.check_note(key, frontmatter, schema)
+
+
+def folder_kinds(schema: Schema) -> dict[str, tuple[str, ...]]:
+    declared = {name: folder.kinds for name, folder in schema.folders.items() if folder.kinds}
+    return declared or FOLDER_KINDS
 
 
 class Recorder(Protocol):
@@ -120,12 +125,16 @@ class Recorder(Protocol):
 
 
 class SharedBackend:
-    preset = SHARED_PRESET
-
     def __init__(
-        self, inner: Any, rules: SharedRules, recorder: Recorder, guard: Callable[[Actor], str] | None = None
+        self,
+        inner: Any,
+        rules: SharedRules,
+        recorder: Recorder,
+        guard: Callable[[Actor], str] | None = None,
+        layout: str = SHARED_PRESET,
     ) -> None:
         self.inner = inner
+        self.layout = layout
         self.rules = rules
         self.recorder = recorder
         self.guard = guard
@@ -168,9 +177,12 @@ class SharedBackend:
     def put_bytes(self, key: str, data: bytes, content_type: str | None = None) -> str:
         return self.put_checked(key, data)
 
+    def schema(self) -> Schema:
+        return load_schema(self.inner)
+
     def put_checked(self, key: str, data: bytes, expected_version: str | None = None, content_type: str = "") -> str:
         actor = self.allowed()
-        self.rules.check_write(key, data)
+        self.rules.check_write(key, data, self.schema())
         before = self.previous(key) if recorded(key) else None
         version = self.inner.put_checked(key, data, expected_version)
         if recorded(key) and before != data:
@@ -194,7 +206,7 @@ class SharedBackend:
     def move(self, src: str, dst: str) -> None:
         actor = self.allowed()
         data, _ = self.inner.get_bytes(src)
-        self.rules.check_write(dst, data)
+        self.rules.check_write(dst, data, self.schema())
         self.inner.move(src, dst)
         if recorded(src) or recorded(dst):
             self.recorder.record(actor, "moved", dst, data, data, from_path=src)

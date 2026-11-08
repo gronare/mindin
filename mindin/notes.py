@@ -136,7 +136,7 @@ def _with_dates(frontmatter: dict) -> dict:
 
 def _require_valid(vault: Vault, frontmatter: dict, key: str, verdict: str) -> None:
     if vault.rules is not None:
-        vault.rules.check_note(key, frontmatter)
+        vault.rules.check_note(key, frontmatter, vault.schema)
     problems = validate(frontmatter, key, vault.schema)
     if problems:
         raise ValidationError("\n".join([f"{key} {verdict}:", *[f"- {p}" for p in problems]]))

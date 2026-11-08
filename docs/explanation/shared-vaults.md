@@ -4,7 +4,12 @@ A personal vault is its owner's alone. A shared vault belongs to its owner and t
 
 ## What a shared vault holds
 
-A shared vault holds only the current state of things: system notes in `Areas/`, howto, decision, reference and trap notes in `Resources/`, and retired notes in `Archive/`. Its layout is fixed. The server refuses, with a message the agent can act on, a note in any other folder or of another kind, and `backlog_add`, `log_append`, `set_status`, `claim`, `release` and changelog writes. Tasks, the backlog and logs stay in each member's personal vault. `context` in a shared vault says so instead of listing tasks, a backlog or a log.
+A shared vault holds only the current state of things, in one of two layouts:
+
+- **Shared**: system notes in `Areas/`, howto, decision, reference and trap notes in `Resources/`, and retired notes in `Archive/`.
+- **Wiki**: one page per system or product area in `Areas/`, with its owning team and a `repos` list; `Teams/` (who, what they own, how to reach them); `Guides/` written once the work behind them is finished; `Decisions/` with the alternatives dropped and why; `Projects/` for finished projects only; `Incidents/` for reviews of closed incidents; and `Archive/`. Every page names its `team` and `author`, and every page in `Guides/`, `Decisions/`, `Projects/` and `Incidents/` its `area`. A page in `Projects/` or `Incidents/` has status `complete` or `superseded`.
+
+The layout is set when the vault is made. The server refuses, with a message the agent can act on, a note in any other folder or of another kind, and `backlog_add`, `log_append`, `set_status`, `claim`, `release` and changelog writes. Tasks, the backlog and logs stay in each member's personal vault. `context` in a shared vault says so instead of listing tasks, a backlog or a log.
 
 ## Members
 

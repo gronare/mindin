@@ -47,7 +47,7 @@ From here on admins can do the rest on the Account page: under Organisation, Man
 mindin org vault create Example "Wiki" --slug wiki
 ```
 
-Or use New vault under Vaults on the organisation's page. Every member reaches it at once, at `VAULT_PUBLIC_URL/mcp?vault=wiki`, and reads and writes it. An organisation's vault is a [shared vault](../explanation/shared-vaults.md): it holds how things are now, and every change is kept with who made it and can be restored from the vault's page.
+Or use New vault under Vaults on the organisation's page. An organisation's vault is laid out as a wiki: Areas, Teams, Guides, Decisions, finished Projects, closed Incidents and Archive. On the organisation's page, Layout can pick Shared instead, with Areas, Resources and Archive. See [What a shared vault holds](../explanation/shared-vaults.md#what-a-shared-vault-holds). Every member reaches it at once, at `VAULT_PUBLIC_URL/mcp?vault=wiki`, and reads and writes it. An organisation's vault is a [shared vault](../explanation/shared-vaults.md): it holds how things are now, and every change is kept with who made it and can be restored from the vault's page.
 
 A page that names the repositories it is about reaches people at work in them: when a member starts Claude Code in a matching repo, the session start lists the page's title and one line. Name them in the page's frontmatter:
 

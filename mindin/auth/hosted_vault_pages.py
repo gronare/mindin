@@ -43,7 +43,7 @@ from mindin.auth.hosted_vaults import KINDS, NAME_MAX, PERSONAL, SHARED, Vault, 
 from mindin.auth.hosted_web import Browser, app_script, copy_field, error_box, esc, hidden_field
 from mindin.auth.login_email import SmtpFactory
 from mindin.backends import SCHEMA_KEY, VaultBackend
-from mindin.presets import OFFERED, PRESETS, SHARED_PRESET
+from mindin.presets import OFFERED, PRESETS, SHARED_LAYOUTS, SHARED_PRESET
 
 if TYPE_CHECKING:
     from mindin.vault import SubjectVaults
@@ -402,7 +402,7 @@ references. Every change is kept with who made it.</span></label>
     def provision(self, vault: Vault, preset: str) -> None:
         backend, _ = self.sealed.for_vault(vault.id)
         if vault.shared:
-            provision.initialize(backend, preset=SHARED_PRESET)
+            provision.initialize(backend, preset=preset if preset in SHARED_LAYOUTS else SHARED_PRESET)
             return
         provision.initialize(backend, preset=preset, welcome={"DAV_URL": self.vaults.dav_url})
 

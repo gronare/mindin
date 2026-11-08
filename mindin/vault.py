@@ -23,7 +23,7 @@ from mindin.config import cache_dir, env
 from mindin.embedding import Embedder, configured_embedder
 from mindin.index import Index, index_fingerprint, remove_index
 from mindin.schema import Schema, deep_merge, default_schema_data, load_schema
-from mindin.shared import SHARED_PRESET, SharedRules, shared_backend
+from mindin.shared import SharedRules, shared_backend
 
 SUBJECT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@-]{0,63}")
 IDLE_SECONDS = 1800.0
@@ -555,7 +555,7 @@ class SubjectVaults:
         backend, identifier = self.backend_factory(subject)
         shared = shared_backend(backend)
         if shared is not None and provision.is_empty(backend):
-            provision.initialize(shared.inner, preset=SHARED_PRESET)
+            provision.initialize(shared.inner, preset=shared.layout)
         elif provision.is_empty(backend):
             provision.initialize(backend, schema_template=self.schema_template, welcome={"DAV_URL": self.dav_url})
         announced = backend if self.bus is NULL_BUS else Announcing(backend, lambda: self.publish(subject, "write"))

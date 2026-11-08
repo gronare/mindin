@@ -155,6 +155,12 @@ def validate(frontmatter: dict[str, Any], key: str, schema: Schema) -> list[str]
     if claim is not None and claim_fields(claim) is None:
         problems.append(f"{CLAIM_KEY} must be a mapping with machine, task and since (and optionally repo)")
 
+    declared = schema.folders.get(schema.folder_of(key))
+    if declared is not None and kind is not None and declared.kinds and str(kind) not in declared.kinds:
+        problems.append(f"{declared.name}/ takes {', '.join(declared.kinds)} notes, not {kind}")
+    if declared is not None and status is not None and declared.statuses and str(status) not in declared.statuses:
+        problems.append(f"{declared.name}/ takes notes with status {', '.join(declared.statuses)}, not {status}")
+
     folder = next((name for name in schema.area_required_in if key.startswith(f"{name}/")), None)
     if folder is not None:
         area = frontmatter.get("area")

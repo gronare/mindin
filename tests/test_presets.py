@@ -17,7 +17,10 @@ from mindin.vault import Vault
 
 WITH_TASKS = {"default", "para", "simple", "journal"}
 WITH_LOG = {"default", "para", "journal"}
-NOTE = '---\ntitle: Pear grafting\ntags: [demo]\nstatus: active\narea: "[[demo]]"\n---\n\nScion and rootstock.\n'
+NOTE = (
+    '---\ntitle: Pear grafting\ntags: [demo]\nstatus: active\narea: "[[demo]]"\nteam: orchard\nauthor: Ada\n---\n\n'
+    "Scion and rootstock.\n"
+)
 
 
 def open_preset(tmp_path: Path, preset: str | None) -> Vault:
@@ -30,7 +33,9 @@ def open_preset(tmp_path: Path, preset: str | None) -> Vault:
 
 def note_folder(schema: Schema) -> str:
     kept = [
-        name for name, folder in schema.folders.items() if folder.kind in ("reference", "system") and folder.searched
+        name
+        for name, folder in schema.folders.items()
+        if folder.kind in ("reference", "system") and folder.searched and not folder.statuses
     ]
     return kept[-1] if kept else "Notes"
 

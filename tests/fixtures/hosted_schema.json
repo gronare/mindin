@@ -276,7 +276,7 @@
     "table",
     "organisation_vaults",
     "organisation_vaults",
-    "CREATE TABLE organisation_vaults (\n    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    locked INTEGER NOT NULL DEFAULT 0,\n    created_at INTEGER NOT NULL\n)"
+    "CREATE TABLE organisation_vaults (\n    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    layout TEXT NOT NULL DEFAULT 'wiki',\n    locked INTEGER NOT NULL DEFAULT 0,\n    created_at INTEGER NOT NULL\n)"
    ],
    [
     "table",
@@ -629,7 +629,7 @@
     "table",
     "organisation_vaults",
     "organisation_vaults",
-    "CREATE TABLE organisation_vaults (\n    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    locked INTEGER NOT NULL DEFAULT 0,\n    created_at INTEGER NOT NULL\n)"
+    "CREATE TABLE organisation_vaults (\n    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    layout TEXT NOT NULL DEFAULT 'wiki',\n    locked INTEGER NOT NULL DEFAULT 0,\n    created_at INTEGER NOT NULL\n)"
    ],
    [
     "table",

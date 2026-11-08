@@ -74,7 +74,7 @@ async def company(site: Hosted) -> tuple[httpx2.AsyncClient, httpx2.AsyncClient]
     publish(orgs(site).domain(orgs(site).require("Acme"), "acme.test"))
     assert (await post_org(site, ada, "/domains/check", domain="acme.test")).status_code == 200
     assert (await post_org(site, ada, "/admins", email="bea@acme.test")).status_code == 200
-    made = await post_org(site, ada, "/vaults", name="Wiki", slug="wiki")
+    made = await post_org(site, ada, "/vaults", name="Wiki", slug="wiki", layout="shared")
     assert made.status_code == 200 and "Wiki is at /mcp?vault=wiki for every member" in made.text, made.text
     bea, answer = await signed_in(site, "bea@acme.test")
     assert answer.status_code == 303, answer.text
@@ -149,7 +149,8 @@ async def test_flow_14_a_locked_vault_refuses_a_members_write_and_takes_an_edito
     ada, bea = await company(site)
     async with ada, bea, site.browser() as cy:
         await site.sign_in(cy, "cy@acme.test")
-        assert (await post_org(site, ada, "/vaults", name="Policies", slug="policies")).status_code == 200
+        policies = await post_org(site, ada, "/vaults", name="Policies", slug="policies", layout="shared")
+        assert policies.status_code == 200
         before = await write(cy, key(site, "cy@acme.test", "policies"), "Resources/leave.md", POLICY, "policies")
         locked = await post_org(site, ada, "/vaults/lock", vault="policies", locked="on")
         editor = await post_org(site, ada, "/vaults/editors", vault="policies", email="bea@acme.test")
@@ -760,3 +761,13 @@ async def test_the_lead_counts_the_members_and_the_vaults(site: Hosted):
         after = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
     assert '<p class="lead">Organisation · you are an admin · 2 members · 1 vault</p>' in page.text
     assert '<p class="lead">Organisation · you are an admin · 3 members · 1 vault</p>' in after.text
+
+
+@pytest.mark.anyio
+async def test_each_org_vault_shows_its_notes_and_layout(site: Hosted):
+    ada, bea = await company(site)
+    async with ada, bea:
+        await write(bea, key(site, "bea@acme.test"), "Resources/deploys.md", DEPLOY)
+        page = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
+    assert '<p class="facts">1 note · shared layout</p>' in page.text
+    assert " MB" not in page.text and "1 GB" not in page.text

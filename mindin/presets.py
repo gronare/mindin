@@ -9,6 +9,7 @@ import yaml
 DEFAULT_PRESET = "default"
 CUSTOM_PRESET = "custom"
 SHARED_PRESET = "shared"
+WIKI_PRESET = "wiki"
 
 
 @dataclass(frozen=True)
@@ -92,10 +93,19 @@ PRESETS: dict[str, Preset] = {
             ("Areas.base", "Resources.base"),
             offered=False,
         ),
+        Preset(
+            WIKI_PRESET,
+            "Wiki",
+            "A team wiki: Areas, Teams, Guides, Decisions, finished Projects, closed Incidents, and Archive.",
+            "presets/wiki/",
+            ("Areas.base", "Teams.base", "Guides.base", "Decisions.base", "Projects.base", "Incidents.base"),
+            offered=False,
+        ),
     )
 }
 OFFERED = tuple(name for name, preset in PRESETS.items() if preset.offered)
-PERSONAL_LAYOUTS = tuple(name for name in PRESETS if name != SHARED_PRESET)
+SHARED_LAYOUTS = (SHARED_PRESET, WIKI_PRESET)
+PERSONAL_LAYOUTS = tuple(name for name in PRESETS if name not in SHARED_LAYOUTS)
 
 
 def template(name: str) -> str:

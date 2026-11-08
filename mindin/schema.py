@@ -29,6 +29,8 @@ class Folder:
     weight: float
     searched: bool
     description: str
+    kinds: tuple[str, ...] = ()
+    statuses: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,8 @@ class Schema:
                 weight=float(spec.get("weight", 1.0)),
                 searched=bool(spec.get("searched", True)),
                 description=str(spec.get("description", "")),
+                kinds=tuple(str(kind) for kind in spec.get("kinds") or ()),
+                statuses=tuple(str(status) for status in spec.get("statuses") or ()),
             )
         return folders
 
@@ -303,6 +307,8 @@ def _folder_problems(name: Any, spec: Any, problems: list[str]) -> None:
         problems.append(f"{where}.weight must be a number, 0 or more")
     if "searched" in spec and not isinstance(spec["searched"], bool):
         problems.append(f"{where}.searched must be true or false")
+    _strings(spec.get("kinds"), [where, "kinds"], problems)
+    _strings(spec.get("statuses"), [where, "statuses"], problems)
 
 
 def _format_problem(path: str, value: Any, fields: dict[str, str], needs: tuple[str, ...]) -> str | None:
@@ -385,6 +391,13 @@ def _contract_problems(schema: Schema) -> list[str]:
     for kind, where in kinds:
         if kind not in schema.kind_values:
             problems.append(f"frontmatter.kind_values lacks {kind}, which the tools write in {where}")
+    for folder in schema.folders.values():
+        unknown = [kind for kind in folder.kinds if kind not in schema.kind_values]
+        if unknown:
+            problems.append(f"folders.{folder.name}.kinds names {', '.join(unknown)}, which kind_values lacks")
+        unknown = [status for status in folder.statuses if status not in schema.status_values]
+        if unknown:
+            problems.append(f"folders.{folder.name}.statuses names {', '.join(unknown)}, which status_values lacks")
     for folder in schema.area_required_in:
         if folder not in schema.folders and folder != schema.log_folder:
             problems.append(f"frontmatter.area_required_in names '{folder}', which is not one of the folders")

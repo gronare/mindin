@@ -1,0 +1,41 @@
+version: 1
+preset: wiki
+language: en
+other_languages: []
+root_description: "The Bases views. Every page lives in a folder."
+folders:
+  Areas:     { kind: system,    weight: 3.0, kinds: [system], description: "One living page per system or product area: the team that owns it, the repos it covers, how it works now. Current state only." }
+  Teams:     { kind: reference, weight: 2.0, kinds: [team], description: "One page per team: who is in it, what it owns, how to reach it." }
+  Guides:    { kind: reference, weight: 2.5, kinds: [howto], description: "How to do something, written once the work behind it is finished." }
+  Decisions: { kind: reference, weight: 2.0, kinds: [decision], description: "What was decided, the alternatives that were dropped and why." }
+  Projects:  { kind: reference, weight: 1.5, kinds: [project], statuses: [complete, superseded], description: "Finished projects only: what was built and why." }
+  Incidents: { kind: reference, weight: 1.5, kinds: [incident], statuses: [complete, superseded], description: "A review written after an incident is closed: what happened, the cause, the fix, how to avoid it." }
+  Archive:   { kind: archive,   weight: 0.3, searched: false, kinds: [system, team, howto, decision, project, incident], description: "Retired pages, kept as they were. Searched only on request." }
+frontmatter:
+  required: [title, date, updated, tags, status, team, author]
+  optional: [kind, area, repos, summary, path, superseded_by, source]
+  area_required_in: [Guides, Decisions, Projects, Incidents]
+  status_values: [draft, active, complete, superseded]
+  kind_values: [system, team, howto, decision, project, incident]
+  priority_values: []
+kinds:
+  system: "one living page per system or product area; current state only, never history"
+  team: "who is in a team, what it owns and how to reach it"
+  howto: "steps that are known to work, written after the work behind them was finished"
+  decision: "a choice and its reasons; something was chosen, alternatives were dropped"
+  project: "a finished project: what was built and why"
+  incident: "a review of a closed incident: what happened, the cause, the fix, how to avoid it again"
+tags:
+  strict: false
+  vocabulary: []
+synonyms: []
+stale_after_days: 90
+search:
+  default_limit: 15
+  recency_half_life_days: 180
+  title_weight: 10.0
+  summary_weight: 5.0
+  tags_weight: 3.0
+  body_weight: 1.0
+  stem_weight: 20.0
+  stemmed_weight: 0.5

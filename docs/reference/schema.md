@@ -52,6 +52,8 @@ folders:
 | `weight` | `1.0` | How much a note in the folder weighs in search, 0 or more. |
 | `searched` | `true` | `false` hides the folder from search unless asked for. |
 | `description` | | The folder's line in the server's instructions. |
+| `kinds` | | The note kinds the folder takes, such as `[howto]`; a note of another kind is refused. |
+| `statuses` | | The statuses a note in the folder may have, such as `[complete, superseded]`. |
 
 `root_description` is the vault root's line in the same list. `backlog.folder` names which folder of kind `task` holds the backlog when there are several.
 

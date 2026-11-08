@@ -13,6 +13,7 @@ from mindin.auth import MACHINE_KEY_PURPOSE
 from mindin.auth.hosted_store import Account, HostedStore, MembershipError, VaultNameError, account_of
 from mindin.auth.hosted_vaults import SHARED, Vault, clash, reaches, vault_of
 from mindin.config import env
+from mindin.presets import SHARED_PRESET, WIKI_PRESET
 from mindin.shared import Actor
 from mindin.vault import Reachable
 
@@ -29,6 +30,7 @@ DEFAULT_REMOVAL_DAYS = 30
 DOMAIN_RE = re.compile(r"(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
 Removal = Literal["keep", "export-and-delete"]
 SPANNING_PURPOSES = (None, MACHINE_KEY_PURPOSE)
+ORG_LAYOUTS = (WIKI_PRESET, SHARED_PRESET)
 ORGANISATION_METHOD = "organisation"
 VERIFY_LABEL = "_mindin-verify"
 VERIFY_PREFIX = "mindin-verify="
@@ -76,6 +78,7 @@ CREATE INDEX IF NOT EXISTS organisation_members_account ON organisation_members(
 CREATE TABLE IF NOT EXISTS organisation_vaults (
     vault_id TEXT PRIMARY KEY REFERENCES vaults(id),
     organisation_id TEXT NOT NULL REFERENCES organisations(id),
+    layout TEXT NOT NULL DEFAULT 'wiki',
     locked INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
 );
@@ -682,14 +685,18 @@ class Organisations:
                 (organisation_id, account_id),
             )
 
-    def create_vault(self, organisation: Organisation, admin: Account, name: str, slug: str | None = None) -> Vault:
+    def create_vault(
+        self, organisation: Organisation, admin: Account, name: str, slug: str | None = None, layout: str = WIKI_PRESET
+    ) -> Vault:
         if not self.is_admin(organisation, admin.id):
             raise OrganisationError(f"Only an admin of {organisation.name} makes its vaults.")
+        if layout not in ORG_LAYOUTS:
+            raise OrganisationError(f"An organisation's vault is laid out as {' or '.join(ORG_LAYOUTS)}.")
         vault = self.store.create_vault(admin.id, name, slug, SHARED)
         with self.store.connect() as connection:
             connection.execute(
-                "INSERT INTO organisation_vaults(vault_id, organisation_id, created_at) VALUES(?, ?, ?)",
-                (vault.id, organisation.id, self.moment()),
+                "INSERT INTO organisation_vaults(vault_id, organisation_id, layout, created_at) VALUES(?, ?, ?, ?)",
+                (vault.id, organisation.id, layout, self.moment()),
             )
             for member in connection.execute(
                 "SELECT accounts.id, accounts.email FROM organisation_members"
@@ -908,7 +915,7 @@ def command_org_change(organisations: Organisations, organisation: Organisation,
         by = store_account(organisations, args.by) if args.by else (admins[0] if admins else None)
         if by is None:
             raise OrganisationError(f"{organisation.name} has no admin to own the vault.")
-        vault = organisations.create_vault(organisation, by, args.name, args.slug)
+        vault = organisations.create_vault(organisation, by, args.name, args.slug, args.layout)
         print(f"mindin: {organisation.name} has the vault {vault.name} at /mcp?vault={vault.slug}")
         return 0
     item = organisations.vault_named(organisation, args.vault)
@@ -980,6 +987,9 @@ def add_commands(sub: Any, run: Callable[[argparse.Namespace], int]) -> None:
     making.add_argument("name")
     making.add_argument("--slug", help="the vault's slug, as in /mcp?vault=<slug>: one lowercase word")
     making.add_argument("--by", help="the admin who owns it; defaults to the first admin")
+    making.add_argument(
+        "--layout", choices=ORG_LAYOUTS, default=WIKI_PRESET, help="the vault's layout; wiki by default"
+    )
     making.set_defaults(func=run)
     for name, summary in (("lock", "let only the vault's editors write"), ("unlock", "let every member write")):
         locking = vault_sub.add_parser(name, help=summary)

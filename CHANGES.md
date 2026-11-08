@@ -6,6 +6,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 
 ### What's new
 - An organisation lets everyone at its verified email domain in on their first sign-in.
+- An organisation's vault is a wiki with Areas, Teams, Guides, Decisions, Projects and Incidents.
 - An admin can lock an organisation's vault so only its editors write.
 - An organisation decides whether members may share their own vaults with people outside it.
 - `search` covers a member's own vault and the organisation's vaults, each row labelled with its vault.

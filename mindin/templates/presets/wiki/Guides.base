@@ -1,0 +1,45 @@
+filters:
+  and:
+    - file.inFolder("Guides")
+    - file.ext == "md"
+properties:
+  file.name:
+    displayName: Page
+  note.summary:
+    displayName: Summary
+  note.team:
+    displayName: Team
+  note.area:
+    displayName: Area
+  note.repos:
+    displayName: Repos
+  note.author:
+    displayName: Author
+  note.updated:
+    displayName: Updated
+views:
+  - type: table
+    name: By area
+    groupBy:
+      property: area
+      direction: ASC
+    order:
+      - file.name
+      - summary
+      - team
+      - author
+      - updated
+    sort:
+      - property: updated
+        direction: DESC
+  - type: table
+    name: Newest first
+    order:
+      - file.name
+      - summary
+      - team
+      - author
+      - updated
+    sort:
+      - property: updated
+        direction: DESC

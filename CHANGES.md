@@ -15,6 +15,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - The `rules` tool gives every member's Claude the rules a vault's schema carries.
 - A vault can refuse writes that hold a secret, a card number or a personnummer.
 - Only the owner or an organisation admin changes a shared vault's schema, and without one it takes no writes.
+- The plugin's team-wiki skill drafts a wiki page when work is finished and writes it on a yes.
 - A trusted proxy's identity token can name the proxy's own host, listed in `VAULT_IDENTITY_AUDIENCE`.
 - `mindin accounts import` leaves `.git/` and Mac leftovers behind, and `--dry-run` lists what it would do.
 - Extensions can add background work, storage limits and an email-link check.

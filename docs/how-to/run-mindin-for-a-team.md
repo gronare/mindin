@@ -47,7 +47,9 @@ From here on admins can do the rest on the Account page: under Organisation, Man
 mindin org vault create Example "Wiki" --slug wiki
 ```
 
-Or use New vault under Vaults on the organisation's page. An organisation's vault is laid out as a wiki: Areas, Teams, Guides, Decisions, finished Projects, closed Incidents and Archive. On the organisation's page, Layout can pick Shared instead, with Areas, Resources and Archive. See [What a shared vault holds](../explanation/shared-vaults.md#what-a-shared-vault-holds). Every member reaches it at once, at `VAULT_PUBLIC_URL/mcp?vault=wiki`, and reads and writes it. An organisation's vault is a [shared vault](../explanation/shared-vaults.md): it holds how things are now, and every change is kept with who made it and can be restored from the vault's page.
+Or use New vault under Vaults on the organisation's page. Every member reaches it at once, at `VAULT_PUBLIC_URL/mcp?vault=wiki`, and reads and writes it. An organisation's vault is a [shared vault](../explanation/shared-vaults.md): it holds how things are now, and every change is kept with who made it and can be restored from the vault's page.
+
+It is laid out as a wiki: Areas, Teams, Guides, Decisions, finished Projects, closed Incidents and Archive. The layout is chosen when the vault is made, with Layout on the New vault form or `--layout shared` on the command line, for Areas, Resources and Archive instead; it stays as chosen. See [What a shared vault holds](../explanation/shared-vaults.md#what-a-shared-vault-holds).
 
 A page that names the repositories it is about reaches people at work in them: when a member starts Claude Code in a matching repo, the session start lists the page's title and one line. Name them in the page's frontmatter:
 
@@ -75,6 +77,8 @@ Each member signs in at `VAULT_PUBLIC_URL/signin` with the company sign-in. Thei
 - Obsidian: make a key on the vault's page and use it as the WebDAV password. See [Open a server vault in Obsidian](obsidian.md).
 
 A member's connection to their own vault is enough for Claude to use the wiki: `search` covers their own vault and the organisation's vaults together, labels each row with its vault, and `read_file` reads a wiki row on the same connection. See [Search across vaults](../explanation/search.md#across-vaults).
+
+In Claude Code, the vault plugin's team-wiki skill writes finished work to the wiki: when a project or incident is closed, an issue closes with something worth keeping, or a decision is taken at a project's start, Claude reads the wiki's `rules`, looks for a page that already covers it, shows the user a draft and writes it only on a yes.
 
 ## Sharing outside the organisation
 

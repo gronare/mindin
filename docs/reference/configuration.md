@@ -41,7 +41,7 @@ These apply to `serve --transport http`. `--host` defaults to `127.0.0.1` and `-
 | `VAULT_PUBLIC_URL` | yes | | The address clients reach, path included when the server is not at the root. Must start with `https://`, or `http://localhost` for a trial. The Docker example sets it to `https://VAULT_HOST`. |
 | `VAULT_HOSTED_MASTER_KEY` | yes | | Base64 of 32 bytes that wraps every vault's data key; `master-key generate` makes one. The server also refuses to start when it does not open the vault keys it holds. See [Encryption](../explanation/encryption.md). |
 | `VAULT_HOSTED_MASTER_KEY_PREVIOUS` | no | | Older master keys, space or comma separated, still accepted while `master-key rewrap` moves the vault keys off them. |
-| `VAULT_REGISTRATION` | no | `invite` | `invite`: only invited addresses get an account. `open`: any verified email does. |
+| `VAULT_REGISTRATION` | no | `invite` | `invite`: only invited addresses and addresses at an organisation's verified domain get an account. `open`: any verified email does. |
 | `VAULT_PASSKEYS` | no | `on` | `on` or `off`. |
 | `VAULT_HTTP_STATELESS` | no | `off` | `on` keeps no MCP session on the server between requests, so a restart drops no session a client holds. Each request then stands alone: the server sends nothing to a client outside the answer to a request. |
 | `VAULT_INDEX_SNAPSHOTS` | no | `off` | `on` keeps a sealed copy of each vault's search index in the folder or bucket, under `<prefix>/indexes/<vault id>/`, written when the vault goes idle, when the server shuts down, and at most once per `VAULT_INDEX_SNAPSHOT_MINUTES` while new notes are embedded, and only when the index changed since the last copy. A server whose `VAULT_CACHE_DIR` lacks a vault's index starts from that copy and indexes or embeds only the notes that changed since. Deleting the vault deletes the copy. |
@@ -80,6 +80,14 @@ At least one of `VAULT_SMTP_HOST`, `VAULT_GITHUB_CLIENT_ID`, `VAULT_OIDC_ISSUER`
 | `VAULT_IDENTITY_AUDIENCE` | no | | More hosts the token's `aud` may name besides this server's own, space or comma separated: the proxy's host when clients connect through it. |
 | `VAULT_IDENTITY_WRITE_CLAIMS` | no | `vault:write` | Entitlements that grant read and write, space separated. |
 | `VAULT_IDENTITY_READ_CLAIMS` | no | `vault:read` | Entitlements that grant read only. A token with neither is refused. |
+
+### Organisations
+
+| Variable | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `VAULT_PUBLIC_EMAIL_DOMAINS` | no | | More public email domains, comma separated, that no organisation can add, besides the built-in ones such as `gmail.com`, `outlook.com`, `icloud.com` and `proton.me`. A listed domain also covers its subdomains. `mindin org domain add --allow-public` still adds one. |
+
+A domain an organisation adds is verified by a TXT record at `_mindin-verify.<domain>`, looked up through the server's own DNS resolver with a five-second timeout, so the server needs to reach a resolver that answers for public domains.
 
 ## Import
 

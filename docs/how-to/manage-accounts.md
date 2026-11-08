@@ -10,7 +10,7 @@ New accounts are by invitation. `accounts invite` lets an address in the first t
 mindin accounts invite ann@example.com
 ```
 
-An [organisation](run-mindin-for-a-team.md) lets in everyone at its email domain without an invitation.
+An [organisation](run-mindin-for-a-team.md) lets in everyone at its verified email domain without an invitation.
 
 `VAULT_REGISTRATION=open` lets anyone with a verified email create an account. An [extension](../reference/extensions.md#hooks) can refuse a new account or put a check on the email-link form.
 

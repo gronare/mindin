@@ -22,6 +22,12 @@
    ],
    [
     "index",
+    "organisation_domains_verified",
+    "organisation_domains",
+    "CREATE UNIQUE INDEX organisation_domains_verified ON organisation_domains(domain)\n    WHERE verified_at IS NOT NULL"
+   ],
+   [
+    "index",
     "organisation_members_account",
     "organisation_members",
     "CREATE INDEX organisation_members_account ON organisation_members(account_id)"
@@ -252,7 +258,7 @@
     "table",
     "organisation_domains",
     "organisation_domains",
-    "CREATE TABLE organisation_domains (\n    domain TEXT PRIMARY KEY COLLATE NOCASE,\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    added_at INTEGER NOT NULL\n)"
+    "CREATE TABLE organisation_domains (\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    domain TEXT NOT NULL COLLATE NOCASE,\n    token TEXT NOT NULL,\n    verified_at INTEGER,\n    added_at INTEGER NOT NULL,\n    checked_at INTEGER,\n    checked_records INTEGER,\n    PRIMARY KEY (organisation_id, domain)\n)"
    ],
    [
     "table",
@@ -369,6 +375,12 @@
    ],
    [
     "index",
+    "organisation_domains_verified",
+    "organisation_domains",
+    "CREATE UNIQUE INDEX organisation_domains_verified ON organisation_domains(domain)\n    WHERE verified_at IS NOT NULL"
+   ],
+   [
+    "index",
     "organisation_members_account",
     "organisation_members",
     "CREATE INDEX organisation_members_account ON organisation_members(account_id)"
@@ -599,7 +611,7 @@
     "table",
     "organisation_domains",
     "organisation_domains",
-    "CREATE TABLE organisation_domains (\n    domain TEXT PRIMARY KEY COLLATE NOCASE,\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    added_at INTEGER NOT NULL\n)"
+    "CREATE TABLE organisation_domains (\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    domain TEXT NOT NULL COLLATE NOCASE,\n    token TEXT NOT NULL,\n    verified_at INTEGER,\n    added_at INTEGER NOT NULL,\n    checked_at INTEGER,\n    checked_records INTEGER,\n    PRIMARY KEY (organisation_id, domain)\n)"
    ],
    [
     "table",

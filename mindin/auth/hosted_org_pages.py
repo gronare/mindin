@@ -4,6 +4,7 @@ import logging
 import re
 import smtplib
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
 import anyio
 from starlette.requests import Request
@@ -22,12 +23,14 @@ from mindin.auth.hosted_orgs import (
     Organisation,
     OrganisationError,
     Organisations,
+    OrgDomain,
     OrgVault,
+    domain_of,
 )
 from mindin.auth.hosted_store import Account, MembershipError, VaultNameError
 from mindin.auth.hosted_vault_pages import VaultPages, counted
 from mindin.auth.hosted_vaults import NAME_MAX, SLUG_MAX
-from mindin.auth.hosted_web import error_box, esc, hidden_field
+from mindin.auth.hosted_web import copy_field, error_box, esc, hidden_field
 from mindin.auth.login_email import Mailer
 from mindin.auth.pages import stamp
 from mindin.extensions import Periodic
@@ -37,6 +40,33 @@ logger = logging.getLogger(__name__)
 DEPARTURES_EVERY = 3600.0
 DAYS_RE = re.compile(r"[0-9]{1,3}")
 SOURCES = {"domain": "email domain", "admin": "added by an admin", "created": "made the organisation"}
+
+
+def day_label(moment: int, now: float) -> str:
+    day, today = datetime.fromtimestamp(moment, UTC).date(), datetime.fromtimestamp(now, UTC).date()
+    if day == today:
+        return "today " + stamp(moment)[11:]
+    if day == today - timedelta(days=1):
+        return "yesterday"
+    return stamp(moment)[:10]
+
+
+def long_date(moment: int) -> str:
+    day = datetime.fromtimestamp(moment, UTC)
+    return f"{day.day} {day:%b %Y}"
+
+
+def joined_through(count: int) -> str:
+    if count == 0:
+        return "nobody has joined through it yet"
+    return f"{count} {'person' if count == 1 else 'people'} joined through it"
+
+
+def check_result(item: OrgDomain, now: float) -> str:
+    if item.checked_at is None:
+        return "Not checked yet."
+    found = "no TXT record yet" if not item.checked_records else "a TXT record is there, but not this value"
+    return f"Checked {day_label(item.checked_at, now)}: {found}. DNS changes can take up to an hour."
 
 
 def notice_box(text: str) -> str:
@@ -112,34 +142,63 @@ class OrganisationPages:
         return f'<a class="btn secondary small" href="{esc(self.org_url(organisation))}">Manage</a>'
 
     def remove_button(
-        self, csrf: str, organisation: Organisation, path: str, field: str, value: str, label: str, vault: str = ""
+        self,
+        csrf: str,
+        organisation: Organisation,
+        path: str,
+        field: str,
+        value: str,
+        label: str,
+        vault: str = "",
+        kind: str = " secondary",
     ) -> str:
         return (
             f"{self.form(csrf, organisation, path, '')}{hidden_field(field, value)}"
             f"{hidden_field('vault', vault) if vault else ''}"
-            f'<button type="submit" class="btn secondary small" aria-label="{esc(label)} {esc(value)}">'
+            f'<button type="submit" class="btn{kind} small" aria-label="{esc(label)} {esc(value)}">'
             f"{esc(label)}</button></form>"
         )
 
     def domains_section(self, organisation: Organisation, csrf: str) -> str:
-        domains = self.organisations.domains(organisation)
-        rows = "".join(
-            f"<tr><td><code>@{esc(domain)}</code></td>"
-            f"<td>{self.remove_button(csrf, organisation, '/domains/remove', 'domain', domain, 'Remove')}</td></tr>"
-            for domain in domains
-        )
-        table = (
-            f'<div class="tablewrap"><table><tbody>{rows}</tbody></table></div>'
+        items = sorted(self.organisations.domains(organisation), key=lambda item: (not item.verified, item.domain))
+        rows = "".join(self.domain_row(organisation, csrf, item, at) for at, item in enumerate(items))
+        listing = (
+            f'<div class="vaults">{rows}</div>'
             if rows
             else '<p class="small muted">No domain yet: only the people you add below are members.</p>'
         )
         return f"""<div class="stack"><h2>Email domains</h2>
-<p class="small muted">Whoever signs in with a verified address at one of these domains joins the organisation, with
-no invitation. The domain must match exactly: add each subdomain on its own.</p>{table}
+<p class="small muted">Once a domain is verified, whoever signs in with a verified address at it joins the
+organisation, with no invitation. The domain must match exactly: add each subdomain on its own. Public email
+providers such as gmail.com cannot be added.</p>{listing}
 {self.form(csrf, organisation, "/domains")}
 <label class="field">Add a domain<input type="text" name="domain" required maxlength="253"
 placeholder="example.com" autocomplete="off"></label>
 <button class="btn" type="submit">Add domain</button></form></div>"""
+
+    def domain_row(self, organisation: Organisation, csrf: str, item: OrgDomain, at: int) -> str:
+        remove = self.remove_button(csrf, organisation, "/domains/remove", "domain", item.domain, "Remove")
+        name = f"<b><code>@{esc(item.domain)}</code></b>"
+        if item.verified and item.verified_at is not None:
+            count = sum(
+                1
+                for member in self.organisations.members(organisation)
+                if member.source == "domain" and domain_of(member.account.email) == item.domain
+            )
+            facts = f"{joined_through(count)} · the record is not read again"
+            return (
+                f'<div class="domain"><div class="head"><div>{name} <span class="chip">Verified'
+                f' {long_date(item.verified_at)}</span><p class="facts">{esc(facts)}</p></div>{remove}</div></div>'
+            )
+        check = self.remove_button(csrf, organisation, "/domains/check", "domain", item.domain, "Check now", kind="")
+        facts = "Nobody joins through it until the record below is found. " + check_result(item, self.browser.clock())
+        return (
+            f'<div class="domain"><div class="head"><div>{name} <span class="chip warn">Not verified</span>'
+            f'<p class="facts">{esc(facts)}</p></div><div class="row">{check}{remove}</div></div>'
+            f'<div class="record"><span class="lab">Host</span>{copy_field(f"record-host-{at}", item.record_name)}'
+            '<span class="lab">Type</span><div><code>TXT</code></div>'
+            f'<span class="lab">Value</span>{copy_field(f"record-value-{at}", item.record_value)}</div></div>'
+        )
 
     def people_section(self, account: Account, organisation: Organisation, csrf: str) -> str:
         members = self.organisations.members(organisation)
@@ -316,8 +375,15 @@ already exists.</p>
         return handle
 
     def add_domain(self, _: Account, organisation: Organisation, form: dict) -> str:
-        domain = self.organisations.add_domain(organisation, form.get("domain", ""))
-        return f"Addresses at {domain} join {organisation.name} when they sign in."
+        item = self.organisations.add_domain(organisation, form.get("domain", ""))
+        return (
+            f"Add a TXT record at {item.record_name} with the value {item.record_value}, then press Check now. "
+            f"Addresses at {item.domain} join {organisation.name} once it is verified."
+        )
+
+    def check_domain(self, _: Account, organisation: Organisation, form: dict) -> str:
+        item = self.organisations.check_domain(organisation, form.get("domain", ""))
+        return f"{item.domain} is verified: addresses there join {organisation.name} when they sign in."
 
     def remove_domain(self, _: Account, organisation: Organisation, form: dict) -> str:
         self.organisations.remove_domain(organisation, form.get("domain", ""))
@@ -409,6 +475,7 @@ already exists.</p>
         base = prefix + "/account/organisation/{org}"
         posts = {
             "/domains": self.add_domain,
+            "/domains/check": self.check_domain,
             "/domains/remove": self.remove_domain,
             "/members": self.add_member,
             "/members/remove": self.remove_member,

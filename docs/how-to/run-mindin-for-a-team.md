@@ -25,9 +25,19 @@ mindin org domain add Example example.com
 mindin org admin add Example bea@example.com
 ```
 
-`--admin` names the first admin, who gets an account when they have none. A domain matches exactly: `example.com` does not let in `dev.example.com`, so add each subdomain on its own. A domain belongs to one organisation.
+`--admin` names the first admin, who gets an account when they have none. A domain matches exactly: `example.com` does not let in `dev.example.com`, so add each subdomain on its own.
 
-Whoever signs in with a verified address at a listed domain joins on that sign-in, with no invitation, also under `VAULT_REGISTRATION=invite`; an account that existed before joins on its next sign-in. An address outside the domains gets in only when an admin adds it.
+A new domain lets nobody in until it is verified. `domain add` prints a TXT record to publish in the domain's DNS:
+
+```text
+_mindin-verify.example.com  TXT  "mindin-verify=<token>"
+```
+
+Once it is published, `mindin org domain check Example example.com` looks it up and marks the domain verified; the record can stay, it is not read again. When you run the server for your own company, `mindin org domain add Example example.com --verified` skips the record. An admin who adds a domain on the organisation's page sees the same record there as host, type and value to copy, with a Check now button and when the last check ran and what it found.
+
+A verified domain belongs to one organisation. An unverified one holds nothing: another organisation that verifies it first takes it. Public email providers such as `gmail.com`, `outlook.com` or `proton.me` are refused, verified or not; `VAULT_PUBLIC_EMAIL_DOMAINS` adds more, and only `domain add --allow-public` on the command line takes one anyway.
+
+Whoever signs in with a verified address at a verified domain joins on that sign-in, with no invitation, also under `VAULT_REGISTRATION=invite`; an account that existed before joins on its next sign-in. An address outside the domains gets in only when an admin adds it.
 
 From here on admins can do the rest on the Account page: under Organisation, Manage opens the organisation's page, with its domains, members and admins, vaults, and what happens when someone is removed.
 

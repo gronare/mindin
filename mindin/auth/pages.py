@@ -197,6 +197,14 @@ button.secondary:not(.btn) {{ padding: 7px 14px; font: inherit; font-size: 14px;
   border: 1px solid var(--line-strong); background: var(--panel); color: var(--ink); cursor: pointer; }}
 .error {{ padding: 10px 12px; border-radius: 6px; color: var(--warn); background: #fbeceb;
   border: 1px solid #f0cfcc; }}
+.chip.warn {{ background: #fdf5e2; color: #6b4a00; border-color: #f0e0b5; }}
+.facts {{ color: var(--muted); font-size: 13px; }}
+.domain {{ display: grid; gap: 10px; padding: 14px 16px; border-top: 1px solid var(--line); }}
+.domain:first-child {{ border-top: 0; }}
+.domain .head b {{ font-size: 15px; }}
+.record {{ display: grid; grid-template-columns: 5rem minmax(0, 1fr); gap: 6px 12px; align-items: center;
+  font-size: 14px; }}
+.record .lab {{ color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }}
 @media (max-width: 560px) {{
   .top nav {{ margin-left: 0; width: 100%; }}
   .body {{ padding: 18px 14px 22px; }}
@@ -210,6 +218,8 @@ button.secondary:not(.btn) {{ padding: 7px 14px; font: inherit; font-size: 14px;
   .tablewrap td:first-child {{ font-weight: 600; }}
   .tablewrap td:not(:first-child) {{ color: var(--muted); font-size: 13px; }}
   .tablewrap td:last-child {{ grid-column: 2; grid-row: 1 / span 5; align-self: center; }}
+  .record {{ grid-template-columns: 1fr; gap: 2px; }}
+  .record .lab {{ margin-top: 6px; }}
 }}
 </style>
 </head>

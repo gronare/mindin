@@ -12,6 +12,7 @@ from typing import Any, Literal
 from mindin.auth import MACHINE_KEY_PURPOSE
 from mindin.auth.hosted_store import Account, HostedStore, MembershipError, VaultNameError, account_of
 from mindin.auth.hosted_vaults import SHARED, Vault, clash, reaches, vault_of
+from mindin.config import env
 from mindin.shared import Actor
 from mindin.vault import Reachable
 
@@ -29,6 +30,18 @@ DOMAIN_RE = re.compile(r"(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[
 Removal = Literal["keep", "export-and-delete"]
 SPANNING_PURPOSES = (None, MACHINE_KEY_PURPOSE)
 ORGANISATION_METHOD = "organisation"
+VERIFY_LABEL = "_mindin-verify"
+VERIFY_PREFIX = "mindin-verify="
+DNS_TIMEOUT = 5.0
+PUBLIC_PROVIDERS = frozenset(
+    {"gmail", "googlemail", "outlook", "hotmail", "live", "msn", "yahoo", "ymail", "aol", "gmx", "yandex", "icloud"}
+    | {"proton", "protonmail", "zoho", "mail", "tutanota"}
+)
+PUBLIC_DOMAINS = frozenset(
+    {"me.com", "mac.com", "pm.me", "proton.me", "web.de", "t-online.de", "freenet.de", "qq.com", "163.com", "126.com"}
+    | {"fastmail.com", "tuta.io", "hey.com", "comcast.net", "telia.com", "bredband.net", "laposte.net", "orange.fr"}
+)
+SECOND_LEVELS = frozenset({"co", "com", "net", "org", "ne", "or"})
 
 SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS organisations (
@@ -40,10 +53,17 @@ CREATE TABLE IF NOT EXISTS organisations (
     created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS organisation_domains (
-    domain TEXT PRIMARY KEY COLLATE NOCASE,
     organisation_id TEXT NOT NULL REFERENCES organisations(id),
-    added_at INTEGER NOT NULL
+    domain TEXT NOT NULL COLLATE NOCASE,
+    token TEXT NOT NULL,
+    verified_at INTEGER,
+    added_at INTEGER NOT NULL,
+    checked_at INTEGER,
+    checked_records INTEGER,
+    PRIMARY KEY (organisation_id, domain)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS organisation_domains_verified ON organisation_domains(domain)
+    WHERE verified_at IS NOT NULL;
 CREATE TABLE IF NOT EXISTS organisation_members (
     organisation_id TEXT NOT NULL REFERENCES organisations(id),
     account_id TEXT NOT NULL REFERENCES accounts(id),
@@ -78,6 +98,27 @@ CREATE TABLE IF NOT EXISTS organisation_departures (
 
 class OrganisationError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class OrgDomain:
+    domain: str
+    token: str
+    verified_at: int | None
+    checked_at: int | None = None
+    checked_records: int = 0
+
+    @property
+    def verified(self) -> bool:
+        return self.verified_at is not None
+
+    @property
+    def record_name(self) -> str:
+        return f"{VERIFY_LABEL}.{self.domain}"
+
+    @property
+    def record_value(self) -> str:
+        return VERIFY_PREFIX + self.token
 
 
 @dataclass(frozen=True)
@@ -140,11 +181,42 @@ def clean_domain(raw: str) -> str:
     return domain
 
 
+def public_domains(raw: str | None = None) -> frozenset[str]:
+    listed = env("VAULT_PUBLIC_EMAIL_DOMAINS") if raw is None else raw
+    cleaned = (part.strip().lower().lstrip("@").rstrip(".") for part in (listed or "").split(","))
+    return PUBLIC_DOMAINS | frozenset(domain for domain in cleaned if domain)
+
+
+def public_provider(domain: str, listed: frozenset[str] = PUBLIC_DOMAINS) -> bool:
+    labels = domain.split(".")
+    if any(".".join(labels[start:]) in listed for start in range(len(labels) - 1)):
+        return True
+    return any(label in PUBLIC_PROVIDERS and suffix_only(labels[at + 1 :]) for at, label in enumerate(labels))
+
+
+def suffix_only(rest: list[str]) -> bool:
+    return len(rest) == 1 or (len(rest) == 2 and rest[0] in SECOND_LEVELS)
+
+
+def txt_records(name: str) -> list[str]:
+    import dns.exception
+    import dns.resolver
+
+    resolver = dns.resolver.Resolver()
+    resolver.lifetime = DNS_TIMEOUT
+    try:
+        answer = resolver.resolve(name, "TXT")
+    except dns.exception.DNSException:
+        return []
+    return [b"".join(record.strings).decode("utf-8", "replace") for record in answer]
+
+
 def matching(connection: Any, emails: tuple[str, ...]) -> list[tuple[str, str]]:
     found = []
     for email in emails:
         row = connection.execute(
-            "SELECT organisation_id FROM organisation_domains WHERE domain = ?", (domain_of(email),)
+            "SELECT organisation_id FROM organisation_domains WHERE domain = ? AND verified_at IS NOT NULL",
+            (domain_of(email),),
         ).fetchone()
         if row is not None:
             found.append((row["organisation_id"], email.strip().lower()))
@@ -181,6 +253,13 @@ def org_vaults_of(connection: Any, organisation_id: str) -> list[Vault]:
         (organisation_id,),
     ).fetchall()
     return [vault for vault in map(vault_of, rows) if vault is not None]
+
+
+def drop_other_claims(connection: Any, organisation_id: str, domain: str) -> None:
+    connection.execute(
+        "DELETE FROM organisation_domains WHERE domain = ? AND organisation_id != ? AND verified_at IS NULL",
+        (domain, organisation_id),
+    )
 
 
 def admit_to_vault(connection: Any, vault: Vault, account_id: str, email: str, organisation_id: str) -> None:
@@ -291,9 +370,17 @@ def locked_out(connection: Any, vault_id: str, actor: Actor) -> str:
 
 
 class Organisations:
-    def __init__(self, store: HostedStore, clock: Callable[[], float] = time.time) -> None:
+    def __init__(
+        self,
+        store: HostedStore,
+        clock: Callable[[], float] = time.time,
+        resolve: Callable[[str], list[str]] | None = None,
+        public: frozenset[str] | None = None,
+    ) -> None:
         self.store = store
         self.clock = clock
+        self.resolve = resolve
+        self.public = public_domains() if public is None else public
 
     def moment(self) -> int:
         return int(self.clock())
@@ -354,27 +441,86 @@ class Organisations:
             join(connection, organisation_id, admin.id, ADMIN, "created")
         return self.require(organisation_id)
 
-    def domains(self, organisation: Organisation) -> list[str]:
+    def domains(self, organisation: Organisation) -> list[OrgDomain]:
         with self.store.connect() as connection:
             rows = connection.execute(
-                "SELECT domain FROM organisation_domains WHERE organisation_id = ? ORDER BY domain", (organisation.id,)
+                "SELECT domain, token, verified_at, checked_at, checked_records FROM organisation_domains"
+                " WHERE organisation_id = ? ORDER BY domain",
+                (organisation.id,),
             ).fetchall()
-        return [row["domain"] for row in rows]
+        return [
+            OrgDomain(row["domain"], row["token"], row["verified_at"], row["checked_at"], row["checked_records"] or 0)
+            for row in rows
+        ]
 
-    def add_domain(self, organisation: Organisation, raw: str) -> str:
+    def domain(self, organisation: Organisation, raw: str) -> OrgDomain:
+        domain = raw.strip().lower().lstrip("@").rstrip(".")
+        found = next((item for item in self.domains(organisation) if item.domain == domain), None)
+        if found is None:
+            raise OrganisationError(f"{organisation.name} has no domain {raw.strip() or 'by that name'}.")
+        return found
+
+    def add_domain(
+        self, organisation: Organisation, raw: str, verified: bool = False, allow_public: bool = False
+    ) -> OrgDomain:
         domain = clean_domain(raw)
-        with self.store.connect() as connection:
-            row = connection.execute(
-                "SELECT organisation_id FROM organisation_domains WHERE domain = ?", (domain,)
-            ).fetchone()
-            if row is not None:
-                whose = "this organisation" if row["organisation_id"] == organisation.id else "another organisation"
-                raise OrganisationError(f"{domain} already belongs to {whose}.")
-            connection.execute(
-                "INSERT INTO organisation_domains(domain, organisation_id, added_at) VALUES(?, ?, ?)",
-                (domain, organisation.id, self.moment()),
+        if not allow_public and public_provider(domain, self.public):
+            raise OrganisationError(
+                f"{domain} is a public email provider: anyone can have an address there, so it cannot let people"
+                " into an organisation."
             )
-        return domain
+        with self.store.connect() as connection:
+            rows = connection.execute(
+                "SELECT organisation_id, verified_at FROM organisation_domains WHERE domain = ?", (domain,)
+            ).fetchall()
+            claimed = any(row["organisation_id"] == organisation.id for row in rows)
+            if claimed and not verified:
+                raise OrganisationError(f"{domain} already belongs to this organisation.")
+            if any(row["verified_at"] is not None and row["organisation_id"] != organisation.id for row in rows):
+                raise OrganisationError(f"{domain} already belongs to another organisation.")
+            moment = self.moment()
+            if claimed:
+                connection.execute(
+                    "UPDATE organisation_domains SET verified_at = COALESCE(verified_at, ?)"
+                    " WHERE organisation_id = ? AND domain = ?",
+                    (moment, organisation.id, domain),
+                )
+            else:
+                connection.execute(
+                    "INSERT INTO organisation_domains(organisation_id, domain, token, verified_at, added_at)"
+                    " VALUES(?, ?, ?, ?, ?)",
+                    (organisation.id, domain, secrets.token_urlsafe(24), moment if verified else None, moment),
+                )
+            if verified:
+                drop_other_claims(connection, organisation.id, domain)
+        return self.domain(organisation, domain)
+
+    def check_domain(self, organisation: Organisation, raw: str) -> OrgDomain:
+        claim = self.domain(organisation, raw)
+        if claim.verified:
+            return claim
+        found = (self.resolve or txt_records)(claim.record_name)
+        with self.store.connect() as connection:
+            connection.execute(
+                "UPDATE organisation_domains SET checked_at = ?, checked_records = ? WHERE organisation_id = ?"
+                " AND domain = ?",
+                (self.moment(), len(found), organisation.id, claim.domain),
+            )
+        if claim.record_value not in (record.strip() for record in found):
+            raise OrganisationError(
+                f"No TXT record {claim.record_value} at {claim.record_name} yet. DNS changes can take a while to"
+                " show; check again later."
+            )
+        try:
+            with self.store.connect() as connection:
+                connection.execute(
+                    "UPDATE organisation_domains SET verified_at = ? WHERE organisation_id = ? AND domain = ?",
+                    (self.moment(), organisation.id, claim.domain),
+                )
+                drop_other_claims(connection, organisation.id, claim.domain)
+        except self.store.database.IntegrityError as exc:
+            raise OrganisationError(f"{claim.domain} already belongs to another organisation.") from exc
+        return self.domain(organisation, claim.domain)
 
     def remove_domain(self, organisation: Organisation, raw: str) -> bool:
         with self.store.connect() as connection:
@@ -658,12 +804,16 @@ def describe(organisations: Organisations, organisation: Organisation) -> list[s
     if organisation.removal == EXPORT_AND_DELETE:
         lines[0] += f" after {organisation.removal_days} days"
     lines[0] += f"  sharing outside: {organisation.external_sharing}"
-    lines += [f"domain  @{domain}" for domain in organisations.domains(organisation)]
+    lines += [f"domain  @{item.domain}  {domain_state(item)}" for item in organisations.domains(organisation)]
     lines += [f"{member.role}  {member.account.email}" for member in organisations.members(organisation)]
     for item in organisations.vaults(organisation):
         state = "locked, editors: " + (", ".join(e.email for e in item.editors) or "none") if item.locked else "open"
         lines.append(f"vault  {item.vault.slug}  {item.vault.name}  {state}")
     return lines
+
+
+def domain_state(item: OrgDomain) -> str:
+    return "verified" if item.verified else f"unverified: TXT {item.record_name} {item.record_value}"
 
 
 def told_on_departure(departure: Departure) -> str:
@@ -731,8 +881,10 @@ def command_org_change(organisations: Organisations, organisation: Organisation,
     action, change = args.org_command, args.change
     if action == "domain":
         if change == "add":
-            domain = organisations.add_domain(organisation, args.domain)
-            print(f"mindin: addresses at {domain} join {organisation.name} when they sign in")
+            item = organisations.add_domain(organisation, args.domain, args.verified, args.allow_public)
+            print(domain_told(organisation, item))
+        elif change == "check":
+            print(domain_told(organisation, organisations.check_domain(organisation, args.domain)))
         elif organisations.remove_domain(organisation, args.domain):
             print(f"mindin: {args.domain} no longer joins {organisation.name}; its members stay")
         else:
@@ -776,6 +928,15 @@ def command_org_change(organisations: Organisations, organisation: Organisation,
     return 0
 
 
+def domain_told(organisation: Organisation, item: OrgDomain) -> str:
+    if item.verified:
+        return f"mindin: addresses at {item.domain} join {organisation.name} when they sign in"
+    return (
+        f"mindin: {item.domain} joins {organisation.name} once verified: add a TXT record at {item.record_name}"
+        f" with the value {item.record_value}, then run `mindin org domain check {organisation.id} {item.domain}`"
+    )
+
+
 def store_account(organisations: Organisations, ref: str) -> Account:
     account = organisations.store.account(ref)
     if account is None:
@@ -794,8 +955,16 @@ def add_commands(sub: Any, run: Callable[[argparse.Namespace], int]) -> None:
     showing = org_sub.add_parser("show", help="print the domains, members, admins and vaults")
     showing.add_argument("organisation", help="the organisation's name or id")
     showing.set_defaults(func=run)
+    domain = org_sub.add_parser(
+        "domain", help="the email domains whose verified addresses join on sign-in, once the domain is verified"
+    )
+    domain.add_argument("change", choices=("add", "check", "remove"))
+    domain.add_argument("organisation", help="the organisation's name or id")
+    domain.add_argument("domain")
+    domain.add_argument("--verified", action="store_true", help="mark it verified without the DNS record")
+    domain.add_argument("--allow-public", action="store_true", help="accept a public email provider's domain")
+    domain.set_defaults(func=run)
     for name, noun, summary in (
-        ("domain", "domain", "the email domains whose verified addresses join on sign-in, matched exactly"),
         ("admin", "email", "the admins; the last one cannot be removed"),
         ("member", "email", "the members; removing one ends their access to the organisation's vaults at once"),
     ):

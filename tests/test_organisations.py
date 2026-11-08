@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import base64
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx2
 import pytest
 from hosted_support import INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_session, post_mcp, sse_payload, text_of
 
-from mindin.auth import hosted_store
+from mindin.auth import hosted_orgs, hosted_store
 from mindin.auth.hosted_access import SupportAccess
 from mindin.auth.hosted_keys import SealedVaults, VaultKeys, delete_account
 from mindin.auth.hosted_org_pages import delete_departed
-from mindin.auth.hosted_orgs import OrganisationError, Organisations, clean_domain
+from mindin.auth.hosted_orgs import OrganisationError, Organisations, OrgDomain, clean_domain
 from mindin.auth.hosted_store import HostedStore, MembershipError
 from mindin.auth.identities import Identities, Proof
 from mindin.cli import main
@@ -22,6 +23,20 @@ from mindin.vault import SubjectVaults
 FRONT = "date: 2026-11-01\nupdated: 2026-11-01\nstatus: active\n"
 DEPLOY = f'---\ntitle: Deploys\n{FRONT}tags: [ops]\nkind: howto\narea: "[[ops]]"\n---\n\nShip from main.\n'
 POLICY = f'---\ntitle: Leave\n{FRONT}tags: [people]\nkind: reference\narea: "[[people]]"\n---\n\nTwenty-five days.\n'
+
+
+PUBLISHED: dict[str, list[str]] = {}
+
+
+@pytest.fixture(autouse=True)
+def fake_dns(monkeypatch: pytest.MonkeyPatch):
+    PUBLISHED.clear()
+    monkeypatch.setattr(hosted_orgs, "txt_records", lambda name: PUBLISHED.get(name, []))
+    yield PUBLISHED
+
+
+def publish(item: OrgDomain) -> None:
+    PUBLISHED.setdefault(item.record_name, []).append(item.record_value)
 
 
 @pytest.fixture
@@ -56,6 +71,8 @@ async def company(site: Hosted) -> tuple[httpx2.AsyncClient, httpx2.AsyncClient]
     ada, answer = await signed_in(site, "ada@acme.test")
     assert answer.status_code == 303, answer.text
     assert (await post_org(site, ada, "/domains", domain="acme.test")).status_code == 200
+    publish(orgs(site).domain(orgs(site).require("Acme"), "acme.test"))
+    assert (await post_org(site, ada, "/domains/check", domain="acme.test")).status_code == 200
     assert (await post_org(site, ada, "/admins", email="bea@acme.test")).status_code == 200
     made = await post_org(site, ada, "/vaults", name="Wiki", slug="wiki")
     assert made.status_code == 200 and "Wiki is at /mcp?vault=wiki for every member" in made.text, made.text
@@ -242,7 +259,7 @@ async def test_an_existing_account_on_the_domain_joins_on_its_next_sign_in(site:
     dan, _ = await signed_in(site, "dan@acme.test")
     account = site.store.account("dan@acme.test")
     organisation = orgs(site).create("Acme", "ada@acme.test")
-    orgs(site).add_domain(organisation, "acme.test")
+    orgs(site).add_domain(organisation, "acme.test", verified=True)
     assert orgs(site).of_account(account.id) == []
     async with dan, site.browser() as again:
         await site.sign_in(again, "dan@acme.test")
@@ -252,10 +269,116 @@ async def test_an_existing_account_on_the_domain_joins_on_its_next_sign_in(site:
 @pytest.mark.anyio
 async def test_an_unverified_company_address_does_not_join(site: Hosted):
     organisation = orgs(site).create("Acme", "ada@acme.test")
-    orgs(site).add_domain(organisation, "acme.test")
+    orgs(site).add_domain(organisation, "acme.test", verified=True)
     async with site.browser() as http:
         answer = await site.sign_in(http, "mal@acme.test", verified=False)
     assert answer.status_code == 403 and site.store.account("mal@acme.test") is None
+
+
+@pytest.mark.anyio
+async def test_an_admin_cannot_claim_a_public_email_provider(site: Hosted):
+    orgs(site).create("Acme", "ada@acme.test")
+    ada, _ = await signed_in(site, "ada@acme.test")
+    async with ada:
+        answers = [
+            await post_org(site, ada, "/domains", domain=domain)
+            for domain in ("gmail.com", "GoogleMail.com", "yahoo.co.uk", "gmx.de", "proton.me", "web.de")
+        ]
+    assert all(answer.status_code == 400 and "public email provider" in answer.text for answer in answers)
+    assert orgs(site).domains(orgs(site).require("Acme")) == []
+
+
+def test_the_operator_lists_more_public_providers_and_only_the_cli_forces_one(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setenv("VAULT_PUBLIC_EMAIL_DOMAINS", "freemail.test, @Mailbox.Test.")
+    store = HostedStore(tmp_path)
+    organisations = Organisations(store)
+    organisation = organisations.create("Acme", "ada@acme.test")
+    for domain in ("freemail.test", "eu.mailbox.test", "gmail.com"):
+        with pytest.raises(OrganisationError, match="public email provider"):
+            organisations.add_domain(organisation, domain, verified=True)
+    assert organisations.add_domain(organisation, "gmail.com", verified=True, allow_public=True).verified
+    monkeypatch.setenv("VAULT_AUTH_DIR", str(tmp_path / "auth"))
+    assert main(["org", "create", "Mail", "--admin", "op@mail.test"]) == 0
+    assert main(["org", "domain", "add", "Mail", "hotmail.com", "--verified"]) == 2
+    assert main(["org", "domain", "add", "Mail", "hotmail.com", "--verified", "--allow-public"]) == 0
+    assert "addresses at hotmail.com join Mail" in capsys.readouterr().out
+
+
+@pytest.mark.anyio
+async def test_an_unverified_domain_lets_nobody_in_until_its_txt_record_matches(site: Hosted):
+    orgs(site).create("Acme", "ada@acme.test")
+    site.store.invite("dan@acme.test")
+    ada, _ = await signed_in(site, "ada@acme.test")
+    async with ada, site.browser() as cy, site.browser() as dan:
+        added = await post_org(site, ada, "/domains", domain="acme.test")
+        claim = orgs(site).domain(orgs(site).require("Acme"), "acme.test")
+        missing = await post_org(site, ada, "/domains/check", domain="acme.test")
+        remembered = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
+        early = await site.sign_in(cy, "cy@acme.test")
+        made_early = site.store.account("cy@acme.test")
+        await site.sign_in(dan, "dan@acme.test")
+        PUBLISHED[claim.record_name] = ["mindin-verify=someone-elses-token"]
+        wrong = await post_org(site, ada, "/domains/check", domain="acme.test")
+        PUBLISHED[claim.record_name].append(claim.record_value)
+        other = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
+        checked = await post_org(site, ada, "/domains/check", domain="acme.test")
+        joined = await site.sign_in(cy, "cy@acme.test")
+    assert added.status_code == 200 and "Not checked yet." in added.text
+    assert '<code id="record-host-0">_mindin-verify.acme.test</code>' in added.text
+    assert f'<code id="record-value-0">{claim.record_value}</code>' in added.text
+    assert 'data-copy="record-value-0" hidden>Copy</button>' in added.text
+    assert missing.status_code == 400 and "Checked today " in remembered.text
+    assert ": no TXT record yet. DNS changes can take up to an hour." in remembered.text
+    assert "a TXT record is there, but not this value" in other.text
+    assert not claim.verified and claim.record_value.startswith("mindin-verify=")
+    assert early.status_code == 403 and made_early is None
+    assert orgs(site).of_account(site.store.account("dan@acme.test").id) == []
+    assert wrong.status_code == 400 and "No TXT record" in wrong.text
+    assert checked.status_code == 200 and "acme.test is verified" in checked.text
+    assert joined.status_code == 303
+    assert [found.name for found, _ in orgs(site).of_account(site.store.account("cy@acme.test").id)] == ["Acme"]
+
+
+def test_the_operator_cli_adds_a_domain_unverified_or_verified(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setenv("VAULT_AUTH_DIR", str(tmp_path / "auth"))
+    assert main(["org", "create", "Acme", "--admin", "ada@acme.test"]) == 0
+    assert main(["org", "create", "Beta", "--admin", "bo@beta.test"]) == 0
+    assert main(["org", "domain", "add", "Acme", "acme.test"]) == 0
+    told = capsys.readouterr().out
+    assert main(["org", "domain", "add", "Beta", "beta.test", "--verified"]) == 0
+    assert main(["org", "domain", "check", "Acme", "acme.test"]) == 2
+    capsys.readouterr()
+    assert main(["org", "show", "Acme"]) == 0
+    acme = capsys.readouterr().out
+    assert main(["org", "show", "Beta"]) == 0
+    beta = capsys.readouterr().out
+    assert "add a TXT record at _mindin-verify.acme.test with the value mindin-verify=" in told
+    assert "domain  @acme.test  unverified: TXT _mindin-verify.acme.test mindin-verify=" in acme
+    assert "domain  @beta.test  verified" in beta
+    identities = Identities(HostedStore(tmp_path / "auth"))
+    assert identities.sign_in(Proof("oidc", "s1", ("cy@acme.test",)), "invite").refusal == "uninvited"
+    assert identities.sign_in(Proof("oidc", "s2", ("bea@beta.test",)), "invite").account is not None
+
+
+def test_verified_on_a_domain_already_claimed_marks_that_claim_verified(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setenv("VAULT_AUTH_DIR", str(tmp_path / "auth"))
+    for name, admin in (("Acme", "ada@acme.test"), ("Beta", "bo@beta.test"), ("Gamma", "gi@gamma.test")):
+        assert main(["org", "create", name, "--admin", admin]) == 0
+    assert main(["org", "domain", "add", "Acme", "acme.test"]) == 0
+    assert main(["org", "domain", "add", "Gamma", "acme.test"]) == 0
+    assert main(["org", "domain", "add", "Acme", "acme.test"]) == 2
+    capsys.readouterr()
+    assert main(["org", "domain", "add", "Acme", "acme.test", "--verified"]) == 0
+    marked = capsys.readouterr().out
+    assert main(["org", "domain", "add", "Beta", "acme.test", "--verified"]) == 2
+    refused = capsys.readouterr().err
+    assert main(["org", "show", "Acme"]) == 0
+    acme = capsys.readouterr().out
+    assert main(["org", "show", "Gamma"]) == 0
+    gamma = capsys.readouterr().out
+    assert "addresses at acme.test join Acme when they sign in" in marked
+    assert "acme.test already belongs to another organisation." in refused
+    assert "domain  @acme.test  verified" in acme and "acme.test" not in gamma
 
 
 @pytest.mark.anyio
@@ -292,7 +415,7 @@ def test_a_domain_matches_exactly_and_ignores_case(tmp_path: Path):
     store = HostedStore(tmp_path)
     organisations = Organisations(store)
     organisation = organisations.create("Acme", "ada@acme.test")
-    assert organisations.add_domain(organisation, " @Acme.TEST. ") == "acme.test"
+    assert organisations.add_domain(organisation, " @Acme.TEST. ", verified=True).domain == "acme.test"
     identities = Identities(store)
     joined = identities.sign_in(Proof("oidc", "s1", ("Cy@ACME.test",), "cy"), "invite")
     sub = identities.sign_in(Proof("oidc", "s2", ("eve@dev.acme.test",), "eve"), "invite")
@@ -305,19 +428,26 @@ def test_a_domain_matches_exactly_and_ignores_case(tmp_path: Path):
             clean_domain(bad)
 
 
-def test_a_domain_belongs_to_one_organisation(tmp_path: Path):
+def test_a_verified_domain_belongs_to_one_organisation_and_an_unverified_claim_blocks_nobody(tmp_path: Path):
     organisations = Organisations(HostedStore(tmp_path))
     first = organisations.create("Acme", "ada@acme.test")
     second = organisations.create("Other", "oz@other.test")
-    organisations.add_domain(first, "acme.test")
+    squatted = organisations.add_domain(second, "acme.test")
+    claim = organisations.add_domain(first, "acme.test")
+    with pytest.raises(OrganisationError, match="this organisation"):
+        organisations.add_domain(first, "acme.test")
+    publish(claim)
+    assert organisations.check_domain(first, "acme.test").verified
+    assert organisations.domains(second) == [], "the losing unverified claim is dropped"
     with pytest.raises(OrganisationError, match="another organisation"):
         organisations.add_domain(second, "acme.test")
+    assert squatted.token != claim.token
 
 
 def test_the_company_address_becomes_the_account_address(tmp_path: Path):
     store = HostedStore(tmp_path)
     organisations = Organisations(store)
-    organisations.add_domain(organisations.create("Acme", "ada@acme.test"), "acme.test")
+    organisations.add_domain(organisations.create("Acme", "ada@acme.test"), "acme.test", verified=True)
     outcome = Identities(store).sign_in(Proof("github", "77", ("me@home.test", "cy@acme.test"), "cy"), "invite")
     assert outcome.account is not None and outcome.account.email == "cy@acme.test"
 
@@ -361,7 +491,7 @@ def test_only_an_admin_makes_org_vaults_and_editors_are_members(tmp_path: Path):
 def test_the_cli_sets_up_an_organisation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
     monkeypatch.setenv("VAULT_AUTH_DIR", str(tmp_path / "auth"))
     assert main(["org", "create", "Acme", "--admin", "ada@acme.test"]) == 0
-    assert main(["org", "domain", "add", "Acme", "acme.test"]) == 0
+    assert main(["org", "domain", "add", "Acme", "acme.test", "--verified"]) == 0
     assert main(["org", "admin", "add", "Acme", "bea@acme.test"]) == 0
     assert main(["org", "vault", "create", "Acme", "Wiki", "--slug", "wiki"]) == 0
     assert main(["org", "vault", "lock", "Acme", "wiki"]) == 0
@@ -373,14 +503,16 @@ def test_the_cli_sets_up_an_organisation(tmp_path: Path, monkeypatch: pytest.Mon
     assert main(["org", "show", "Acme"]) == 0
     shown = capsys.readouterr().out
     assert "removed members: export-and-delete after 10 days  sharing outside: allowed" in shown
-    assert "domain  @acme.test" in shown and "admin  ada@acme.test" in shown and "admin  bea@acme.test" in shown
+    assert (
+        "domain  @acme.test  verified" in shown and "admin  ada@acme.test" in shown and "admin  bea@acme.test" in shown
+    )
     assert "vault  wiki  Wiki  locked, editors: bea@acme.test" in shown
 
 
 def test_a_forwarded_identity_joins_by_domain_and_shares_the_account_with_the_company_sign_in(tmp_path: Path):
     store = HostedStore(tmp_path)
     organisations = Organisations(store)
-    organisations.add_domain(organisations.create("Acme", "ada@acme.test"), "acme.test")
+    organisations.add_domain(organisations.create("Acme", "ada@acme.test"), "acme.test", verified=True)
     identities = Identities(store)
     through_proxy = identities.sign_in(Proof("forwarded", "proxy-cy", ("cy@acme.test",), "cy@acme.test"), "invite")
     on_the_pages = identities.sign_in(Proof("oidc", "idp-cy", ("cy@acme.test",), "cy@acme.test"), "invite")
@@ -604,6 +736,19 @@ async def test_every_way_an_account_is_made_calls_registered_once(vaults: Subjec
         ("fay@else.test", "organisation", True, "Beta"),
     ]
     assert running.store.account("cy@else.test").name == "planned"
+
+
+@pytest.mark.anyio
+async def test_a_verified_domain_says_when_and_how_many_joined_through_it(site: Hosted):
+    ada, bea = await company(site)
+    async with ada, bea, site.browser() as cy:
+        page = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
+        await site.sign_in(cy, "cy@acme.test")
+        after = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
+    day = datetime.fromtimestamp(site.clock(), UTC)
+    assert f'<span class="chip">Verified {day.day} {day:%b %Y}</span>' in page.text
+    assert "nobody has joined through it yet · the record is not read again" in page.text
+    assert "1 person joined through it · the record is not read again" in after.text
 
 
 @pytest.mark.anyio

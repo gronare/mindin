@@ -37,7 +37,7 @@ Once it is published, `mindin org domain check Example example.com` looks it up 
 
 A verified domain belongs to one organisation. An unverified one holds nothing: another organisation that verifies it first takes it. Public email providers such as `gmail.com`, `outlook.com` or `proton.me` are refused, verified or not; `VAULT_PUBLIC_EMAIL_DOMAINS` adds more, and only `domain add --allow-public` on the command line takes one anyway.
 
-Whoever signs in with a verified address at a verified domain joins on that sign-in, with no invitation, also under `VAULT_REGISTRATION=invite`; an account that existed before joins on its next sign-in. An address outside the domains gets in only when an admin adds it.
+Whoever signs in with a verified address at a verified domain joins on that sign-in, with no invitation, also under `VAULT_REGISTRATION=invite`; an account that existed before joins on its next sign-in. An address outside the domains gets in only when an admin adds it. When that address already has an account here, adding it puts an invitation on their account page instead: they join once they press Accept there. With SMTP set, adding them on the organisation's page also emails them a link to that page. The organisation's page lists each pending invitation under Invitations, where an admin can Withdraw it or, with SMTP set, Send again, which sends the email again at most once every ten minutes. Without SMTP, and from the command line, no email is sent: tell them the invitation waits on their account page.
 
 From here on admins can do the rest on the Account page: under Organisation, Manage opens the organisation's page, with its domains, members and admins, vaults, and what happens when someone is removed.
 
@@ -97,11 +97,11 @@ mindin org removal Example export-and-delete --days 30
 mindin org member remove Example cy@example.com
 ```
 
-Removing a member stops their keys, tokens and connections to every organisation vault on their next request. What they wrote stays, under their name in each vault's history. A vault they owned passes to another admin. Their personal vaults follow the organisation's setting:
+Removing a member stops their keys, tokens and connections to every organisation vault on their next request. What they wrote stays, under their name in each vault's history. An organisation vault they owned passes to another admin; when no other admin can take one over, the removal is refused and nothing changes. Their personal vaults follow the organisation's setting:
 
 - `keep` (the default): the account stays, as an account of its own.
-- `export-and-delete`: they get an email with a link to download their vaults, and the account and its vaults are deleted after the given days.
+- `export-and-delete`: a member who joined through a verified domain, with an address still at one, is deleted after the given days, 1 to 365; omitting `--days` keeps the current number. With SMTP set, they get an email with a link to download their vaults; without it, tell them yourself. Their account stays all the same when an extension keeps it, when they belong to another organisation by then, or when they own a shared vault that other members still use. Someone an admin added keeps their account.
 
-A removed person does not rejoin through the domain; an admin adds them back with `mindin org member add`. The last admin cannot be removed or lose the role.
+A removed person does not rejoin through the domain: not with the same account, and not with any address their sign-in carries. An admin adds them back with `mindin org member add`, and their deletion, if one is pending, is cancelled once they are back in. The last admin cannot be removed or lose the role.
 
 `mindin org show Example` prints the domains, admins, members and vaults. [Command line](../reference/command-line.md#organisations) lists every `org` command.

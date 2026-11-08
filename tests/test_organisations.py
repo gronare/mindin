@@ -12,7 +12,7 @@ from hosted_support import INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_
 from mindin import provision
 from mindin.auth import hosted_orgs, hosted_store
 from mindin.auth.hosted_access import SupportAccess
-from mindin.auth.hosted_keys import SealedVaults, VaultKeys, delete_account
+from mindin.auth.hosted_keys import SealedVaults, StillShared, VaultKeys, delete_account
 from mindin.auth.hosted_org_pages import delete_departed
 from mindin.auth.hosted_orgs import OrganisationError, Organisations, OrgDomain, clean_domain
 from mindin.auth.hosted_store import HostedStore, MembershipError
@@ -218,6 +218,22 @@ async def test_flow_13_a_removed_member_keeps_their_account_and_their_wiki_notes
 
 
 @pytest.mark.anyio
+async def test_a_removed_member_does_not_rejoin_through_another_address_at_the_domain(site: Hosted):
+    ada, bea = await company(site)
+    async with ada, bea, site.browser() as cy:
+        await site.sign_in(cy, "cy@acme.test")
+        assert "is removed" in (await post_org(site, ada, "/members/remove", email="cy@acme.test")).text
+    account = site.store.account("cy@acme.test")
+    identities = Identities(site.store)
+    again = identities.sign_in(Proof("github", "4242", ("cy@acme.test", "cyrus@acme.test"), "cy"), "invite")
+    renamed = identities.sign_in(Proof("github", "4242", ("cyrus@acme.test",), "cy"), "invite")
+    assert again.account.id == account.id and renamed.account.id == account.id
+    assert orgs(site).of_account(account.id) == []
+    fresh = identities.sign_in(Proof("github", "5151", ("cy@acme.test", "cy2@acme.test"), "cy"), "invite")
+    assert fresh.account.id == account.id and orgs(site).of_account(account.id) == []
+
+
+@pytest.mark.anyio
 async def test_flow_13_export_and_delete_mails_a_link_and_deletes_the_account_later(
     site: Hosted, vaults: SubjectVaults
 ):
@@ -228,6 +244,7 @@ async def test_flow_13_export_and_delete_mails_a_link_and_deletes_the_account_la
         saved = await post_org(site, ada, "/removal", removal="export-and-delete", days="14")
         removed = await post_org(site, ada, "/members/remove", email="cy@acme.test")
     assert "Saved." in saved.text
+    assert "Someone an admin added by email keeps their account whatever\nthe setting." in saved.text
     assert "their own vaults are deleted on" in removed.text and "An email tells them" in removed.text
     message = site.smtp.messages[-1]
     assert message["To"] == "cy@acme.test" and message["Subject"] == "Acme removed you from its vaults"
@@ -243,6 +260,93 @@ async def test_flow_13_export_and_delete_mails_a_link_and_deletes_the_account_la
     assert site.store.account("cy@acme.test") is None
     assert history(site)[0].author_email == "cy@acme.test"
     assert delete_departed(orgs(site), erase) == 0
+
+
+@pytest.mark.anyio
+async def test_an_outsiders_account_joins_only_on_their_yes_and_its_removal_never_deletes_it(
+    site: Hosted, vaults: SubjectVaults
+):
+    ada, bea = await company(site)
+    site.store.invite("eve@other.test")
+    eve_account = site.store.account("eve@other.test")
+    async with ada, bea, site.browser() as eve:
+        assert (await post_org(site, ada, "/removal", removal="export-and-delete", days="1")).status_code == 200
+        added = await post_org(site, ada, "/members", email="eve@other.test")
+        waiting = orgs(site).of_account(eve_account.id)
+        admin_page = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
+        await site.sign_in(eve, "eve@other.test")
+        settings = await eve.get("/account/settings")
+        accepted = await eve.post(
+            f"/account/organisation/{orgs(site).require('Acme').id}/accept", data={"csrf": csrf_of(settings.text)}
+        )
+        joined = orgs(site).of_account(eve_account.id)
+        removed = await post_org(site, ada, "/members/remove", email="eve@other.test")
+    assert "they join once they accept the invitation on their account page" in added.text
+    assert waiting == [] and "<h2>Invitations · 1</h2>" in admin_page.text
+    assert "Organisation invitations" in settings.text and "<td>Acme</td><td>Member</td>" in settings.text
+    assert accepted.status_code == 200 and [found.name for found, _ in joined] == ["Acme"]
+    assert "their own vaults stay with their account" in removed.text
+    sealed = SealedVaults(site.store, VaultKeys(site.store, site.keyring))
+    site.clock.advance(2 * 86400)
+    assert delete_departed(orgs(site), lambda account: delete_account(sealed, account, vaults.cache)) == 0
+    assert site.store.account("eve@other.test") is not None
+
+
+def test_a_declined_or_withdrawn_invitation_lets_nobody_in(tmp_path: Path):
+    store = HostedStore(tmp_path)
+    organisations = Organisations(store)
+    organisation = organisations.create("Acme", "ada@acme.test")
+    store.invite("eve@other.test")
+    eve = store.account("eve@other.test")
+    assert organisations.add_admin(organisation, "eve@other.test").pending
+    assert organisations.decline(organisation, eve.id)
+    with pytest.raises(OrganisationError, match="no invitation"):
+        organisations.accept(organisation, eve)
+    organisations.add_member(organisation, "eve@other.test")
+    assert organisations.withdraw(organisation, "eve@other.test")
+    assert organisations.pending(organisation) == [] and organisations.of_account(eve.id) == []
+
+
+def test_a_departed_account_that_still_shares_a_vault_is_kept_and_not_retried(tmp_path: Path):
+    store = HostedStore(tmp_path)
+    moment = [1_800_000_000.0]
+    organisations = Organisations(store, lambda: moment[0])
+    organisation = organisations.create("Acme", "ada@acme.test")
+    organisations.add_domain(organisation, "acme.test", verified=True)
+    organisation = organisations.set_removal(organisation, "export-and-delete", 1)
+    Identities(store).sign_in(Proof("github", "cy", ("cy@acme.test",), "cy"), "open")
+    organisations.remove_member(organisation, "cy@acme.test")
+    tried: list[str] = []
+
+    def erase(account) -> None:
+        tried.append(account.email)
+        raise StillShared("cy@acme.test still owns a vault others use")
+
+    moment[0] += 2 * 86400
+    assert delete_departed(organisations, erase) == 0
+    assert delete_departed(organisations, erase) == 0
+    assert tried == ["cy@acme.test"] and store.account("cy@acme.test") is not None
+
+
+class Keeper(Extension):
+    def may_erase(self, account) -> bool:
+        return account.email != "cy@acme.test"
+
+
+def test_an_extension_keeps_a_departed_account_the_organisation_would_delete(tmp_path: Path):
+    store = HostedStore(tmp_path, extensions=[Keeper()])
+    moment = [1_800_000_000.0]
+    organisations = Organisations(store, lambda: moment[0])
+    organisation = organisations.create("Acme", "ada@acme.test")
+    organisations.add_domain(organisation, "acme.test", verified=True)
+    organisation = organisations.set_removal(organisation, "export-and-delete", 1)
+    for email in ("cy@acme.test", "dan@acme.test"):
+        Identities(store).sign_in(Proof("github", email, (email,), email), "open")
+        assert organisations.remove_member(organisation, email).delete_after is not None
+    erased: list[str] = []
+    moment[0] += 2 * 86400
+    assert delete_departed(organisations, lambda account: erased.append(account.email)) == 1
+    assert erased == ["dan@acme.test"] and organisations.due() == []
 
 
 @pytest.mark.anyio
@@ -538,11 +642,37 @@ def test_removing_the_owner_of_an_org_vault_hands_it_to_an_admin(tmp_path: Path)
     assert not store.reaches(store.vault(vault.id), store.account("ada@acme.test").id)
 
 
+def test_a_removal_that_fails_midway_changes_nothing_and_a_retry_completes_it(tmp_path: Path):
+    store = HostedStore(tmp_path)
+    SupportAccess(store)
+    organisations = Organisations(store)
+    organisation = organisations.create("Acme", "ada@acme.test")
+    organisations.add_admin(organisation, "bea@acme.test")
+    vault = organisations.create_vault(organisation, store.account("ada@acme.test"), "Wiki", "wiki")
+    ada = store.account("ada@acme.test")
+
+    def failing() -> int:
+        raise OSError("the clock is gone")
+
+    organisations.moment = failing
+    with pytest.raises(OSError):
+        organisations.remove_member(organisation, "ada@acme.test")
+    assert store.vault(vault.id).account_id == ada.id
+    assert [member.account.email for member in organisations.members(organisation)] == [
+        "ada@acme.test",
+        "bea@acme.test",
+    ]
+    del organisations.moment
+    organisations.remove_member(organisation, "ada@acme.test")
+    assert store.vault(vault.id).account_id == store.account("bea@acme.test").id
+    assert not store.reaches(store.vault(vault.id), ada.id) and organisations.of_account(ada.id) == []
+
+
 def test_only_an_admin_makes_org_vaults_and_editors_are_members(tmp_path: Path):
     store = HostedStore(tmp_path)
     organisations = Organisations(store)
     organisation = organisations.create("Acme", "ada@acme.test")
-    cy = organisations.add_member(organisation, "cy@acme.test")
+    cy = organisations.add_member(organisation, "cy@acme.test").account
     with pytest.raises(OrganisationError, match="Only an admin"):
         organisations.create_vault(organisation, cy, "Wiki")
     item = organisations.org_vault(organisations.create_vault(organisation, store.account("ada@acme.test"), "Wiki"))
@@ -787,15 +917,17 @@ async def test_every_way_an_account_is_made_calls_registered_once(vaults: Subjec
         assert main(["accounts", "invite", "eve@solo.test"]) == 0
         assert main(["org", "create", "Beta", "--admin", "bo@beta.test"]) == 0
         assert main(["org", "member", "add", "Beta", "fay@else.test"]) == 0
+        assert main(["org", "admin", "add", "Beta", "gil@else.test"]) == 0
     assert plans.made == [
-        ("ada@acme.test", "organisation", True, "Acme"),
+        ("ada@acme.test", "operator", True, "Acme"),
         ("cy@else.test", "organisation", True, "Acme"),
         ("bea@else.test", "organisation", True, "Acme"),
         ("own@solo.test", "operator", True, "own@solo.test"),
         ("dan@solo.test", "oidc", True, "dan@solo.test"),
         ("eve@solo.test", "operator", True, "eve@solo.test"),
-        ("bo@beta.test", "organisation", True, "Beta"),
-        ("fay@else.test", "organisation", True, "Beta"),
+        ("bo@beta.test", "operator", True, "Beta"),
+        ("fay@else.test", "operator", True, "Beta"),
+        ("gil@else.test", "operator", True, "Beta"),
     ]
     assert running.store.account("cy@else.test").name == "planned"
 
@@ -822,6 +954,63 @@ async def test_the_lead_counts_the_members_and_the_vaults(site: Hosted):
         after = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
     assert '<p class="lead">Organisation · you are an admin · 2 members · 1 vault</p>' in page.text
     assert '<p class="lead">Organisation · you are an admin · 3 members · 1 vault</p>' in after.text
+
+
+@pytest.mark.anyio
+async def test_each_member_row_says_whether_they_have_signed_in(site: Hosted):
+    ada, bea = await company(site)
+    async with ada, bea, site.browser() as cy:
+        await site.sign_in(cy, "cy@acme.test")
+        assert (await post_org(site, ada, "/members", email="dan@acme.test")).status_code == 200
+        page = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
+    assert "<th>Signed in</th>" in page.text
+    assert '<td>ada@acme.test</td><td>Admin</td><td><span class="chip">today ' in page.text
+    assert '<td>cy@acme.test</td><td>Member</td><td><span class="chip">today ' in page.text
+    assert "<td>joined through @acme.test</td>" in page.text
+    assert (
+        '<td>dan@acme.test</td><td>Member</td><td><span class="chip off">not yet</span></td>'
+        "<td>added by an admin</td>" in page.text
+    )
+
+
+@pytest.mark.anyio
+async def test_an_invitation_is_mailed_and_sent_again_at_most_every_ten_minutes(site: Hosted):
+    ada, bea = await company(site)
+    site.store.invite("eve@other.test")
+    async with ada, bea:
+        added = await post_org(site, ada, "/members", email="eve@other.test")
+        page = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
+        early = await post_org(site, ada, "/invitations/resend", email="eve@other.test")
+        site.clock.advance(601)
+        again = await post_org(site, ada, "/invitations/resend", email="eve@other.test")
+        withdrawn = await post_org(site, ada, "/invitations/remove", email="eve@other.test")
+    mailed = [message for message in site.smtp.messages if message["To"] == "eve@other.test"]
+    assert "An email tells them so." in added.text and len(mailed) == 2
+    assert mailed[0]["Subject"] == "Acme invites you to its vaults"
+    body = mailed[0].get_body(("plain",)).get_content()
+    assert "ada@acme.test added eve@other.test to Acme" in body and "http://localhost/account/settings" in body
+    assert "<h2>Invitations · 1</h2>" in page.text and "<td>eve@other.test</td><td>ada@acme.test</td>" in page.text
+    assert "waiting for them to accept on their account page" in page.text
+    assert 'aria-label="Send again eve@other.test">Send again</button>' in page.text
+    assert "<td>eve@other.test</td>" not in page.text.split("<h2>Invitations")[0]
+    assert early.status_code == 400 and "send it again from" in early.text
+    assert again.status_code == 200 and "The invitation email went to eve@other.test again." in again.text
+    assert withdrawn.status_code == 200 and "<h2>Invitations" not in withdrawn.text
+
+
+@pytest.mark.anyio
+async def test_without_smtp_an_invitation_waits_on_the_account_page_and_is_not_sent_again(
+    vaults: SubjectVaults, tmp_path: Path
+):
+    async with hosted(vaults, tmp_path, smtp=None) as plain:
+        orgs(plain).create("Acme", "ada@acme.test")
+        plain.store.invite("eve@other.test")
+        ada, _ = await signed_in(plain, "ada@acme.test")
+        async with ada:
+            added = await post_org(plain, ada, "/members", email="eve@other.test")
+    assert "This server sends no email; tell them it waits there." in added.text
+    assert "This server sends no email, so each invitation waits on the person's account page" in added.text
+    assert "Send again" not in added.text and "Withdraw eve@other.test" in added.text
 
 
 @pytest.mark.anyio

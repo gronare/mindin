@@ -202,6 +202,7 @@ button.secondary:not(.btn) {{ padding: 7px 14px; font: inherit; font-size: 14px;
 .error {{ padding: 10px 12px; border-radius: 6px; color: var(--warn); background: #fbeceb;
   border: 1px solid #f0cfcc; }}
 .chip.warn {{ background: #fdf5e2; color: #6b4a00; border-color: #f0e0b5; }}
+.chip.off {{ background: var(--bg); color: var(--faint); border-color: var(--line); }}
 .facts {{ color: var(--muted); font-size: 13px; }}
 .domain {{ display: grid; gap: 10px; padding: 14px 16px; border-top: 1px solid var(--line); }}
 .domain:first-child {{ border-top: 0; }}
@@ -221,7 +222,7 @@ button.secondary:not(.btn) {{ padding: 7px 14px; font: inherit; font-size: 14px;
   .tablewrap td {{ border: 0; padding: 1px 12px; grid-column: 1; }}
   .tablewrap td:first-child {{ font-weight: 600; }}
   .tablewrap td:not(:first-child) {{ color: var(--muted); font-size: 13px; }}
-  .tablewrap td:last-child {{ grid-column: 2; grid-row: 1 / span 5; align-self: center; }}
+  .tablewrap td:last-child {{ grid-column: 2; grid-row: 1 / span 6; align-self: center; }}
   .record {{ grid-template-columns: 1fr; gap: 2px; }}
   .record .lab {{ margin-top: 6px; }}
 }}

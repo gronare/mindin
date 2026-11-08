@@ -137,6 +137,44 @@ def digest(secret: str) -> str:
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
+def drop_member(connection: Any, vault: Vault, account_id: str) -> bool:
+    if account_id == vault.account_id:
+        raise MembershipError("The owner cannot be removed; hand the vault over first.")
+    moment = now()
+    removed = connection.execute(
+        "DELETE FROM vault_members WHERE vault_id = ? AND account_id = ?", (vault.id, account_id)
+    ).rowcount
+    connection.execute(
+        "UPDATE api_keys SET revoked_at = ? WHERE vault_id = ? AND account_id = ? AND revoked_at IS NULL",
+        (moment, vault.id, account_id),
+    )
+    connection.execute(
+        "UPDATE tokens SET revoked = 1 WHERE vault_id = ? AND account_id = ? AND revoked = 0", (vault.id, account_id)
+    )
+    connection.execute("DELETE FROM devices WHERE vault_id = ? AND account_id = ?", (vault.id, account_id))
+    return removed > 0
+
+
+def pass_vault(connection: Any, vault: Vault, account_id: str) -> Vault:
+    if account_id == vault.account_id or not reaches(connection, vault, account_id):
+        raise MembershipError("Only a member of this vault can become its owner.")
+    if clash(connection, [account_id], vault.slug, vault.id) is not None:
+        raise MembershipError(
+            f"The new owner already reaches another vault at the address {vault.slug}; rename this vault first."
+        )
+    connection.execute("DELETE FROM vault_members WHERE vault_id = ? AND account_id = ?", (vault.id, account_id))
+    connection.execute(
+        "INSERT INTO vault_members(vault_id, account_id, joined_at) VALUES(?, ?, ?)"
+        " ON CONFLICT (vault_id, account_id) DO NOTHING",
+        (vault.id, vault.account_id, now()),
+    )
+    connection.execute("UPDATE vaults SET account_id = ? WHERE id = ?", (account_id, vault.id))
+    connection.execute("DELETE FROM vault_support_grants WHERE vault_id = ?", (vault.id,))
+    handed = vault_of(connection.execute("SELECT * FROM vaults WHERE id = ?", (vault.id,)).fetchone())
+    assert handed is not None
+    return handed
+
+
 def now() -> int:
     return int(time.time())
 
@@ -433,47 +471,12 @@ class HostedStore:
         return row is not None
 
     def remove_member(self, vault: Vault, account_id: str) -> bool:
-        if account_id == vault.account_id:
-            raise MembershipError("The owner cannot be removed; hand the vault over first.")
-        moment = now()
         with self.connect() as connection:
-            removed = connection.execute(
-                "DELETE FROM vault_members WHERE vault_id = ? AND account_id = ?", (vault.id, account_id)
-            ).rowcount
-            connection.execute(
-                "UPDATE api_keys SET revoked_at = ? WHERE vault_id = ? AND account_id = ? AND revoked_at IS NULL",
-                (moment, vault.id, account_id),
-            )
-            connection.execute(
-                "UPDATE tokens SET revoked = 1 WHERE vault_id = ? AND account_id = ? AND revoked = 0",
-                (vault.id, account_id),
-            )
-            connection.execute("DELETE FROM devices WHERE vault_id = ? AND account_id = ?", (vault.id, account_id))
-        return removed > 0
+            return drop_member(connection, vault, account_id)
 
     def hand_over(self, vault: Vault, account_id: str) -> Vault:
         with self.connect() as connection:
-            if account_id == vault.account_id or not reaches(connection, vault, account_id):
-                raise MembershipError("Only a member of this vault can become its owner.")
-            found = clash(connection, [account_id], vault.slug, vault.id)
-            if found is not None:
-                raise MembershipError(
-                    f"The new owner already reaches another vault at the address {vault.slug}; rename this vault first."
-                )
-            moment = now()
-            connection.execute(
-                "DELETE FROM vault_members WHERE vault_id = ? AND account_id = ?", (vault.id, account_id)
-            )
-            connection.execute(
-                "INSERT INTO vault_members(vault_id, account_id, joined_at) VALUES(?, ?, ?)"
-                " ON CONFLICT (vault_id, account_id) DO NOTHING",
-                (vault.id, vault.account_id, moment),
-            )
-            connection.execute("UPDATE vaults SET account_id = ? WHERE id = ?", (account_id, vault.id))
-            connection.execute("DELETE FROM vault_support_grants WHERE vault_id = ?", (vault.id,))
-        handed = self.vault(vault.id)
-        assert handed is not None
-        return handed
+            return pass_vault(connection, vault, account_id)
 
     def client_name(self, client_id: str) -> str:
         with self.connect() as connection:

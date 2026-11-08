@@ -28,6 +28,12 @@
    ],
    [
     "index",
+    "organisation_invitations_account",
+    "organisation_invitations",
+    "CREATE INDEX organisation_invitations_account ON organisation_invitations(account_id)"
+   ],
+   [
+    "index",
     "organisation_members_account",
     "organisation_members",
     "CREATE INDEX organisation_members_account ON organisation_members(account_id)"
@@ -108,6 +114,12 @@
     "index",
     "sqlite_autoindex_organisation_editors_1",
     "organisation_editors",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisation_invitations_1",
+    "organisation_invitations",
     null
    ],
    [
@@ -265,6 +277,12 @@
     "organisation_editors",
     "organisation_editors",
     "CREATE TABLE organisation_editors (\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    added_at INTEGER NOT NULL,\n    PRIMARY KEY (vault_id, account_id)\n)"
+   ],
+   [
+    "table",
+    "organisation_invitations",
+    "organisation_invitations",
+    "CREATE TABLE organisation_invitations (\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    role TEXT NOT NULL CHECK (role IN ('admin', 'member')),\n    sent_at INTEGER NOT NULL,\n    invited_by TEXT,\n    mailed_at INTEGER,\n    PRIMARY KEY (organisation_id, account_id)\n)"
    ],
    [
     "table",
@@ -381,6 +399,12 @@
    ],
    [
     "index",
+    "organisation_invitations_account",
+    "organisation_invitations",
+    "CREATE INDEX organisation_invitations_account ON organisation_invitations(account_id)"
+   ],
+   [
+    "index",
     "organisation_members_account",
     "organisation_members",
     "CREATE INDEX organisation_members_account ON organisation_members(account_id)"
@@ -461,6 +485,12 @@
     "index",
     "sqlite_autoindex_organisation_editors_1",
     "organisation_editors",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisation_invitations_1",
+    "organisation_invitations",
     null
    ],
    [
@@ -618,6 +648,12 @@
     "organisation_editors",
     "organisation_editors",
     "CREATE TABLE organisation_editors (\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    added_at INTEGER NOT NULL,\n    PRIMARY KEY (vault_id, account_id)\n)"
+   ],
+   [
+    "table",
+    "organisation_invitations",
+    "organisation_invitations",
+    "CREATE TABLE organisation_invitations (\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    role TEXT NOT NULL CHECK (role IN ('admin', 'member')),\n    sent_at INTEGER NOT NULL,\n    invited_by TEXT,\n    mailed_at INTEGER,\n    PRIMARY KEY (organisation_id, account_id)\n)"
    ],
    [
     "table",

@@ -22,11 +22,14 @@ from mindin.auth.hosted_orgs import (
     EXPORT_AND_DELETE,
     KEEP,
     ORG_LAYOUTS,
+    Admission,
     Departure,
     Organisation,
     OrganisationError,
     Organisations,
     OrgDomain,
+    OrgInvitation,
+    OrgMember,
     OrgVault,
     domain_of,
 )
@@ -37,14 +40,19 @@ from mindin.auth.hosted_web import copy_field, error_box, esc, hidden_field
 from mindin.auth.login_email import Mailer
 from mindin.auth.pages import stamp
 from mindin.backends import SCHEMA_KEY
-from mindin.extensions import Periodic
+from mindin.extensions import Periodic, may_erase
 from mindin.presets import PRESETS, WIKI_PRESET
 
 logger = logging.getLogger(__name__)
 
 DEPARTURES_EVERY = 3600.0
+RESEND_AFTER = 600
 DAYS_RE = re.compile(r"[0-9]{1,3}")
-SOURCES = {"domain": "email domain", "admin": "added by an admin", "created": "made the organisation"}
+SOURCES = {
+    "admin": "added by an admin",
+    "invitation": "accepted an invitation",
+    "created": "made the organisation",
+}
 
 
 def layout_choices() -> str:
@@ -61,6 +69,12 @@ def day_label(moment: int, now: float) -> str:
     if day == today - timedelta(days=1):
         return "yesterday"
     return stamp(moment)[:10]
+
+
+def joined_by(member: OrgMember) -> str:
+    if member.source == "domain":
+        return f"joined through @{domain_of(member.account.email)}"
+    return SOURCES.get(member.source, member.source)
 
 
 def long_date(moment: int) -> str:
@@ -85,6 +99,21 @@ def notice_box(text: str) -> str:
     return f'<div class="notice"><p>{esc(text)}</p></div>'
 
 
+def invitation_mail(public_url: str, item: OrgInvitation) -> mail.Mail:
+    name = item.organisation.name
+    inviter = item.invited_by.email if item.invited_by is not None else name
+    return mail.branded(
+        f"{name} invites you to its vaults",
+        f"Join {name}",
+        f"{inviter} added {item.account.email} to {name} on {mail.host_of(public_url)}. Accept on your account page"
+        f" to read and write {name}'s vaults. Your own vaults and your account stay yours.",
+        "Open your account page",
+        f"{public_url.rstrip('/')}/account/settings",
+        "The invitation waits there until you accept or decline it.",
+        "Not expecting this? Decline it there, or ignore this email: nothing changes until you accept.",
+    )
+
+
 def departure_mail(public_url: str, departure: Departure) -> mail.Mail:
     days = departure.organisation.removal_days
     link = f"{public_url.rstrip('/')}/account"
@@ -104,13 +133,14 @@ def delete_departed(organisations: Organisations, erase: Callable[[Account], Non
     deleted = 0
     for organisation_id, account_id in organisations.due():
         account = organisations.store.account_by_id(account_id)
-        if account is not None and not organisations.of_account(account.id):
+        if account is not None and not may_erase(organisations.store.extensions, account):
+            logger.info("organisation departure: an extension keeps %s", account.id)
+        elif account is not None and not organisations.of_account(account.id):
             try:
                 erase(account)
+                deleted += 1
             except StillShared as exc:
-                logger.warning("organisation departure: %s", exc)
-                continue
-            deleted += 1
+                logger.warning("organisation departure: %s; the account stays", exc)
         organisations.settle(organisation_id, account_id)
     return deleted
 
@@ -135,6 +165,32 @@ class OrganisationPages:
         return self.pages.form_head(csrf, self.org_url(organisation, path), extra)
 
     def section(self, account: Account, csrf: str) -> str:
+        return self.invitations_section(account, csrf) + self.belongs_section(account)
+
+    def invitations_section(self, account: Account, csrf: str) -> str:
+        rows = "".join(
+            f"<tr><td>{esc(item.organisation.name)}</td><td>{'Admin' if item.role == ADMIN else 'Member'}</td>"
+            f'<td><div class="row">{self.answer_button(csrf, item.organisation, "accept", "Accept")}'
+            f"{self.answer_button(csrf, item.organisation, 'decline', 'Decline')}</div></td></tr>"
+            for item in self.organisations.invitations_of(account.id)
+        )
+        if not rows:
+            return ""
+        return (
+            '<div class="stack"><h2>Organisation invitations</h2><div class="tablewrap"><table><thead><tr>'
+            f"<th>Name</th><th>Role</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>"
+            '<p class="small muted">Accepting lets the organisation\'s members reach its vaults with you. Your own'
+            " vaults stay yours, and an organisation that removes you never deletes your account.</p></div>"
+        )
+
+    def answer_button(self, csrf: str, organisation: Organisation, answer: str, label: str) -> str:
+        return (
+            f"{self.form(csrf, organisation, '/' + answer, '')}"
+            f'<button type="submit" class="btn{" secondary" if answer == "decline" else ""} small">{label}</button>'
+            "</form>"
+        )
+
+    def belongs_section(self, account: Account) -> str:
         belongs = self.organisations.of_account(account.id)
         if not belongs:
             return ""
@@ -229,19 +285,57 @@ placeholder="example.com" autocomplete="off"></label>
                 else self.remove_button(csrf, organisation, "/members/remove", "email", email, "Remove")
             )
             rows.append(
-                f"<tr><td>{esc(email)}</td><td>{role}</td><td>{esc(SOURCES.get(member.source, member.source))}</td>"
+                f"<tr><td>{esc(email)}</td><td>{role}</td><td>{self.signed_in(member.account)}</td>"
+                f"<td>{esc(joined_by(member))}</td>"
                 f'<td class="nowrap">{esc(stamp(member.joined_at)[:10])}</td>'
                 f'<td><div class="row">{change}{remove}</div></td></tr>'
             )
-        return f"""<div class="stack"><h2>Members</h2>
-<div class="tablewrap"><table><thead><tr><th>Member</th><th>Role</th><th>Joined by</th><th>Since</th><th></th></tr>
+        return f"""<div class="stack"><h2>Members · {len(members)}</h2>
+<div class="tablewrap"><table><thead><tr><th>Member</th><th>Role</th><th>Signed in</th><th>Joined by</th><th>Since</th>
+<th></th></tr>
 </thead><tbody>{"".join(rows)}</tbody></table></div>
 {self.form(csrf, organisation, "/members")}
 <label class="field">Add by email<input type="email" name="email" required maxlength="254"
 placeholder="name@example.com" autocomplete="off"></label>
 <button class="btn" type="submit">Add member</button></form>
 <p class="small muted">Admins manage domains, members and the organisation's vaults; there is always at least one.
-Every member signs in with their own account and makes their own keys.</p></div>"""
+Every member signs in with their own account and makes their own keys. Someone who already has an account outside
+your verified domains joins once they accept the invitation on their account page.</p></div>"""
+
+    def signed_in(self, account: Account) -> str:
+        if not account.last_login_at:
+            return '<span class="chip off">not yet</span>'
+        return f'<span class="chip">{esc(day_label(account.last_login_at, self.browser.clock()))}</span>'
+
+    def invitations_list(self, organisation: Organisation, csrf: str) -> str:
+        items = self.organisations.pending(organisation)
+        if not items:
+            return ""
+        rows = []
+        for item in items:
+            email = item.account.email
+            resend = (
+                self.remove_button(csrf, organisation, "/invitations/resend", "email", email, "Send again")
+                if self.mailer is not None
+                else ""
+            )
+            withdraw = self.remove_button(csrf, organisation, "/invitations/remove", "email", email, "Withdraw")
+            by = item.invited_by.email if item.invited_by is not None else "the server's operator"
+            rows.append(
+                f"<tr><td>{esc(email)}</td><td>{esc(by)}</td>"
+                f'<td class="nowrap">{esc(stamp(item.mailed_at or item.sent_at)[:10])}</td>'
+                f'<td>waiting for them to accept on their account page</td><td><div class="row">{resend}{withdraw}'
+                "</div></td></tr>"
+            )
+        unsent = (
+            '<p class="small muted">This server sends no email, so each invitation waits on the person\'s account'
+            " page until they sign in and accept it.</p>"
+            if self.mailer is None
+            else ""
+        )
+        return f"""<div class="stack"><h2>Invitations · {len(items)}</h2>
+<div class="tablewrap"><table><thead><tr><th>Invited</th><th>By</th><th>Sent</th><th>State</th><th></th></tr></thead>
+<tbody>{"".join(rows)}</tbody></table></div>{unsent}</div>"""
 
     def vault_rows(self, organisation: Organisation, csrf: str, items: list[OrgVault]) -> str:
         rows = []
@@ -302,7 +396,8 @@ pattern="[a-z][a-z0-9]*" autocomplete="off"></label>
         delete = " checked" if organisation.removal == EXPORT_AND_DELETE else ""
         return f"""<div class="box"><h2>When a member is removed</h2>
 <p class="small muted">Their access to the organisation's vaults stops at once, and what they wrote there stays,
-under their name. Their own vaults follow this setting.</p>
+under their name. Their own vaults follow this setting. Someone an admin added by email keeps their account whatever
+the setting.</p>
 {self.form(csrf, organisation, "/removal", ' class="stack"')}
 <fieldset class="choice"><legend>Their own vaults</legend>
 <label class="option"><input type="radio" name="removal" value="keep"{keep}><b>Keep</b>
@@ -341,6 +436,7 @@ already exists.</p>
 {notice}
 {self.domains_section(organisation, csrf)}
 {self.people_section(account, organisation, csrf)}
+{self.invitations_list(organisation, csrf)}
 {self.vaults_section(organisation, csrf)}
 {self.sharing_section(organisation, csrf)}
 {self.removal_section(organisation, csrf)}"""
@@ -408,13 +504,91 @@ already exists.</p>
         self.organisations.remove_domain(organisation, form.get("domain", ""))
         return "New sign-ins at that domain no longer join. Its members stay until you remove them."
 
-    def add_member(self, _: Account, organisation: Organisation, form: dict) -> str:
-        member = self.organisations.add_member(organisation, form.get("email", ""))
-        return f"{member.email} is a member of {organisation.name}; they sign in at {self.public_url}/signin."
+    def add_member(self, account: Account, organisation: Organisation, form: dict) -> str:
+        admission = self.organisations.add_member(organisation, form.get("email", ""), by=account.id)
+        if admission.pending:
+            return self.invited(organisation, admission)
+        return (
+            f"{admission.account.email} is a member of {organisation.name}; they sign in at {self.public_url}/signin."
+        )
 
-    def add_admin(self, _: Account, organisation: Organisation, form: dict) -> str:
-        admin = self.organisations.add_admin(organisation, form.get("email", ""))
-        return f"{admin.email} is an admin of {organisation.name}."
+    def add_admin(self, account: Account, organisation: Organisation, form: dict) -> str:
+        admission = self.organisations.add_admin(organisation, form.get("email", ""), by=account.id)
+        if admission.pending:
+            return self.invited(organisation, admission)
+        return f"{admission.account.email} is an admin of {organisation.name}."
+
+    def invited(self, organisation: Organisation, admission: Admission) -> str:
+        waiting = (
+            f"{admission.account.email} already has an account here, so they join once they accept the invitation"
+            " on their account page."
+        )
+        if self.mailer is None:
+            return f"{waiting} This server sends no email; tell them it waits there."
+        item = self.organisations.invitation(organisation, admission.account.email)
+        if self.resend_from(item) > self.browser.clock():
+            return f"{waiting} The email to them went out at {stamp(item.mailed_at)[11:]}."
+        if not self.send_invitation(item):
+            return f"{waiting} The email could not be sent; Send again tries once more."
+        return f"{waiting} An email tells them so."
+
+    def resend_from(self, item: OrgInvitation) -> int:
+        return item.mailed_at + RESEND_AFTER if item.mailed_at else 0
+
+    def send_invitation(self, item: OrgInvitation) -> bool:
+        if self.mailer is None:
+            return False
+        subject, text, html = invitation_mail(self.public_url, item)
+        try:
+            self.mailer.send(item.account.email, subject, text, html, mail.images())
+        except (OSError, smtplib.SMTPException) as exc:
+            logger.warning("organisation invitation: sending failed: %s", exc)
+            return False
+        self.organisations.mailed(item)
+        return True
+
+    def resend(self, _: Account, organisation: Organisation, form: dict) -> str:
+        item = self.organisations.invitation(organisation, form.get("email", ""))
+        email = item.account.email
+        if self.mailer is None:
+            raise OrganisationError(f"This server sends no email; the invitation waits on {email}'s account page.")
+        again = self.resend_from(item)
+        if again > self.browser.clock():
+            raise OrganisationError(
+                f"The email to {email} went out at {stamp(item.mailed_at)[11:]}; send it again from"
+                f" {stamp(again)[11:]}."
+            )
+        if not self.send_invitation(item):
+            raise OrganisationError(f"The email to {email} could not be sent. Try again later.")
+        return f"The invitation email went to {email} again."
+
+    def withdraw(self, _: Account, organisation: Organisation, form: dict) -> str:
+        self.organisations.withdraw(organisation, form.get("email", ""))
+        return f"The invitation to {form.get('email', '').strip()} is withdrawn."
+
+    def answer(self, accepting: bool) -> Callable[[Request], object]:
+        async def handle(request: Request) -> Response:
+            submitted = await self.browser.account_form(request)
+            if isinstance(submitted, Response):
+                return submitted
+            account, csrf, _ = submitted
+            organisation = self.organisations.get(request.path_params["org"])
+            if organisation is None or organisation.id != request.path_params["org"]:
+                return self.refused()
+            return await anyio.to_thread.run_sync(self.answered, account, csrf, organisation, accepting)
+
+        return handle
+
+    def answered(self, account: Account, csrf: str, organisation: Organisation, accepting: bool) -> Response:
+        if not accepting:
+            self.organisations.decline(organisation, account.id)
+            return self.browser.render_settings(account, csrf, notice_box(f"You declined {organisation.name}."))
+        try:
+            self.organisations.accept(organisation, account)
+        except OrganisationError as exc:
+            return self.browser.render_settings(account, csrf, error_box(str(exc)), 400)
+        notice = notice_box(f"You are a member of {organisation.name}; its vaults show under Vaults.")
+        return self.browser.render_settings(account, csrf, notice)
 
     def remove_admin(self, _: Account, organisation: Organisation, form: dict) -> str:
         admin = self.organisations.remove_admin(organisation, form.get("email", ""))
@@ -499,6 +673,8 @@ already exists.</p>
             "/domains/remove": self.remove_domain,
             "/members": self.add_member,
             "/members/remove": self.remove_member,
+            "/invitations/remove": self.withdraw,
+            "/invitations/resend": self.resend,
             "/admins": self.add_admin,
             "/admins/remove": self.remove_admin,
             "/removal": self.removal,
@@ -510,6 +686,8 @@ already exists.</p>
         }
         return [
             Route(base, endpoint=self.page, methods=["GET"]),
+            Route(base + "/accept", endpoint=limited(self.answer(True)), methods=["POST"]),
+            Route(base + "/decline", endpoint=limited(self.answer(False)), methods=["POST"]),
             *(
                 Route(base + path, endpoint=limited(self.handler(change)), methods=["POST"])
                 for path, change in posts.items()

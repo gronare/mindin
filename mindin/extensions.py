@@ -117,6 +117,10 @@ class Extension:
     def registered(self, connection: Connection, account: Account, registrant: Registrant) -> None:
         """Called inside the transaction that makes an account from a sign-in, before it commits."""
 
+    def may_erase(self, account: Account) -> bool:
+        """Whether the server may erase this account on its own, as when an organisation removed it; False keeps it."""
+        return True
+
 
 @cache
 def installed() -> tuple[Extension, ...]:
@@ -133,6 +137,10 @@ def refusal(extensions: Iterable[Extension], registrant: Registrant) -> str:
 
 def sign_in_checks(extensions: Iterable[Extension]) -> tuple[SignInCheck, ...]:
     return tuple(found for extension in extensions if (found := extension.sign_in_check()) is not None)
+
+
+def may_erase(extensions: Iterable[Extension], account: Account) -> bool:
+    return all(extension.may_erase(account) for extension in extensions)
 
 
 def supplied_database(extensions: Iterable[Extension], directory: Path) -> Database | None:

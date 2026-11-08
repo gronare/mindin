@@ -6,9 +6,11 @@ What each mindin release brings, one line per change, as you would tell someone 
 
 ### What's new
 - An organisation lets everyone at its verified email domain in on their first sign-in.
+- An organisation admin can invite someone with an account, and send again or withdraw the invitation.
 - An organisation's vault is a wiki with Areas, Teams, Guides, Decisions, Projects and Incidents.
 - An admin can lock an organisation's vault so only its editors write.
 - An organisation decides whether members may share their own vaults with people outside it.
+- Removing someone from an organisation ends their access at once and keeps or deletes their account.
 - `search` covers a member's own vault and the organisation's vaults, each row labelled with its vault.
 - `read_file`, `list_files`, `write_file` and `append_file` take `vault` to reach another vault.
 - Session start lists up to five organisation pages about the repo.

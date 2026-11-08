@@ -10,7 +10,15 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from mindin.auth import MACHINE_KEY_PURPOSE
-from mindin.auth.hosted_store import Account, HostedStore, MembershipError, VaultNameError, account_of
+from mindin.auth.hosted_store import (
+    Account,
+    HostedStore,
+    MembershipError,
+    VaultNameError,
+    account_of,
+    drop_member,
+    pass_vault,
+)
 from mindin.auth.hosted_vaults import SHARED, Vault, clash, reaches, vault_of
 from mindin.config import env
 from mindin.presets import SHARED_PRESET, WIKI_PRESET
@@ -32,6 +40,7 @@ Removal = Literal["keep", "export-and-delete"]
 SPANNING_PURPOSES = (None, MACHINE_KEY_PURPOSE)
 ORG_LAYOUTS = (WIKI_PRESET, SHARED_PRESET)
 ORGANISATION_METHOD = "organisation"
+OPERATOR_METHOD = "operator"
 VERIFY_LABEL = "_mindin-verify"
 VERIFY_PREFIX = "mindin-verify="
 DNS_TIMEOUT = 5.0
@@ -75,6 +84,16 @@ CREATE TABLE IF NOT EXISTS organisation_members (
     PRIMARY KEY (organisation_id, account_id)
 );
 CREATE INDEX IF NOT EXISTS organisation_members_account ON organisation_members(account_id);
+CREATE TABLE IF NOT EXISTS organisation_invitations (
+    organisation_id TEXT NOT NULL REFERENCES organisations(id),
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
+    sent_at INTEGER NOT NULL,
+    invited_by TEXT,
+    mailed_at INTEGER,
+    PRIMARY KEY (organisation_id, account_id)
+);
+CREATE INDEX IF NOT EXISTS organisation_invitations_account ON organisation_invitations(account_id);
 CREATE TABLE IF NOT EXISTS organisation_vaults (
     vault_id TEXT PRIMARY KEY REFERENCES vaults(id),
     organisation_id TEXT NOT NULL REFERENCES organisations(id),
@@ -144,6 +163,22 @@ class OrgMember:
     @property
     def admin(self) -> bool:
         return self.role == ADMIN
+
+
+@dataclass(frozen=True)
+class Admission:
+    account: Account
+    pending: bool
+
+
+@dataclass(frozen=True)
+class OrgInvitation:
+    account: Account
+    organisation: Organisation
+    role: str
+    sent_at: int
+    invited_by: Account | None = None
+    mailed_at: int | None = None
 
 
 @dataclass(frozen=True)
@@ -227,15 +262,30 @@ def matching(connection: Any, emails: tuple[str, ...]) -> list[tuple[str, str]]:
 
 
 def on_a_domain(connection: Any, emails: tuple[str, ...]) -> bool:
-    return any(not departed(connection, org_id, email) for org_id, email in matching(connection, emails))
+    return any(not departed(connection, org_id, emails) for org_id, _ in matching(connection, emails))
 
 
-def departed(connection: Any, organisation_id: str, email: str) -> bool:
+def departed(connection: Any, organisation_id: str, emails: tuple[str, ...], account_id: str | None = None) -> bool:
+    cleaned = [email.strip().lower() for email in emails]
+    marks = ", ".join("?" for _ in cleaned) or "''"
     return (
         connection.execute(
-            "SELECT 1 FROM organisation_departures WHERE organisation_id = ? AND email = ?", (organisation_id, email)
+            "SELECT 1 FROM organisation_departures WHERE organisation_id = ?"
+            f" AND (former_account = ? OR email IN ({marks}))",
+            (organisation_id, account_id, *cleaned),
         ).fetchone()
         is not None
+    )
+
+
+def at_verified_domain(connection: Any, organisation_id: str, email: str) -> bool:
+    return any(found == organisation_id for found, _ in matching(connection, (email,)))
+
+
+def clear_departure(connection: Any, organisation_id: str, account_id: str, email: str) -> None:
+    connection.execute(
+        "DELETE FROM organisation_departures WHERE organisation_id = ? AND (email = ? OR former_account = ?)",
+        (organisation_id, email, account_id),
     )
 
 
@@ -246,6 +296,17 @@ def is_member(connection: Any, organisation_id: str, account_id: str) -> bool:
             (organisation_id, account_id),
         ).fetchone()
         is not None
+    )
+
+
+def hand_to_an_admin(connection: Any, vault: Vault, admins: list[Account]) -> Vault:
+    for admin in admins:
+        try:
+            return pass_vault(connection, vault, admin.id)
+        except MembershipError:
+            continue
+    raise OrganisationError(
+        f"No other admin can take over {vault.name}; one already reaches another vault at {vault.slug}."
     )
 
 
@@ -289,14 +350,18 @@ def join(connection: Any, organisation_id: str, account_id: str, role: str = MEM
         " ON CONFLICT (organisation_id, account_id) DO NOTHING",
         (organisation_id, account_id, role, source, now()),
     )
+    connection.execute(
+        "DELETE FROM organisation_invitations WHERE organisation_id = ? AND account_id = ?",
+        (organisation_id, account_id),
+    )
     for vault in org_vaults_of(connection, organisation_id):
         admit_to_vault(connection, vault, account_id, row["email"].lower(), organisation_id)
 
 
 def join_by_domain(connection: Any, account_id: str, emails: tuple[str, ...]) -> list[str]:
     joined = []
-    for organisation_id, email in matching(connection, emails):
-        if organisation_id in joined or departed(connection, organisation_id, email):
+    for organisation_id, _ in matching(connection, emails):
+        if organisation_id in joined or departed(connection, organisation_id, emails, account_id):
             continue
         if not is_member(connection, organisation_id, account_id):
             join(connection, organisation_id, account_id)
@@ -309,7 +374,7 @@ def domain_address(connection: Any, emails: tuple[str, ...]) -> str:
 
 
 def inside(connection: Any, organisation_id: str, email: str) -> bool:
-    if departed(connection, organisation_id, email):
+    if departed(connection, organisation_id, (email,)):
         return False
     member = connection.execute(
         "SELECT 1 FROM organisation_members JOIN accounts ON accounts.id = organisation_members.account_id"
@@ -434,7 +499,7 @@ class Organisations:
             raise OrganisationError("Give the organisation a name.")
         if self.get(cleaned) is not None:
             raise OrganisationError(f"There already is an organisation called {cleaned}.")
-        admin, _ = self.store.invite(admin_email, ORGANISATION_METHOD, cleaned)
+        admin, _ = self.store.invite(admin_email, OPERATOR_METHOD, cleaned)
         organisation_id = ORG_ID_PREFIX + secrets.token_urlsafe(12)
         with self.store.connect() as connection:
             connection.execute(
@@ -561,26 +626,104 @@ class Organisations:
                 raise OrganisationError(f"{email.strip()} is not a member of {organisation.name}.")
         return account
 
-    def add_member(self, organisation: Organisation, email: str, role: str = MEMBER) -> Account:
+    def add_member(
+        self,
+        organisation: Organisation,
+        email: str,
+        role: str = MEMBER,
+        method: str = ORGANISATION_METHOD,
+        by: str | None = None,
+    ) -> Admission:
         address = " ".join(email.split()).lower()
         if "@" not in address or len(address) > 254:
             raise OrganisationError("Enter an email address.")
-        account, _ = self.store.invite(address, ORGANISATION_METHOD, organisation.name)
+        account, created = self.store.invite(address, method, organisation.name)
+        with self.store.connect() as connection:
+            if is_member(connection, organisation.id, account.id):
+                if role == ADMIN:
+                    connection.execute(
+                        "UPDATE organisation_members SET role = 'admin' WHERE organisation_id = ? AND account_id = ?",
+                        (organisation.id, account.id),
+                    )
+                return Admission(account, False)
+            if created or at_verified_domain(connection, organisation.id, address):
+                clear_departure(connection, organisation.id, account.id, address)
+                join(connection, organisation.id, account.id, role, "admin")
+                return Admission(account, False)
+            connection.execute(
+                "INSERT INTO organisation_invitations(organisation_id, account_id, role, sent_at, invited_by)"
+                " VALUES(?, ?, ?, ?, ?) ON CONFLICT (organisation_id, account_id) DO UPDATE SET role = excluded.role",
+                (organisation.id, account.id, role, self.moment(), by),
+            )
+        return Admission(account, True)
+
+    def add_admin(self, organisation: Organisation, email: str, by: str | None = None) -> Admission:
+        return self.add_member(organisation, email, ADMIN, by=by)
+
+    def invitations_of(self, account_id: str) -> list[OrgInvitation]:
+        return self.invitations("organisation_invitations.account_id = ?", account_id)
+
+    def pending(self, organisation: Organisation) -> list[OrgInvitation]:
+        return self.invitations("organisation_invitations.organisation_id = ?", organisation.id)
+
+    def invitations(self, where: str, value: str) -> list[OrgInvitation]:
+        with self.store.connect() as connection:
+            rows = connection.execute(
+                "SELECT accounts.*, organisation_invitations.organisation_id AS invited_to,"
+                " organisation_invitations.role AS invited_role, organisation_invitations.sent_at AS invited,"
+                " organisation_invitations.invited_by AS inviter, organisation_invitations.mailed_at AS mailed"
+                " FROM organisation_invitations JOIN accounts ON accounts.id = organisation_invitations.account_id"
+                f" WHERE {where} ORDER BY organisation_invitations.sent_at, accounts.email",
+                (value,),
+            ).fetchall()
+        found = []
+        for row in rows:
+            account, organisation = account_of(row), self.get(row["invited_to"])
+            if account is not None and organisation is not None:
+                inviter = self.store.account_by_id(row["inviter"]) if row["inviter"] else None
+                found.append(
+                    OrgInvitation(account, organisation, row["invited_role"], row["invited"], inviter, row["mailed"])
+                )
+        return found
+
+    def invitation(self, organisation: Organisation, email: str) -> OrgInvitation:
+        address = email.strip().lower()
+        found = next((item for item in self.pending(organisation) if item.account.email.lower() == address), None)
+        if found is None:
+            raise OrganisationError(f"There is no invitation to {organisation.name} for {email.strip() or 'that'}.")
+        return found
+
+    def mailed(self, item: OrgInvitation) -> None:
         with self.store.connect() as connection:
             connection.execute(
-                "DELETE FROM organisation_departures WHERE organisation_id = ? AND email = ?",
-                (organisation.id, address),
+                "UPDATE organisation_invitations SET mailed_at = ? WHERE organisation_id = ? AND account_id = ?",
+                (self.moment(), item.organisation.id, item.account.id),
             )
-            join(connection, organisation.id, account.id, role, "admin")
-            if role == ADMIN:
-                connection.execute(
-                    "UPDATE organisation_members SET role = 'admin' WHERE organisation_id = ? AND account_id = ?",
-                    (organisation.id, account.id),
-                )
-        return account
 
-    def add_admin(self, organisation: Organisation, email: str) -> Account:
-        return self.add_member(organisation, email, ADMIN)
+    def accept(self, organisation: Organisation, account: Account) -> None:
+        with self.store.connect() as connection:
+            row = connection.execute(
+                "SELECT role FROM organisation_invitations WHERE organisation_id = ? AND account_id = ?",
+                (organisation.id, account.id),
+            ).fetchone()
+            if row is None:
+                raise OrganisationError(f"There is no invitation to {organisation.name} for {account.email}.")
+            clear_departure(connection, organisation.id, account.id, account.email.lower())
+            join(connection, organisation.id, account.id, row["role"], "invitation")
+
+    def decline(self, organisation: Organisation, account_id: str) -> bool:
+        with self.store.connect() as connection:
+            return (
+                connection.execute(
+                    "DELETE FROM organisation_invitations WHERE organisation_id = ? AND account_id = ?",
+                    (organisation.id, account_id),
+                ).rowcount
+                > 0
+            )
+
+    def withdraw(self, organisation: Organisation, email: str) -> bool:
+        account = self.store.account(email.strip().lower())
+        return account is not None and self.decline(organisation, account.id)
 
     def remove_admin(self, organisation: Organisation, email: str) -> Account:
         account = self.member_account(organisation, email)
@@ -627,15 +770,17 @@ class Organisations:
     def remove_member(self, organisation: Organisation, email: str) -> Departure:
         account = self.member_account(organisation, email)
         admins = [admin for admin in self.admins(organisation) if admin.id != account.id]
+        erases = self.erases(organisation, account)
         with self.store.connect() as connection:
             self.keep_an_admin(connection, organisation, account.id)
-            vaults = org_vaults_of(connection, organisation.id)
-        vaults = [self.hand_to_an_admin(vault, admins) if vault.account_id == account.id else vault for vault in vaults]
-        for vault in vaults:
-            self.store.remove_member(vault, account.id)
-        moment = self.moment()
-        delete_after = moment + organisation.removal_days * 86400 if organisation.removal == EXPORT_AND_DELETE else None
-        with self.store.connect() as connection:
+            vaults = [
+                hand_to_an_admin(connection, vault, admins) if vault.account_id == account.id else vault
+                for vault in org_vaults_of(connection, organisation.id)
+            ]
+            for vault in vaults:
+                drop_member(connection, vault, account.id)
+            moment = self.moment()
+            delete_after = moment + organisation.removal_days * 86400 if erases else None
             marks = ", ".join("?" for _ in vaults) or "''"
             connection.execute(
                 f"DELETE FROM organisation_editors WHERE account_id = ? AND vault_id IN ({marks})",
@@ -658,15 +803,19 @@ class Organisations:
             )
         return Departure(account, organisation, delete_after)
 
-    def hand_to_an_admin(self, vault: Vault, admins: list[Account]) -> Vault:
-        for admin in admins:
-            try:
-                return self.store.hand_over(vault, admin.id)
-            except MembershipError:
-                continue
-        raise OrganisationError(
-            f"No other admin can take over {vault.name}; one already reaches another vault at {vault.slug}."
-        )
+    def erases(self, organisation: Organisation, account: Account) -> bool:
+        if organisation.removal != EXPORT_AND_DELETE:
+            return False
+        with self.store.connect() as connection:
+            row = connection.execute(
+                "SELECT source FROM organisation_members WHERE organisation_id = ? AND account_id = ?",
+                (organisation.id, account.id),
+            ).fetchone()
+            return (
+                row is not None
+                and row["source"] == "domain"
+                and at_verified_domain(connection, organisation.id, account.email)
+            )
 
     def due(self) -> list[tuple[str, str]]:
         with self.store.connect() as connection:
@@ -898,16 +1047,16 @@ def command_org_change(organisations: Organisations, organisation: Organisation,
             print(f"mindin: {organisation.name} has no domain {args.domain}", file=sys.stderr)
             return 1
         return 0
+    if action in ("admin", "member") and change == "add":
+        role = ADMIN if action == "admin" else MEMBER
+        admission = organisations.add_member(organisation, args.email, role, OPERATOR_METHOD)
+        print(admitted(organisation, admission, "an admin" if role == ADMIN else "a member"))
+        return 0
     if action == "admin":
-        account = (organisations.add_admin if change == "add" else organisations.remove_admin)(organisation, args.email)
-        role = "an admin" if change == "add" else "a member, no longer an admin"
-        print(f"mindin: {account.email} is {role} of {organisation.name}")
+        account = organisations.remove_admin(organisation, args.email)
+        print(f"mindin: {account.email} is a member, no longer an admin of {organisation.name}")
         return 0
     if action == "member":
-        if change == "add":
-            account = organisations.add_member(organisation, args.email)
-            print(f"mindin: {account.email} is a member of {organisation.name}")
-            return 0
         print(told_on_departure(organisations.remove_member(organisation, args.email)))
         return 0
     if change == "create":
@@ -933,6 +1082,13 @@ def command_org_change(organisations: Organisations, organisation: Organisation,
         return 1
     print(f"mindin: {args.email.strip().lower()} no longer edits {item.vault.name}")
     return 0
+
+
+def admitted(organisation: Organisation, admission: Admission, role: str) -> str:
+    email = admission.account.email
+    if admission.pending:
+        return f"mindin: {email} already has an account, so they join {organisation.name} once they accept on /account"
+    return f"mindin: {email} is {role} of {organisation.name}"
 
 
 def domain_told(organisation: Organisation, item: OrgDomain) -> str:

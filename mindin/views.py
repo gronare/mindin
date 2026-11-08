@@ -30,9 +30,10 @@ def search_view(result: SearchResult) -> dict:
         "term_count": result.term_count,
         "best_terms": result.best_terms,
         "languages": list(result.languages),
+        "vaults": list(result.vaults),
         "rows": [
             notes.note_fields(row.note, now)
-            | {"snippet": row.snippet, "section": row.section, "by_meaning": row.by_meaning}
+            | {"snippet": row.snippet, "section": row.section, "by_meaning": row.by_meaning, "vault": row.vault}
             for row in result.rows
         ],
     }

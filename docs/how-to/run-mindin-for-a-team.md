@@ -58,6 +58,8 @@ Each member signs in at `VAULT_PUBLIC_URL/signin` with the company sign-in. Thei
 - Claude Code and other terminals: `mindin login VAULT_PUBLIC_URL --vault wiki`. See [Sign a machine in](sign-in-a-machine.md).
 - Obsidian: make a key on the vault's page and use it as the WebDAV password. See [Open a server vault in Obsidian](obsidian.md).
 
+A member's connection to their own vault is enough for Claude to use the wiki: `search` covers their own vault and the organisation's vaults together, labels each row with its vault, and `read_file` reads a wiki row on the same connection. See [Search across vaults](../explanation/search.md#across-vaults).
+
 ## Remove someone
 
 ```sh

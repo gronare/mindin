@@ -5,12 +5,12 @@
 | `search` | cheap | Full-text and, when on, meaning search over the index. Filters: `folder`, `status`, `tag`, `kind`, `area`, `path_prefix`, `since`, `include_archive`, `include_superseded`, `limit` (the schema's `search.default_limit` when left out). |
 | `context` | cheap | The session-start bundle for a `path` and `repo`; `format: "json"` answers it as data. |
 | `backlog` | cheap | The backlog by priority then age, filtered by `area` and `priority`. |
-| `list_files` | cheap | Paths only. |
+| `list_files` | cheap | Paths only. Takes `vault`, like `read_file`. |
 | `whoami` | cheap | The account a connection signs in as and whether it may write. |
-| `read_file` | moderate | One note, prefixed with `etag: <version>`. A superseded note carries a warning callout. |
+| `read_file` | moderate | One note, prefixed with `etag: <version>`. A superseded note carries a warning callout. `vault` reads from another vault the connection reaches, named as search rows name it. |
 | `lint` | moderate | Reads every note and reports drift. |
-| `write_file` | write | Validates against the schema and refuses the write if it does not hold. Stamps `updated`, fills `date`. `expected_etag` makes the write conditional; `"*"` creates a note that must not exist yet. Only `.md` notes outside dot-folders are written. |
-| `append_file` | write | Appends and bumps `updated`; the note must exist and still satisfy the schema. |
+| `write_file` | write | Validates against the schema and refuses the write if it does not hold. Stamps `updated`, fills `date`. `expected_etag` makes the write conditional; `"*"` creates a note that must not exist yet. Only `.md` notes outside dot-folders are written. `vault` writes to another vault the connection reaches. |
+| `append_file` | write | Appends and bumps `updated`; the note must exist and still satisfy the schema. Takes `vault`, like `write_file`. |
 | `set_status` | write | Changes a note's status, with `priority` and `source` for the backlog. |
 | `close` | write | Finishes a note and moves it into the archive. |
 | `backlog_add` | write | Files a backlog note. |
@@ -19,6 +19,8 @@
 | `delete_file` | write | Deletes for good. Prefer `close`. |
 | `init` | write | Sets up a vault without a schema: the schema of the `preset` it is given and the Bases views. On a vault with a schema it only writes the missing views. |
 | `obsidian_access` | write | Server only. Mints the WebDAV password for [Obsidian's Remotely Save](../how-to/obsidian.md) and shows it once. |
+
+Without `vault`, every tool works on the connection's own vault. On a server where the account belongs to an [organisation](../how-to/run-mindin-for-a-team.md), `search` also covers the account's own vault and the organisation's vaults, and `vault` reaches those; anywhere else, naming a vault other than the connection's is refused. See [Search across vaults](../explanation/search.md#across-vaults).
 
 On S3, a conditional `write_file` sends its condition with the PUT; see [Storage](../install/storage.md#the-bucket).
 

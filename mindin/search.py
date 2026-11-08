@@ -53,6 +53,19 @@ class Row:
     terms: int = 0
     section: str = ""
     by_meaning: bool = False
+    vault: str = ""
+
+
+@dataclass(frozen=True)
+class Searched:
+    slug: str
+    name: str
+    organisation: str
+    result: SearchResult
+
+    @property
+    def label(self) -> str:
+        return f"{self.slug} ({self.name}, {self.organisation})" if self.organisation else f"{self.slug} ({self.name})"
 
 
 @dataclass
@@ -65,6 +78,7 @@ class SearchResult:
     term_count: int = 0
     best_terms: int = 0
     languages: tuple[str, ...] = ()
+    vaults: list[str] = field(default_factory=list)
 
     @property
     def partial(self) -> bool:
@@ -377,13 +391,49 @@ def search(
     return result
 
 
+def across(searched: list[Searched], limit: int) -> SearchResult:
+    # BM25 scores are not comparable between indexes, so vaults are interleaved by rank, an organisation's row first.
+    complete = [item for item in searched if item.result.rows and not item.result.partial]
+    kept = complete or [item for item in searched if item.result.rows]
+    ranked: list[tuple[int, int, int, int, Row]] = []
+    for order, item in enumerate(kept):
+        for rank, row in enumerate(item.result.rows):
+            row.vault = item.slug
+            ranked.append((-row.terms, rank, 0 if item.organisation else 1, order, row))
+    ranked.sort(key=lambda entry: entry[:4])
+    counted = kept if kept else searched
+    merged = SearchResult(
+        rows=[entry[4] for entry in ranked][:limit],
+        total=sum(item.result.total for item in counted),
+        hidden_archive=sum(item.result.hidden_archive for item in searched),
+        hidden_superseded=sum(item.result.hidden_superseded for item in searched),
+        by_meaning=sum(item.result.by_meaning for item in counted),
+        languages=searched[0].result.languages if searched else (),
+        vaults=[item.label for item in searched],
+    )
+    if not complete and kept:
+        merged.term_count = max(item.result.term_count for item in kept)
+        merged.best_terms = max(item.result.best_terms for item in kept)
+    return merged
+
+
 def render_row(row: Row, now: float) -> str:
     note = row.note
     age = humanize_age(age_days(note, now))
     area = note.area or "-"
     status = note.status or "-"
     snippet = f"§ {row.section} · {row.snippet}" if row.section else row.snippet
-    return f"{note.key} | {note.title} | {age} | {status} | {area} | {snippet}"
+    line = f"{note.key} | {note.title} | {age} | {status} | {area} | {snippet}"
+    return f"{row.vault} | {line}" if row.vault else line
+
+
+def render_vaults(result: SearchResult) -> str:
+    if not result.vaults:
+        return ""
+    return (
+        f"Searched {len(result.vaults)} vaults: {', '.join(result.vaults)}. Each row starts with its vault; "
+        "read a row from another vault than this session's with read_file(path, vault=<vault>)."
+    )
 
 
 def render_header(result: SearchResult) -> str:
@@ -416,7 +466,7 @@ def _hidden(result: SearchResult) -> int:
 
 def render(result: SearchResult) -> str:
     now = time.time()
-    lines = [render_header(result)]
+    lines = [render_header(result), render_vaults(result)]
     if not result.rows:
         lines.append("No notes matched.")
         if not _hidden(result):

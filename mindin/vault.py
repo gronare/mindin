@@ -10,8 +10,9 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 import yaml
 
@@ -149,10 +150,31 @@ class Snapshots(Protocol):
     def restore(self, subject: str, index_path: Path) -> bool: ...
 
 
+@dataclass(frozen=True)
+class Reachable:
+    subject: str
+    slug: str
+    name: str
+    organisation: str = ""
+
+
+class Reach(Protocol):
+    def around(self, claims: dict[str, Any], subject: str) -> list[Reachable]: ...
+
+
 class VaultResolver(Protocol):
     def current(self) -> Vault: ...
 
     def using(self) -> AbstractContextManager[Vault]: ...
+
+    def around(self) -> list[Reachable]: ...
+
+    def using_named(self, slug: str) -> AbstractContextManager[Vault]: ...
+
+    def using_reached(self, reached: Reachable) -> AbstractContextManager[Vault]: ...
+
+    @property
+    def spans_vaults(self) -> bool: ...
 
     @property
     def instruction_schema(self) -> Schema: ...
@@ -173,6 +195,19 @@ class SingleVault:
     @contextmanager
     def using(self) -> Iterator[Vault]:
         yield self.vault
+
+    def around(self) -> list[Reachable]:
+        return []
+
+    def using_named(self, slug: str) -> AbstractContextManager[Vault]:
+        raise NoVault(f"this server serves one vault; leave vault out instead of naming {slug!r}")
+
+    def using_reached(self, reached: Reachable) -> AbstractContextManager[Vault]:
+        return self.using_named(reached.slug)
+
+    @property
+    def spans_vaults(self) -> bool:
+        return False
 
     @property
     def instruction_schema(self) -> Schema:
@@ -199,6 +234,19 @@ class Unconfigured:
 
     def using(self) -> AbstractContextManager[Vault]:
         raise NoVault(self.reason)
+
+    def around(self) -> list[Reachable]:
+        return []
+
+    def using_named(self, slug: str) -> AbstractContextManager[Vault]:
+        raise NoVault(self.reason)
+
+    def using_reached(self, reached: Reachable) -> AbstractContextManager[Vault]:
+        raise NoVault(self.reason)
+
+    @property
+    def spans_vaults(self) -> bool:
+        return False
 
     @property
     def instruction_schema(self) -> Schema:
@@ -260,6 +308,7 @@ class SubjectVaults:
         self._sweeping = threading.Event()
         self._sweeper: threading.Thread | None = None
         self._closed = threading.Event()
+        self.reach: Reach | None = None
 
     def plain_backend(self, subject: str) -> tuple[VaultBackend, str]:
         return make_subject_backend(subject_key(subject), self.prefix)
@@ -277,6 +326,9 @@ class SubjectVaults:
         if bus is not NULL_BUS:
             self._publisher = Publisher(bus)
         bus.listen(self.apply)
+
+    def use_reach(self, reach: Reach) -> None:
+        self.reach = reach
 
     def use_snapshots(self, snapshots: Snapshots, every_seconds: float = SNAPSHOT_SECONDS) -> None:
         self.snapshots = snapshots
@@ -403,12 +455,15 @@ class SubjectVaults:
             opened[0].mark_stale(listing=False)
 
     def _current_subject(self) -> str:
+        return self._current_token()[0]
+
+    def _current_token(self) -> tuple[str, dict[str, Any]]:
         from mcp.server.auth.middleware.auth_context import get_access_token
 
         token = get_access_token()
         if token is None or not token.subject:
             raise NoSubject("no authenticated subject on this request")
-        return token.subject
+        return token.subject, dict(token.claims or {})
 
     def current(self) -> Vault:
         return self.for_subject(self._current_subject())
@@ -417,6 +472,31 @@ class SubjectVaults:
     def using(self) -> Iterator[Vault]:
         with self.using_subject(self._current_subject()) as vault:
             yield vault
+
+    def around(self) -> list[Reachable]:
+        if self.reach is None:
+            return []
+        subject, claims = self._current_token()
+        return self.reach.around(claims, subject)
+
+    @contextmanager
+    def using_named(self, slug: str) -> Iterator[Vault]:
+        subject, claims = self._current_token()
+        if slug == claims.get("vault"):
+            found: Reachable | None = Reachable(subject, slug, str(claims.get("vault_name") or slug))
+        else:
+            found = next((reached for reached in self.around() if reached.slug == slug), None)
+        if found is None:
+            raise NoVault(f"this connection does not reach a vault {slug!r}; search names the vaults it reaches")
+        with self.using_subject(found.subject) as vault:
+            yield vault
+
+    def using_reached(self, reached: Reachable) -> AbstractContextManager[Vault]:
+        return self.using_subject(reached.subject)
+
+    @property
+    def spans_vaults(self) -> bool:
+        return self.reach is not None
 
     @contextmanager
     def using_subject(self, subject: str) -> Iterator[Vault]:

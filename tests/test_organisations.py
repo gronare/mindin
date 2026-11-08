@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx2
 import pytest
-from hosted_support import INITIALIZE, Hosted, call_tool, csrf_of, hosted, post_mcp, text_of
+from hosted_support import INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_session, post_mcp, sse_payload, text_of
 
 from mindin.auth import hosted_store
 from mindin.auth.hosted_access import SupportAccess
@@ -386,6 +386,91 @@ def test_a_forwarded_identity_joins_by_domain_and_shares_the_account_with_the_co
     assert through_proxy.account.id == on_the_pages.account.id
     assert [found.name for found, _ in organisations.of_account(through_proxy.account.id)] == ["Acme"]
     assert sorted(way.method for way in identities.ways_in(through_proxy.account.id)) == ["forwarded", "oidc"]
+
+
+def note(title: str, body: str, day: str = "2026-11-01", kind: str = "howto", area: str = "payments") -> str:
+    return (
+        f"---\ntitle: {title}\ndate: {day}\nupdated: {day}\nstatus: active\ntags: [payments]\nkind: {kind}\n"
+        f'area: "[[{area}]]"\n---\n\n{body}\n'
+    )
+
+
+def cli_key(site: Hosted, email: str, slug: str | None = None) -> str:
+    account = site.store.account(email)
+    vault = site.store.vault_at(account.id, slug) if slug else site.store.first_vault(account.id)
+    return site.store.create_key(account.id, "cli", ["vault:read", "vault:write"], purpose="device", vault_id=vault.id)
+
+
+async def in_one_session(
+    http: httpx2.AsyncClient, token: str, calls: list[tuple[str, dict]], path: str = "/mcp"
+) -> list[dict]:
+    session = await open_session(http, token, path)
+    answers = []
+    for number, (name, arguments) in enumerate(calls, 2):
+        body = {
+            "jsonrpc": "2.0",
+            "id": number,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        }
+        response = await post_mcp(http, token, body, session, path)
+        assert response.status_code == 200, response.text
+        answers.append(sse_payload(response.text)["result"])
+    return answers
+
+
+@pytest.mark.anyio
+async def test_flow_3_search_labels_own_and_wiki_rows_and_reads_the_wiki_in_the_same_session(site: Hosted):
+    ada, bea = await company(site)
+    async with ada, bea:
+        guide = note("Adding Klarna", "The payments team added Klarna through the checkout adapter.")
+        assert not (await write(ada, key(site, "ada@acme.test"), "Resources/klarna.md", guide)).get("isError")
+        own = cli_key(site, "bea@acme.test")
+        for number in range(4):
+            old = note(
+                f"Klarna notes {number}", "Klarna klarna klarna, old thoughts.", day="2024-01-0" + str(number + 1)
+            )
+            assert not (await write(bea, own, f"Resources/klarna-{number}.md", old, slug="notes")).get("isError")
+        found, read, mine, shared = await in_one_session(
+            bea,
+            own,
+            [
+                ("search", {"query": "klarna"}),
+                ("read_file", {"path": "Resources/klarna.md", "vault": "wiki"}),
+                ("write_file", {"path": "Resources/mine.md", "content": note("Mine", "Mine.")}),
+                ("write_file", {"path": "Resources/ours.md", "content": note("Ours", "Ours."), "vault": "wiki"}),
+            ],
+        )
+        narrow = await call_tool(bea, key(site, "bea@acme.test", "notes"), "search", {"query": "klarna"})
+    lines = text_of(found).splitlines()
+    assert lines[0].startswith("5 of 5"), lines
+    assert lines[1].startswith("Searched 2 vaults: notes (") and "wiki (Wiki, Acme)" in lines[1], lines[1]
+    assert lines[2].startswith("wiki | Resources/klarna.md | Adding Klarna"), lines
+    assert all(line.startswith("notes | Resources/klarna-") for line in lines[3:7]), lines
+    assert "checkout adapter" in text_of(read), text_of(read)
+    assert not mine.get("isError") and not shared.get("isError"), (text_of(mine), text_of(shared))
+    assert [change.path for change in history(site)][0] == "Resources/ours.md"
+    assert "Searched" not in text_of(narrow) and "wiki |" not in text_of(narrow), "an API key stays on its vault"
+
+
+@pytest.mark.anyio
+async def test_a_member_of_no_organisation_searches_and_reads_one_vault_as_before(site: Hosted):
+    await company(site)
+    site.invite("dan@elsewhere.test")
+    async with site.browser() as dan:
+        assert (await site.sign_in(dan, "dan@elsewhere.test")).status_code == 303
+        own = cli_key(site, "dan@elsewhere.test")
+        assert not (await write(dan, own, "Resources/klarna.md", note("Klarna", "Klarna."), slug="notes")).get(
+            "isError"
+        )
+        found, other = await in_one_session(
+            dan,
+            own,
+            [("search", {"query": "klarna"}), ("read_file", {"path": "Resources/klarna.md", "vault": "wiki"})],
+        )
+    lines = text_of(found).splitlines()
+    assert lines[0].startswith("1 of 1") and lines[1].startswith("Resources/klarna.md | Klarna |"), lines
+    assert other.get("isError") and "does not reach a vault 'wiki'" in text_of(other)
 
 
 class Plans(Extension):

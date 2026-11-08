@@ -19,9 +19,18 @@ from mindin.dav import DavCredentials
 from mindin.frontmatter import FrontmatterError
 from mindin.presets import PERSONAL_LAYOUTS
 from mindin.schema import CLAIM_KEY, NoHome, instructions, shared_instructions
-from mindin.search import QueryError, render, search
+from mindin.search import QueryError, Searched, SearchResult, across, render, search
 from mindin.snapshot import build_snapshot
-from mindin.vault import NoVault, SingleVault, SubjectVaults, Unconfigured, Vault, VaultResolver, open_vault
+from mindin.vault import (
+    NoVault,
+    Reachable,
+    SingleVault,
+    SubjectVaults,
+    Unconfigured,
+    Vault,
+    VaultResolver,
+    open_vault,
+)
 
 VERSION = "0.15.2"
 
@@ -39,6 +48,14 @@ SEARCH_DESCRIPTION = (
     "languages and search again, and the reply names them. "
     "Excludes the archive and superseded notes unless you ask for them, and reports how many it hid. "
     "limit defaults to the vault schema's search.default_limit."
+)
+SPANNING_DESCRIPTION = (
+    " When the account belongs to an organisation, it searches this session's vault, the account's own vault and "
+    "the organisation's vaults together: the header names them, each row starts with its vault, and "
+    "read_file(path, vault=<vault>) reads a row from another vault without a new connection."
+)
+VAULT_ARGUMENT = (
+    " vault names another vault this connection reaches, as search rows name it; leave it out for this session's vault."
 )
 MEANING_DESCRIPTION = (
     " It also finds notes by meaning, across languages too, that share no word with the query: "
@@ -104,11 +121,12 @@ def build_server(
         write: bool = False,
         expected: tuple[type[Exception], ...] = EXPECTED_FAILURES,
         shared_refuses: str | None = None,
+        vault_slug: str | None = None,
     ) -> str:
         try:
             if write:
                 require_write()
-            with resolver.using() as vault:
+            with resolver.using() if vault_slug is None else resolver.using_named(vault_slug) as vault:
                 if shared_refuses is not None and vault.rules is not None:
                     raise vault.rules.refuse_tool(shared_refuses)
                 vault.sync(force=force)
@@ -117,6 +135,32 @@ def build_server(
             raise ToolError(str(exc)) from exc
 
     description = SEARCH_DESCRIPTION + (MEANING_DESCRIPTION if resolver.searches_by_meaning else "")
+    description += SPANNING_DESCRIPTION if resolver.spans_vaults else ""
+    vault_note = VAULT_ARGUMENT if resolver.spans_vaults else ""
+
+    def search_everywhere(query: str, limit: int | None, filters: dict[str, Any]) -> SearchResult:
+        reached = resolver.around()
+        with resolver.using() as vault:
+            vault.sync()
+            if not reached:
+                return search(vault.index, vault.schema, query, limit=limit, **filters)
+            wanted = vault.schema.default_limit if limit is None else limit
+        return across([searched_in(item, query, wanted, filters) for item in reached], wanted)
+
+    def searched_in(item: Reachable, query: str, limit: int, filters: dict[str, Any]) -> Searched:
+        try:
+            with resolver.using_reached(item) as vault:
+                vault.sync()
+                found = search(vault.index, vault.schema, query, limit=limit, **filters)
+        except VaultError as exc:
+            return Searched(item.slug, f"{item.name}, not searched: {exc}", item.organisation, SearchResult())
+        return Searched(item.slug, item.name, item.organisation, found)
+
+    def answered(action: Callable[[], str], expected: tuple[type[Exception], ...] = EXPECTED_FAILURES) -> str:
+        try:
+            return action()
+        except expected as exc:
+            raise ToolError(str(exc)) from exc
 
     @server.tool(name="search", description=description)
     def search_tool(
@@ -132,36 +176,29 @@ def build_server(
         path_prefix: str | None = None,
         since: str | None = None,
     ) -> str:
-        return run(
-            lambda vault: render(
-                search(
-                    vault.index,
-                    vault.schema,
-                    query,
-                    limit=limit,
-                    folder=folder,
-                    status=status,
-                    tag=tag,
-                    kind=kind,
-                    area=area,
-                    include_archive=include_archive,
-                    include_superseded=include_superseded,
-                    path_prefix=path_prefix,
-                    since=since,
-                )
-            )
-        )
+        filters = {
+            "folder": folder,
+            "status": status,
+            "tag": tag,
+            "kind": kind,
+            "area": area,
+            "include_archive": include_archive,
+            "include_superseded": include_superseded,
+            "path_prefix": path_prefix,
+            "since": since,
+        }
+        return answered(lambda: render(search_everywhere(query, limit, filters)))
 
     @server.tool(
         name="read_file",
         description=(
             "MODERATE — one round trip to storage. Returns the note with an `etag:` first line; pass "
             "that etag back to write_file to refuse a write over someone else's change. Search first. "
-            "`.vault/schema.yml` reads the vault's schema."
+            "`.vault/schema.yml` reads the vault's schema." + vault_note
         ),
     )
-    def read_file(path: str) -> str:
-        return run(lambda vault: notes.read(vault, path))
+    def read_file(path: str, vault: str | None = None) -> str:
+        return run(lambda opened: notes.read(opened, path), vault_slug=vault)
 
     @server.tool(
         name="write_file",
@@ -169,21 +206,23 @@ def build_server(
             "WRITE — validates the frontmatter against the vault schema and refuses the write if it "
             "does not hold. Stamps `updated` with today and fills `date` when missing. Pass "
             'expected_etag from read_file to make the write conditional, or "*" to create a note '
-            "that must not exist yet."
+            "that must not exist yet." + vault_note
         ),
     )
-    def write_file(path: str, content: str, expected_etag: str | None = None) -> str:
-        return run(lambda vault: notes.write(vault, path, content, expected_etag=expected_etag), write=True)
+    def write_file(path: str, content: str, expected_etag: str | None = None, vault: str | None = None) -> str:
+        return run(
+            lambda opened: notes.write(opened, path, content, expected_etag=expected_etag), write=True, vault_slug=vault
+        )
 
     @server.tool(
         name="append_file",
         description=(
             "WRITE — appends to an existing note and bumps `updated`; the note must still satisfy the schema. "
-            "A missing note is refused: create it with write_file."
+            "A missing note is refused: create it with write_file." + vault_note
         ),
     )
-    def append_file(path: str, content: str) -> str:
-        return run(lambda vault: notes.append(vault, path, content), write=True)
+    def append_file(path: str, content: str, vault: str | None = None) -> str:
+        return run(lambda opened: notes.append(opened, path, content), write=True, vault_slug=vault)
 
     @server.tool(
         name="move_file",
@@ -201,10 +240,11 @@ def build_server(
 
     @server.tool(
         name="list_files",
-        description="CHEAP — paths only, no metadata and no bodies. `search` answers context questions better.",
+        description="CHEAP — paths only, no metadata and no bodies. `search` answers context questions better."
+        + vault_note,
     )
-    def list_files(prefix: str = "") -> str:
-        return run(lambda vault: _listing(vault, prefix))
+    def list_files(prefix: str = "", vault: str | None = None) -> str:
+        return run(lambda opened: _listing(opened, prefix), vault_slug=vault)
 
     @server.tool(
         name="set_status",
@@ -384,6 +424,10 @@ def build_server(
                 found = views.view(vault, command, query, limit, area, priority, path, repo)
                 return json.dumps(found, ensure_ascii=False)
 
+            if command == "search":
+                return answered(
+                    lambda: json.dumps(views.search_view(search_everywhere(query or "", limit, {})), ensure_ascii=False)
+                )
             return run(
                 answer,
                 expected=(*EXPECTED_FAILURES, ValueError),

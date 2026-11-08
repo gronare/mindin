@@ -84,6 +84,8 @@ def search_header(view: dict) -> str:
 
 def render_search(view: dict, term: Terminal) -> str:
     lines = [search_header(view)]
+    if view.get("vaults"):
+        lines.append(term.paint("in " + ", ".join(view["vaults"]), "dim"))
     rows = view["rows"]
     languages = tuple(view["languages"])
     if not rows:
@@ -106,7 +108,7 @@ def render_search(view: dict, term: Terminal) -> str:
         if kind_width:
             right.append(kind_cell(term, row["kind"], kind_width))
         right.append(pad_left(age, age_width))
-        where = row["key"]
+        where = f"{row['vault']}: {row['key']}" if row.get("vault") else row["key"]
         area = link_stem(row["area"])
         if area:
             where += cut(f" · {area}", max(term.width - width_of(where), 0))

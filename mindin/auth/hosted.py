@@ -57,6 +57,7 @@ from mindin.auth.hosted_deletion import SelfDeletion
 from mindin.auth.hosted_keys import Keyring, SealedVaults, VaultKeys
 from mindin.auth.hosted_limits import Quotas
 from mindin.auth.hosted_org_pages import OrganisationPages
+from mindin.auth.hosted_orgs import OrganisationReach
 from mindin.auth.hosted_ready import built_in_checks
 from mindin.auth.hosted_snapshots import IndexSnapshots
 from mindin.auth.hosted_store import Account, ApiKeyCredentials, HostedStore
@@ -594,6 +595,7 @@ def build_hosted_app(
     if auth.index_snapshots:
         vaults.use_snapshots(IndexSnapshots(sealed), auth.snapshot_minutes * 60.0)
     vaults.use_sweep(sealed.live_identifiers)
+    vaults.use_reach(OrganisationReach(store))
     provider = HostedProvider(auth, store, ClientMetadataFetcher(metadata_transport, resolver), clock, extensions)
     limits = Limits(store)
     browser = Browser(auth, store, limits, clock)

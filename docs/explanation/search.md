@@ -13,6 +13,23 @@ The index folds diacritics, stems every word in the vault's languages with Snowb
 - Archive and superseded notes are hidden unless asked for, and the header says how many.
 - When nothing matches, the reply names the vault's languages so the client can translate the terms and search again.
 
+## Across vaults
+
+On a server where the account belongs to an organisation, one `search` covers three kinds of vault together: the vault the connection is for, the account's own vault (the one `/mcp` opens) and every organisation vault the account reaches. The header names them, and each row starts with the vault it comes from:
+
+```text
+5 of 5 (archive: 0 hidden, superseded: 0 hidden)
+Searched 2 vaults: notes (Personal), wiki (Wiki, Acme). Each row starts with its vault; …
+wiki | Resources/klarna.md | Adding Klarna | 3d | active | [[payments]] | The payments team added Klarna …
+notes | Resources/klarna-0.md | Klarna notes | 2y | active | [[payments]] | …
+```
+
+`read_file(path, vault="wiki")` reads a row from another vault on the same connection. Writes go to the connection's own vault unless the tool is given `vault`.
+
+Each vault ranks its own rows as above. The scores of two vaults are not comparable, since each index weighs words by how often its own notes use them, so the rows are interleaved by rank: every vault's first row comes before any vault's second row, and at the same rank the organisation's row comes first. Ten old personal notes on a subject therefore never push the team's guide below the second place. When one vault has rows matching every term, rows from vaults matching only some terms are left out.
+
+The search spans vaults for claude.ai connectors, a trusted proxy's identity and machines signed in with `mindin login`. A key made on a vault's page keeps to that vault, and so does an account in no organisation, a server without accounts and a local vault.
+
 ## By meaning
 
 With [search by meaning](../install/semantic-search.md) on, `search` also finds notes that share no word with the query. Exact names still win. The word ranking and the meaning ranking are fused; a note's stem still puts that note first, a sha still finds exactly the notes that mention it, and the filters and the archive and superseded hiding apply to both. The header counts the rows found by meaning alone (`4 of 9, 2 by meaning only`), and a row that matched one section of a long note names it: `§ OAuth-flödet · …`.

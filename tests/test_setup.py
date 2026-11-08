@@ -9,9 +9,10 @@ from pathlib import Path
 import pytest
 from test_cli_tasks import write_settings
 
-from mindin import credentials, places
+from mindin import credentials, places, setup
 from mindin.cli import build_parser, main
-from mindin.config import adopt_config, config_dir
+from mindin.config import config_dir
+from mindin.places import adopt_config
 
 pytestmark = pytest.mark.usefixtures("nothing_configured")
 
@@ -105,7 +106,7 @@ def test_setup_saves_a_server_and_signs_the_machine_in(forget_storage, monkeypat
 def test_setup_asks_in_a_terminal(vault_dir: Path, capsys):
     answers = iter(["7", "1", str(vault_dir), ""])
     args = build_parser().parse_args(["setup"])
-    assert places.command_setup(args, ask=lambda question, secret: next(answers)) == 0
+    assert setup.command_setup(args, ask=lambda question, secret: next(answers)) == 0
     out = capsys.readouterr().out
     assert "1  A folder on this machine" in out and "Answer a number from 1 to 3." in out
     assert saved()["vault"]["path"] == str(vault_dir.resolve())
@@ -120,7 +121,7 @@ def test_setup_asks_for_the_secret_key_without_echoing_it(capsys):
         secrets.append(secret)
         return next(answers)
 
-    assert places.command_setup(build_parser().parse_args(["setup"]), ask=ask) == 0
+    assert setup.command_setup(build_parser().parse_args(["setup"]), ask=ask) == 0
     assert secrets == [False, False, False, False, False, False, True, False]
     assert credentials.s3_keys("https://s3.example.test", "notes")["secret_key"] == "sk"
 

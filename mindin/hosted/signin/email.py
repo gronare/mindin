@@ -18,7 +18,7 @@ from starlette.routing import BaseRoute, Route
 from mindin.hosted.config import SmtpConfig
 from mindin.hosted.pages import mail
 from mindin.hosted.pages.html import esc, hidden_field
-from mindin.hosted.pages.web import client_address, page
+from mindin.hosted.pages.web import client_address, limited, page
 from mindin.hosted.signin.flow import Login, next_field
 from mindin.hosted.signin.identities import Proof, addresses
 
@@ -142,8 +142,6 @@ class EmailSignIn:
         return self.login.complete(request, proof, document["next"])
 
     def routes(self, prefix: str) -> list[BaseRoute]:
-        from mindin.hosted.app import limited
-
         return [
             Route(prefix + "/signin/email", endpoint=limited(self.send), methods=["POST"]),
             Route(prefix + "/signin/email/confirm", endpoint=self.confirm_page, methods=["GET"]),

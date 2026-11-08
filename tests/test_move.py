@@ -10,7 +10,7 @@ import pytest
 from hosted_support import FixedLimits
 from remote_support import Served, serve
 
-from mindin import credentials, move, places
+from mindin import credentials, move, places, setup
 from mindin.cli import build_parser, main
 from mindin.config import config_dir
 from mindin.hosted.accounts.limits import StorageLimits
@@ -209,7 +209,7 @@ def test_setup_with_a_server_offers_to_bring_the_saved_folder_along(
         return "" if question.startswith("Bring") else "n"
 
     args = build_parser().parse_args(["setup", "--server", served.url])
-    assert places.command_setup(args, ask=answer) == 0
+    assert setup.command_setup(args, ask=answer) == 0
     assert asked[0] == f"Bring 4 files from the folder {source.resolve()} along? [Y/n]"
     assert on_server(served)["Welcome.md"] == SOURCE["Welcome.md"]
     assert saved_vault() == {"kind": "server", "url": served.url}
@@ -227,14 +227,14 @@ def test_setup_keeps_the_saved_folder_when_the_move_it_offered_fails(
 
     monkeypatch.setattr(move.DavSide, "create", drops)
     args = build_parser().parse_args(["setup", "--server", served.url])
-    assert places.command_setup(args, ask=lambda question, secret: "" if question.startswith("Bring") else "n") == 1
+    assert setup.command_setup(args, ask=lambda question, secret: "" if question.startswith("Bring") else "n") == 1
     err = capsys.readouterr().err
     assert f"this machine still uses the folder {source.resolve()}" in err
     assert f"`mindin setup --server {served.url}` offers the move again" in err
     assert saved_vault() == {"kind": "folder", "path": str(source.resolve())}
     monkeypatch.setattr(move.DavSide, "create", create)
     asked: list[str] = []
-    places.command_setup(args, ask=lambda question, secret: asked.append(question) or "n")
+    setup.command_setup(args, ask=lambda question, secret: asked.append(question) or "n")
     assert asked[0].startswith("Bring 4 files"), "rerunning setup offers the move again"
 
 
@@ -244,7 +244,7 @@ def test_setup_switches_to_the_server_when_the_move_is_declined(
     source = folder(tmp_path / "vault", SOURCE)
     places.save(from_folder(source))
     args = build_parser().parse_args(["setup", "--server", served.url])
-    assert places.command_setup(args, ask=lambda question, secret: "n") == 0
+    assert setup.command_setup(args, ask=lambda question, secret: "n") == 0
     out = capsys.readouterr().out
     assert f"This machine's vault is the server {served.url}" in out and "stays as it was" in out
     assert saved_vault() == {"kind": "server", "url": served.url}

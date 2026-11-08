@@ -13,12 +13,23 @@ from mindin.hosted.accounts.keys import VaultFacts
 from mindin.hosted.accounts.members import Invitations
 from mindin.hosted.accounts.store import Account, Member, MembershipError
 from mindin.hosted.accounts.vaults import NAME_MAX, Vault
-from mindin.hosted.pages.html import button, error_box, esc, form_head, hidden_field, muted, notice_box, table
-from mindin.hosted.pages.vaults import VaultPages, ago, counted
+from mindin.hosted.pages.html import (
+    ago,
+    button,
+    counted,
+    error_box,
+    esc,
+    form_head,
+    hidden_field,
+    muted,
+    notice_box,
+    table,
+)
 from mindin.shared import WHAT_BELONGS, Actor
 
 if TYPE_CHECKING:
     from mindin.hosted.orgs.organisations import Organisations, OrgVault
+    from mindin.hosted.pages.vaults import VaultPages
 
 RECENT_ROWS = 5
 WEB_CLIENT = "the vault's web page"

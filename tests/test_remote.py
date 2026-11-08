@@ -15,10 +15,11 @@ from mcp import Client, StdioServerParameters
 from remote_support import EMAIL, Served, serve
 from test_cli_hooks import feed, head_sha, make_repo
 
-from mindin import credentials, login, provision
+from mindin import cli, credentials, login, provision
 from mindin.backends import NotFound
 from mindin.backends.local import LocalBackend
 from mindin.cli import main
+from mindin.config import ConfigError
 from mindin.frontmatter import parse
 from mindin.proxy import Upstream, build_proxy, build_signed_out
 from mindin.vault import SubjectVaults
@@ -153,7 +154,7 @@ def test_a_denied_login_stores_nothing(tmp_path: Path):
 
 
 def test_login_refuses_plain_http_off_this_machine():
-    with pytest.raises(login.ConfigError, match="https"):
+    with pytest.raises(ConfigError, match="https"):
         credentials.server_base("http://vault.example.test")
 
 
@@ -433,9 +434,9 @@ def test_login_without_a_url_names_the_server_or_takes_the_default(monkeypatch, 
     assert main(["login"]) == 2
     assert "name the server" in capsys.readouterr().err
     monkeypatch.setattr(credentials, "DEFAULT_SERVER_URL", "https://vault.example.test")
-    assert login.server_argument(None) == "https://vault.example.test"
+    assert cli.server_argument(None) == "https://vault.example.test"
     monkeypatch.setenv("VAULT_SERVER_URL", "https://own.example.test/mcp")
-    assert login.server_argument(None) == "https://own.example.test"
+    assert cli.server_argument(None) == "https://own.example.test"
 
 
 def test_init_through_the_server_sends_a_layout_choice_to_the_account_page(

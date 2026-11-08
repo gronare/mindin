@@ -10,7 +10,8 @@ from mindin.hosted.accounts.store import Account, HostedStore, account_of, diges
 from mindin.hosted.accounts.vaults import accept_invitations, add_first_vault, invited
 from mindin.hosted.config import Registration
 from mindin.hosted.database import Connection
-from mindin.hosted.orgs.organisations import domain_address, join_by_domain, keep_departed, on_a_domain
+from mindin.hosted.orgs.organisations import join_by_domain, keep_departed
+from mindin.hosted.orgs.rules import domain_address, on_a_domain
 from mindin.hosted.signin.registration import Registrant
 
 Method = Literal["passkey", "email", "github", "oidc", "forwarded"]

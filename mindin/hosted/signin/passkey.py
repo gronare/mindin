@@ -25,7 +25,7 @@ from webauthn.helpers.structs import (
 )
 
 from mindin.hosted.pages.html import esc
-from mindin.hosted.pages.web import NO_STORE, client_address
+from mindin.hosted.pages.web import NO_STORE, client_address, limited
 from mindin.hosted.signin.flow import Login
 from mindin.hosted.signin.identities import Proof
 
@@ -270,8 +270,6 @@ class PasskeySignIn:
         return JSONResponse({"redirect": self.login.local("/account/settings")}, headers=NO_STORE)
 
     def routes(self, prefix: str) -> list[BaseRoute]:
-        from mindin.hosted.app import limited
-
         return [
             Route(prefix + "/signin/passkey.js", endpoint=self.script, methods=["GET"]),
             Route(prefix + "/signin/passkey/options", endpoint=limited(self.signin_options), methods=["POST"]),

@@ -10,10 +10,10 @@ from pathlib import Path
 import httpx2 as httpx
 import pytest
 
-from mindin import install_signal, places
+from mindin import install_signal, setup
 from mindin.cli import build_parser, main
+from mindin.config import read_config, write_config
 from mindin.install_signal import DAY, MAX_WORK, Install, Refused
-from mindin.places import read_config, write_config
 
 NOW = 1_792_540_800
 NONCE = bytes(range(32))
@@ -141,7 +141,7 @@ def test_a_yes_in_setup_writes_true_and_sends(capsys):
 def test_anything_but_yes_in_a_terminal_writes_false(answer: str, vault_dir: Path):
     args = build_parser().parse_args(["setup", "--folder", str(vault_dir)])
     asked: list[str] = []
-    assert places.command_setup(args, ask=lambda question, secret: asked.append(question) or answer) == 0
+    assert setup.command_setup(args, ask=lambda question, secret: asked.append(question) or answer) == 0
     assert asked == [f"{install_signal.QUESTION} [y/N]"] and saved_signals() == {"install": False}
     assert not install_signal.beat("cli", send=lambda install: pytest.fail("the answer was no"))
 
@@ -149,7 +149,7 @@ def test_anything_but_yes_in_a_terminal_writes_false(answer: str, vault_dir: Pat
 def test_setup_asks_only_while_the_answer_is_missing(vault_dir: Path):
     write_config({"signals": {"install": False}})
     args = build_parser().parse_args(["setup", "--folder", str(vault_dir)])
-    assert places.command_setup(args, ask=lambda question, secret: pytest.fail(f"asked again: {question}")) == 0
+    assert setup.command_setup(args, ask=lambda question, secret: pytest.fail(f"asked again: {question}")) == 0
     assert saved_signals() == {"install": False}
 
 
@@ -222,7 +222,7 @@ def test_the_long_running_servers_start_the_signal(argv: list[str], env: dict, r
         monkeypatch.setenv(name, value)
     monkeypatch.setattr(install_signal, "start", started.append)
     monkeypatch.setattr(cli, "run_stdio", lambda vault: None)
-    monkeypatch.setattr(cli, "run_http", lambda *args: None)
+    monkeypatch.setattr("mindin.hosted.app.run_http", lambda *args: None)
     monkeypatch.setattr(cli, "auth_config", lambda: argparse.Namespace(subject_prefix="users", dav_url=None))
     monkeypatch.setattr(cli, "SubjectVaults", lambda **kwargs: argparse.Namespace(embedder=None))
     monkeypatch.setattr(cli, "keep_warm", lambda embedder: None)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import tempfile
 import zipfile
 from collections.abc import Callable, Iterator
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import TYPE_CHECKING
 
 import anyio
@@ -40,7 +40,20 @@ from mindin.hosted.accounts.limits import LimitReached
 from mindin.hosted.accounts.store import Account, VaultNameError, scope_label
 from mindin.hosted.accounts.vaults import KINDS, NAME_MAX, PERSONAL, SHARED, Vault, Waiting, vault_resource_url
 from mindin.hosted.config import MACHINE_KEY_PURPOSE, READ_SCOPE, WRITE_SCOPE
-from mindin.hosted.pages.html import button, copy_field, error_box, esc, form_head, hidden_field, notice_box, table
+from mindin.hosted.pages.html import (
+    ago,
+    button,
+    copy_field,
+    counted,
+    error_box,
+    esc,
+    form_head,
+    hidden_field,
+    notice_box,
+    size_label,
+    table,
+)
+from mindin.hosted.pages.shared import SharedPages
 from mindin.hosted.pages.web import Browser, app_script
 from mindin.hosted.signin.email import SmtpFactory
 from mindin.presets import OFFERED, PRESETS
@@ -50,38 +63,7 @@ if TYPE_CHECKING:
     from mindin.hosted.pages.account import SelfDeletion
     from mindin.vault import SubjectVaults
 
-NBSP = " "
 KIND_OF_PURPOSE = {MACHINE_KEY_PURPOSE: ("Computer", "Sign out")}
-
-
-def counted(number: int, word: str) -> str:
-    return f"{number:,}".replace(",", NBSP) + f" {word}{'' if number == 1 else 's'}"
-
-
-def size_label(size: int) -> str:
-    megabytes = size / 1_000_000
-    if size and megabytes < 0.1:
-        return "0.1 MB"
-    shown = f"{megabytes:.1f}" if megabytes < 10 else f"{megabytes:.0f}"
-    return f"{shown.removesuffix('.0')} MB"
-
-
-def ago(moment: float | None, now: float) -> str:
-    if not moment:
-        return "never"
-    seconds = max(now - moment, 0)
-    if seconds < 60:
-        return "just now"
-    if seconds < 3600:
-        return f"{int(seconds // 60)} min ago"
-    if seconds < 86400:
-        return f"{int(seconds // 3600)} h ago"
-    if seconds < 2 * 86400:
-        return "yesterday"
-    if seconds < 7 * 86400:
-        return f"{int(seconds // 86400)} days ago"
-    day = datetime.fromtimestamp(moment, tz=UTC)
-    return f"{day.day} {day:%b %Y}"
 
 
 class VaultPages:
@@ -100,8 +82,6 @@ class VaultPages:
         self.sealed = sealed
         self.deletion = deletion
         self.sections: list[Callable[[Account, Vault, str], str]] = []
-        from mindin.hosted.pages.shared import SharedPages
-
         self.shared = SharedPages(self)
 
     def local(self, path: str) -> str:

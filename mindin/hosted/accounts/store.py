@@ -39,6 +39,7 @@ from mindin.hosted.accounts.vaults import (
 )
 from mindin.hosted.config import READ_SCOPE, WRITE_SCOPE, auth_dir
 from mindin.hosted.database import Database, Row, SqliteDatabase
+from mindin.hosted.orgs.rules import sharing_refusal
 from mindin.hosted.pages.templates import stamp
 from mindin.hosted.schema import STEPS
 from mindin.hosted.signin.registration import Registrant
@@ -356,8 +357,6 @@ class HostedStore:
             raise MembershipError("Only a shared vault takes members.")
         if "@" not in address or len(address) > 254:
             raise MembershipError("Enter an email address.")
-        from mindin.hosted.orgs.organisations import sharing_refusal
-
         with self.connect() as connection:
             refusal = sharing_refusal(connection, vault, address)
             if refusal:

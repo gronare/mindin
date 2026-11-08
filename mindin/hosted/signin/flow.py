@@ -14,7 +14,7 @@ from mindin.hosted.accounts.store import LOGIN_TTL, Account, HostedStore, digest
 from mindin.hosted.config import AuthConfig
 from mindin.hosted.pages.html import button, error_box, esc, form_head, hidden_field, muted, table
 from mindin.hosted.pages.templates import content_security_policy, stamp
-from mindin.hosted.pages.web import LOGIN_COOKIE, Browser, Limits, client_address, page
+from mindin.hosted.pages.web import LOGIN_COOKIE, Browser, Limits, client_address, limited, page
 from mindin.hosted.signin.identities import Identities, Outcome, Proof
 
 
@@ -147,8 +147,6 @@ class Login:
         return RedirectResponse(self.local("/account/settings"), status_code=303)
 
     def routes(self, prefix: str) -> list[BaseRoute]:
-        from mindin.hosted.app import limited
-
         routes: list[BaseRoute] = [
             Route(prefix + "/signin", endpoint=self.page, methods=["GET"]),
             Route(prefix + "/account/identities/remove", endpoint=limited(self.remove), methods=["POST"]),

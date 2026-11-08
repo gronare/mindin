@@ -12,7 +12,7 @@ from starlette.routing import BaseRoute, Route
 
 from mindin.hosted.config import GithubConfig
 from mindin.hosted.pages.html import esc, hidden_field
-from mindin.hosted.pages.web import client_address, page
+from mindin.hosted.pages.web import client_address, limited, page
 from mindin.hosted.signin.flow import Login, next_field
 from mindin.hosted.signin.identities import Proof
 from mindin.hosted.signin.upstream import pkce_challenge
@@ -131,8 +131,6 @@ class GithubSignIn:
         )
 
     def routes(self, prefix: str) -> list[BaseRoute]:
-        from mindin.hosted.app import limited
-
         return [
             Route(prefix + "/signin/github", endpoint=self.start, methods=["GET"]),
             Route(prefix + "/signin/github", endpoint=limited(self.start), methods=["POST"]),

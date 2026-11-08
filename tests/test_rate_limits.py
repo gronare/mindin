@@ -11,9 +11,9 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from mindin.config import ConfigError
 from mindin.hosted.accounts.store import HostedStore
+from mindin.hosted.app import uvicorn_options
 from mindin.hosted.config import AuthConfig, auth_config
 from mindin.hosted.pages.web import Limits, client_address
-from mindin.server import uvicorn_options
 
 ORCHARD = "203.0.113.7"
 EDGE = "198.51.100.20"

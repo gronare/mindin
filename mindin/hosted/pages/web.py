@@ -4,11 +4,15 @@ import hmac
 import logging
 import time
 from collections.abc import Callable
+from typing import Any
 from urllib.parse import quote, urlsplit
 
 from mcp.server.auth.provider import construct_redirect_uri
+from mcp.server.transport_security import RequestBodyLimitMiddleware
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from starlette.routing import request_response
+from starlette.types import ASGIApp
 
 from mindin.hosted.accounts.store import SESSION_TTL, Account, HostedStore, digest
 from mindin.hosted.accounts.vaults import Vault
@@ -23,6 +27,7 @@ SESSION_COOKIE = "nvm_session"
 LOGIN_COOKIE = "nvm_login"
 REQUEST_TTL = 900
 RECENT_SIGN_IN = 600
+FORM_BODY_LIMIT = 64 * 1024
 NO_STORE = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 EXTRA_STYLE = """
 input[type=text], input[type=email] { display: block; width: 100%; box-sizing: border-box; margin-top: .35rem;
@@ -395,3 +400,7 @@ with each vault.</p></div>
         response = page("Signed out", "You are signed out of this vault.")
         response.delete_cookie(SESSION_COOKIE, path=self.cookie_path)
         return response
+
+
+def limited(handler: Callable[[Request], Any]) -> ASGIApp:
+    return RequestBodyLimitMiddleware(request_response(handler), FORM_BODY_LIMIT)

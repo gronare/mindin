@@ -20,8 +20,6 @@ from mindin.hosted.accounts.vaults import NAME_MAX, SLUG_MAX, Vault
 from mindin.hosted.orgs.mail import OrgMail
 from mindin.hosted.orgs.organisations import (
     ADMIN,
-    ALLOWED,
-    DENIED,
     EXPORT_AND_DELETE,
     KEEP,
     ORG_LAYOUTS,
@@ -34,12 +32,13 @@ from mindin.hosted.orgs.organisations import (
     OrgMember,
     OrgVault,
     Removed,
-    domain_of,
 )
+from mindin.hosted.orgs.rules import ALLOWED, DENIED, domain_of
 from mindin.hosted.pages.html import (
     box,
     button,
     copy_field,
+    counted,
     error_box,
     esc,
     form_head,
@@ -50,7 +49,7 @@ from mindin.hosted.pages.html import (
     table,
 )
 from mindin.hosted.pages.templates import stamp
-from mindin.hosted.pages.vaults import VaultPages, counted
+from mindin.hosted.pages.vaults import VaultPages
 from mindin.hosted.signin.email import Mailer
 from mindin.presets import PRESETS, WIKI_PRESET
 

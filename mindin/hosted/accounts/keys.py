@@ -27,10 +27,11 @@ from mindin.hosted.accounts.store import Account, HostedStore
 from mindin.hosted.accounts.vaults import Vault
 from mindin.hosted.config import DEFAULT_SUBJECT_PREFIX, auth_dir
 from mindin.hosted.database import account_tables
-from mindin.hosted.orgs.organisations import locked_out
+from mindin.hosted.orgs.rules import locked_out
 from mindin.index import remove_index
 from mindin.presets import SHARED_PRESET
 from mindin.shared import Actor, SharedBackend, SharedRules
+from mindin.vault import NoSubject
 
 MASTER_KEY_ENV = "VAULT_HOSTED_MASTER_KEY"
 PREVIOUS_KEYS_ENV = "VAULT_HOSTED_MASTER_KEY_PREVIOUS"
@@ -211,8 +212,6 @@ class SealedVaults:
         self.quotas: Quotas | None = None
 
     def __call__(self, subject: str) -> tuple[VaultBackend, str]:
-        from mindin.vault import NoSubject
-
         vault = self.store.vault(subject)
         if vault is None:
             raise NoSubject("no vault for this subject")

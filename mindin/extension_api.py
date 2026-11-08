@@ -23,7 +23,6 @@ from mindin.hosted.accounts.limits import StorageLimits, with_defaults
 from mindin.hosted.accounts.members import INVITATION_TTL
 from mindin.hosted.accounts.store import Account, HostedStore, account_of, digest, scope_label
 from mindin.hosted.accounts.vaults import Vault, rewrite_slugs
-from mindin.hosted.app import limited
 from mindin.hosted.config import MACHINE_KEY_PURPOSE, AuthConfig, auth_dir
 from mindin.hosted.database import Connection, Database, has_table
 from mindin.hosted.orgs.organisations import Organisation
@@ -31,7 +30,7 @@ from mindin.hosted.pages.account import SelfDeletion
 from mindin.hosted.pages.html import esc
 from mindin.hosted.pages.mail import Mail, branded, images
 from mindin.hosted.pages.templates import stamp
-from mindin.hosted.pages.web import Browser, page
+from mindin.hosted.pages.web import Browser, limited, page
 from mindin.hosted.schema import STEPS
 from mindin.hosted.signin.email import ADDRESS as EMAIL_ADDRESS
 from mindin.hosted.signin.email import Mailer, SmtpFactory

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import secrets
@@ -30,7 +31,7 @@ from mcp.server.auth.provider import (
 )
 from mcp.server.auth.routes import build_resource_metadata_url
 from mcp.server.auth.settings import ClientRegistrationOptions
-from mcp.server.transport_security import RequestBodyLimitMiddleware, TransportSecuritySettings
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken, ProtectedResourceMetadata
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from starlette.applications import Starlette
@@ -44,6 +45,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from mindin.changes import NULL_BUS
 from mindin.config import ConfigError
+from mindin.dav import MAX_BODY_BYTES, WebDav
 from mindin.extensions import Extension, HealthCheck, Server, installed, narrowed, sign_in_checks, supplied_bus
 from mindin.extensions import access as extended_access
 from mindin.hosted.accounts.access import SupportAccess
@@ -57,7 +59,7 @@ from mindin.hosted.orgs.organisations import OrganisationReach
 from mindin.hosted.orgs.pages import OrganisationPages
 from mindin.hosted.pages.account import SelfDeletion, SupportDesk
 from mindin.hosted.pages.vaults import VaultPages
-from mindin.hosted.pages.web import Browser, Limits, oauth_error
+from mindin.hosted.pages.web import Browser, Limits, limited, oauth_error
 from mindin.hosted.periodic import Leases, PeriodicRunner
 from mindin.hosted.prefix import URL, inner_lifespan
 from mindin.hosted.ready import built_in_checks
@@ -76,6 +78,8 @@ from mindin.hosted.signin.forwarded import ForwardedSignIn, IdentityError
 from mindin.hosted.signin.github import GithubSignIn
 from mindin.hosted.signin.oidc import OidcSignIn
 from mindin.hosted.signin.passkey import PasskeySignIn
+from mindin.server import build_server
+from mindin.vault import SubjectVaults
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +87,6 @@ CODE_TTL = 300
 ACCESS_TTL = 3600
 REFRESH_TTL = 30 * 24 * 3600
 REQUEST_TTL = 900
-FORM_BODY_LIMIT = 64 * 1024
 AUTHORIZATION_SERVER_PATH = "/.well-known/oauth-authorization-server"
 
 
@@ -486,10 +489,6 @@ def cors(app: ASGIApp, methods: list[str]) -> ASGIApp:
     )
 
 
-def limited(handler: Callable[[Request], Any]) -> ASGIApp:
-    return RequestBodyLimitMiddleware(request_response(handler), FORM_BODY_LIMIT)
-
-
 class TokenEndpoint:
     def __init__(self, provider: HostedProvider, device: DeviceFlow) -> None:
         self.provider = provider
@@ -579,9 +578,6 @@ def build_hosted_app(
     keyring: Keyring | None = None,
     extensions: Sequence[Extension] | None = None,
 ) -> Starlette:
-    from mindin.dav import MAX_BODY_BYTES, WebDav
-    from mindin.server import build_server
-    from mindin.vault import SubjectVaults
 
     extensions = installed() if extensions is None else tuple(extensions)
     store = HostedStore(auth.auth_dir or auth_dir(), extensions)
@@ -734,3 +730,31 @@ def build_hosted_app(
 
     lifespan = inner_lifespan(mcp_app, close, on_start=periodic.start)
     return Starlette(routes=routes, middleware=[guard], lifespan=lifespan)
+
+
+class WithoutQuery(logging.Filter):
+    """Drops the query string from uvicorn's access lines, where sign-in links carry their tokens."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
+            record.args = (*args[:2], args[2].partition("?")[0], *args[3:])
+        return True
+
+
+def uvicorn_options(auth: AuthConfig) -> dict[str, Any]:
+    from uvicorn.config import LOGGING_CONFIG
+
+    log_config = copy.deepcopy(LOGGING_CONFIG)
+    log_config["filters"] = {"without_query": {"()": WithoutQuery}}
+    log_config["handlers"]["access"]["filters"] = ["without_query"]
+    options: dict[str, Any] = {"log_level": "info", "log_config": log_config, "proxy_headers": True}
+    if auth.forwarded_allow_ips:
+        options["forwarded_allow_ips"] = list(auth.forwarded_allow_ips)
+    return options
+
+
+def run_http(vaults: SubjectVaults, host: str, port: int, auth: AuthConfig) -> None:
+    import uvicorn
+
+    uvicorn.run(build_hosted_app(vaults, auth, host), host=host, port=port, **uvicorn_options(auth))

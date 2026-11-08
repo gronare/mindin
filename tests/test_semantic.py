@@ -380,7 +380,7 @@ def test_an_http_server_keeps_the_embedder_warm(
     monkeypatch.setattr(cli, "open_vault", lambda vectors: vault)
     monkeypatch.setattr(cli, "SubjectVaults", lambda **_: SimpleNamespace(embedder=embedder))
     monkeypatch.setattr(cli, "run_stdio", lambda served: None)
-    monkeypatch.setattr(cli, "run_http", lambda served, host, port, auth: None)
+    monkeypatch.setattr("mindin.hosted.app.run_http", lambda served, host, port, auth: None)
     try:
         cli.command_serve(argparse.Namespace(transport=transport, host="", port=0))
         assert warms == [embedder] * warmed

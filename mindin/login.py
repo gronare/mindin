@@ -11,7 +11,6 @@ from typing import TextIO
 import httpx2
 
 from mindin import credentials
-from mindin.config import ConfigError
 
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 CLIENT_ID = "cli"
@@ -132,13 +131,17 @@ def access_words(scope: str) -> str:
     return "read and write" if "vault:write" in scope.split() else "read only"
 
 
-def server_argument(raw: str | None) -> str:
-    from mindin.config import adopt_config
-
-    if raw:
-        return credentials.server_base(raw)
-    adopt_config()
-    found = credentials.configured_server() or credentials.DEFAULT_SERVER_URL
-    if not found:
-        raise ConfigError("mindin: name the server, as in `mindin login https://vault.example.com`")
-    return credentials.server_base(found)
+def sign_in(url: str, name: str | None, no_browser: bool, vault: str | None) -> int:
+    try:
+        entry = login(url, name=name, open_browser=not no_browser, vault=vault)
+    except (LoginError, OSError) as exc:
+        told = " ".join(str(exc).split())
+        print(told if told.startswith("mindin:") else f"mindin: {told}", file=sys.stderr)
+        return 1
+    reaches = f" to the vault {entry['vault']}" if entry["vault"] else ""
+    print(f"Signed in to {url}{reaches}: key {entry['name']!r}, {access_words(entry['scope'])}.")
+    print(f"The key is stored in {credentials.credentials_path()}.")
+    default = credentials.server_state(url)["default"]
+    if entry["vault"] and default != entry["vault"]:
+        print(f"This machine uses {default} by default; `mindin vault use {entry['vault']}` changes that.")
+    return 0

@@ -16,20 +16,21 @@ from mindin import (
     human,
     install_signal,
     notes,
-    places,
     provision,
+    setup,
     tasks,
 )
 from mindin.backends import NotFound
 from mindin.client import open_client
-from mindin.config import FORMER_NAMES, NO_VAULT_YET, ConfigError, adopt_config, cache_dir, env, local_root, s3_settings
+from mindin.config import FORMER_NAMES, NO_VAULT_YET, ConfigError, cache_dir, env, local_root, s3_settings
 from mindin.embedding import keep_warm
 from mindin.extensions import installed
 from mindin.frontmatter import parse
 from mindin.hosted.config import auth_config
+from mindin.places import adopt_config
 from mindin.presets import PERSONAL_LAYOUTS, PRESETS
 from mindin.schema import CLAIM_KEY
-from mindin.server import run_http, run_stdio
+from mindin.server import run_stdio
 from mindin.terminal import Terminal, terminal
 from mindin.vault import SubjectVaults, Unconfigured, Vault, open_vault
 
@@ -58,7 +59,9 @@ def command_serve(args: argparse.Namespace) -> int:
     auth = auth_config()
     vaults = SubjectVaults(prefix=auth.subject_prefix, dav_url=auth.dav_url, vectors="background")
     keep_warm(vaults.embedder)
-    run_http(vaults, args.host, args.port, auth)
+    from mindin.hosted import app
+
+    app.run_http(vaults, args.host, args.port, auth)
     return 0
 
 
@@ -417,25 +420,22 @@ def command_status(args: argparse.Namespace) -> int:
 def command_login(args: argparse.Namespace) -> int:
     from mindin import login
 
-    url = login.server_argument(args.url)
-    try:
-        entry = login.login(url, name=args.name, open_browser=not args.no_browser, vault=args.vault)
-    except (login.LoginError, OSError) as exc:
-        print(one_line(exc), file=sys.stderr)
-        return 1
-    reaches = f" to the vault {entry['vault']}" if entry["vault"] else ""
-    print(f"Signed in to {url}{reaches}: key {entry['name']!r}, {login.access_words(entry['scope'])}.")
-    print(f"The key is stored in {credentials.credentials_path()}.")
-    default = credentials.server_state(url)["default"]
-    if entry["vault"] and default != entry["vault"]:
-        print(f"This machine uses {default} by default; `mindin vault use {entry['vault']}` changes that.")
-    return 0
+    return login.sign_in(server_argument(args.url), args.name, args.no_browser, args.vault)
+
+
+def server_argument(raw: str | None) -> str:
+    if raw:
+        return credentials.server_base(raw)
+    adopt_config()
+    found = credentials.configured_server() or credentials.DEFAULT_SERVER_URL
+    if not found:
+        raise ConfigError("mindin: name the server, as in `mindin login https://vault.example.com`")
+    return credentials.server_base(found)
 
 
 def command_logout(args: argparse.Namespace) -> int:
-    from mindin import login
 
-    url = login.server_argument(args.url)
+    url = server_argument(args.url)
     if not credentials.forget(url, args.vault):
         print(f"Not signed in to {url}{f' for the vault {args.vault}' if args.vault else ''}.")
         return 0
@@ -445,9 +445,9 @@ def command_logout(args: argparse.Namespace) -> int:
 
 
 def command_whoami(args: argparse.Namespace) -> int:
-    from mindin import login, remote
+    from mindin import remote
 
-    url = login.server_argument(args.url)
+    url = server_argument(args.url)
     vault, entry = credentials.chosen(url)
     if entry is None:
         print(one_line(remote.NotSignedIn(url, vault)), file=sys.stderr)
@@ -463,9 +463,8 @@ def command_whoami(args: argparse.Namespace) -> int:
 
 
 def command_vault(args: argparse.Namespace) -> int:
-    from mindin import login
 
-    url = login.server_argument(args.url)
+    url = server_argument(args.url)
     if args.vault_command == "use":
         folder = Path(args.dir) if args.dir else None
         state = credentials.server_state(url)
@@ -542,7 +541,7 @@ def command_about(args: argparse.Namespace) -> int:
 
 
 def command_setup(args: argparse.Namespace) -> int:
-    return places.command_setup(args)
+    return setup.command_setup(args)
 
 
 def command_move(args: argparse.Namespace) -> int:
@@ -835,7 +834,7 @@ def build_parser() -> argparse.ArgumentParser:
     asking.set_defaults(func=command_whoami)
 
     choosing = sub.add_parser("setup", help="choose where this machine's vault lives, saved in mindin's own config")
-    places.add_arguments(choosing)
+    setup.add_arguments(choosing)
     choosing.set_defaults(func=command_setup)
 
     moving = sub.add_parser(

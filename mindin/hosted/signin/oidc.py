@@ -10,7 +10,7 @@ from starlette.routing import BaseRoute, Route
 
 from mindin.hosted.config import OidcConfig
 from mindin.hosted.pages.html import esc, hidden_field
-from mindin.hosted.pages.web import client_address, page
+from mindin.hosted.pages.web import client_address, limited, page
 from mindin.hosted.signin.flow import Login, next_field
 from mindin.hosted.signin.identities import Proof
 from mindin.hosted.signin.upstream import Upstream, UpstreamError
@@ -82,8 +82,6 @@ class OidcSignIn:
         return self.login.complete(request, proof, resumed["next"], resumed["link"])
 
     def routes(self, prefix: str) -> list[BaseRoute]:
-        from mindin.hosted.app import limited
-
         return [
             Route(prefix + "/signin/oidc", endpoint=self.start, methods=["GET"]),
             Route(prefix + "/signin/oidc", endpoint=limited(self.start), methods=["POST"]),

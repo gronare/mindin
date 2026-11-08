@@ -6,6 +6,8 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+import tomllib
 from pathlib import Path
 
 PLUGIN_ENV_PREFIX = "CLAUDE_PLUGIN_OPTION_"
@@ -182,28 +184,45 @@ def environment_names_a_vault() -> bool:
     return local_root() is not None or s3_settings() is not None or bool(env("VAULT_SERVER_URL"))
 
 
-_filled: tuple[str, dict[str, str]] = ("none", {})
+CONFIG_NAME = "config.toml"
 
 
-def filled_names() -> set[str]:
-    """The storage variables adopt_config filled from mindin's config or the plugin's, as opposed to the shell's."""
-    return set(_filled[1])
+def config_path() -> Path:
+    return config_dir() / CONFIG_NAME
 
 
-def adopt_config() -> str:
-    """Fill the storage variables when the environment names no vault: mindin's own config first, then the plugin's."""
-    global _filled
-    source, values = _filled
-    if values and all(os.environ.get(name) == value for name, value in values.items()):
-        return source
-    if environment_names_a_vault():
-        return "env"
-    from mindin.places import saved_settings
+def read_config() -> dict:
+    try:
+        return tomllib.loads(config_path().read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
 
-    for source, found in (("config", saved_settings()), ("plugin", plugin_options())):
-        if found:
-            filled = {name: value for name, value in found.items() if not env(name)}
-            os.environ.update(filled)
-            _filled = (source, filled)
-            return source
-    return "none"
+
+def toml_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def render_config(config: dict) -> str:
+    lines: list[str] = []
+    for table, values in config.items():
+        if isinstance(values, dict):
+            lines += [f"[{table}]", *(f"{key} = {toml_value(value)}" for key, value in values.items()), ""]
+    return "\n".join(lines)
+
+
+def write_config(config: dict) -> None:
+    folder = private_dir(config_dir())
+    handle, temporary = tempfile.mkstemp(dir=folder, prefix=".config-")
+    try:
+        os.fchmod(handle, 0o600)
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(render_config(config))
+        os.replace(temporary, config_path())
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(temporary)
+        raise

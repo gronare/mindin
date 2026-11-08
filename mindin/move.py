@@ -15,7 +15,7 @@ from xml.etree import ElementTree
 
 import httpx2
 
-from mindin import config, credentials, places
+from mindin import config, credentials, login, places
 from mindin.backends import MUST_NOT_EXIST, SCHEMA_KEY, NotFound, VaultBackend, VaultError, VersionConflict
 from mindin.config import PLUGIN_OPTIONS, ConfigError
 from mindin.hosted.accounts.limits import content_type_of, full, limits_of, refusal, size_text
@@ -240,11 +240,8 @@ def current_place() -> Place:
 
 
 def sign_in(url: str, slug: str | None, no_browser: bool) -> None:
-    from mindin.cli import command_login
-
     print(f"Signing this machine in to {url} for the move.")
-    login = argparse.Namespace(url=url, name=None, no_browser=no_browser, vault=slug)
-    if command_login(login) != 0:
+    if login.sign_in(url, None, no_browser, slug) != 0:
         raise MoveError(f"not signed in to {url}; nothing moved")
 
 
@@ -583,7 +580,7 @@ def codex_stale(wanted: dict[str, str]) -> list[Stale]:
 
 
 def shell_stale(wanted: dict[str, str]) -> list[Stale]:
-    filled = config.filled_names()
+    filled = places.filled_names()
     names = naming_other({name: os.environ.get(name, "") for name in STORAGE_NAMES if name not in filled}, wanted)
     if not names:
         return []
@@ -655,7 +652,7 @@ def switch(source: Place, target: Place, ask: Ask | None, shown_slug: str | None
     places.save(saved)
     if saved.vault["kind"] == "server" and slug:
         credentials.use(saved.vault["url"], slug)
-    print(f"\nThis machine's vault is now {describe(target)}, saved in {places.config_path()}.")
+    print(f"\nThis machine's vault is now {describe(target)}, saved in {config.config_path()}.")
     print(
         f"{describe(source)[0].upper()}{describe(source)[1:]} is left as it was; remove it once you no longer need it."
     )

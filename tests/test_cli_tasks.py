@@ -10,8 +10,9 @@ import pytest
 from test_cli_hooks import make_repo
 
 from mindin.cli import main
-from mindin.config import adopt_config, plugin_options
+from mindin.config import plugin_options
 from mindin.frontmatter import parse
+from mindin.places import adopt_config
 
 
 @pytest.fixture(autouse=True)

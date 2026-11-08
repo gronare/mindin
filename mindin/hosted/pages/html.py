@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import html
 from collections.abc import Iterable
+from datetime import UTC, datetime
+
+NBSP = " "
 
 
 def esc(text: object) -> str:
@@ -51,3 +54,33 @@ def row(markup: str) -> str:
 def table(headings: Iterable[str], rows: Iterable[str], classes: str = "tablewrap") -> str:
     head = "".join(f"<th>{esc(heading)}</th>" for heading in headings)
     return f'<div class="{classes}"><table><thead><tr>{head}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
+
+
+def counted(number: int, word: str) -> str:
+    return f"{number:,}".replace(",", NBSP) + f" {word}{'' if number == 1 else 's'}"
+
+
+def size_label(size: int) -> str:
+    megabytes = size / 1_000_000
+    if size and megabytes < 0.1:
+        return "0.1 MB"
+    shown = f"{megabytes:.1f}" if megabytes < 10 else f"{megabytes:.0f}"
+    return f"{shown.removesuffix('.0')} MB"
+
+
+def ago(moment: float | None, now: float) -> str:
+    if not moment:
+        return "never"
+    seconds = max(now - moment, 0)
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{int(seconds // 60)} min ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)} h ago"
+    if seconds < 2 * 86400:
+        return "yesterday"
+    if seconds < 7 * 86400:
+        return f"{int(seconds // 86400)} days ago"
+    day = datetime.fromtimestamp(moment, tz=UTC)
+    return f"{day.day} {day:%b %Y}"

@@ -20,7 +20,7 @@ from pathlib import Path
 import httpx2
 
 from mindin import __version__
-from mindin.config import adopted, env, private_dir
+from mindin.config import adopted, env, private_dir, read_config
 
 log = logging.getLogger(__name__)
 
@@ -78,8 +78,6 @@ def state_dir() -> Path:
 
 
 def answered() -> bool | None:
-    from mindin.places import read_config
-
     table = read_config().get("signals")
     return table["install"] if isinstance(table, dict) and isinstance(table.get("install"), bool) else None
 

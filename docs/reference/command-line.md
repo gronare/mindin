@@ -66,6 +66,21 @@ mindin support read <account> <path> [--vault <slug>] --operator <name> --reason
 mindin master-key generate | status | rewrap
 ```
 
+### Organisations
+
+```sh
+mindin org list | create <name> --admin <email> | show <organisation>
+mindin org domain add | remove <organisation> <domain>
+mindin org admin add | remove <organisation> <email>
+mindin org member add | remove <organisation> <email>
+mindin org vault create <organisation> <name> [--slug <slug>] [--by <admin>]
+mindin org vault lock | unlock <organisation> <slug>
+mindin org vault editor-add | editor-remove <organisation> <slug> <email>
+mindin org removal <organisation> keep | export-and-delete [--days <days>]
+```
+
+`<organisation>` is its name or id. `vault create --by` names the admin who owns the vault and defaults to the first admin. `removal` decides what happens to a removed member's personal vaults; `--days` defaults to 30. See [Run mindin for a team](../how-to/run-mindin-for-a-team.md).
+
 See [Manage accounts](../how-to/manage-accounts.md), [Support access and import](../how-to/support-access-and-import.md) and [Back up and rotate keys](../how-to/back-up-and-rotate.md).
 
 ## Output

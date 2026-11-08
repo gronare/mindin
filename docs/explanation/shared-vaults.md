@@ -12,6 +12,10 @@ The owner invites an email on the vault's page, or with [`accounts add-member`](
 
 Members sign in with their own account and make their own keys and connections to the vault; it shows under Shared on their Vaults page. Removing a member, or a member leaving, stops their keys, tokens and signed-in computers for that vault on their next request. The owner can make a member the owner instead, and deletes the vault for everyone. Support access to a shared vault is the owner's to grant.
 
+## Organisation vaults
+
+An organisation's vault is a shared vault whose members are the organisation's members: everyone who joins the organisation reaches it, and someone removed from the organisation leaves it at once. Its admins manage it from the organisation's page instead of inviting people one by one. An admin can lock it, and then only its editors write; everyone else reads. See [Run mindin for a team](../how-to/run-mindin-for-a-team.md).
+
 ## History
 
 Every change to a shared vault applies at once and is kept. Each write, move and delete through MCP or WebDAV records the path, what happened, the member's email, the key, computer or connector it came through and the time, and keeps the version before it, sealed with the vault's key. The vault's page shows the recent changes and the full history; each change opens as a diff, and "Restore previous" writes the version before it back as a new change. Files in dot-folders, such as `.obsidian/`, are not kept.

@@ -28,6 +28,7 @@ Running a server:
 
 - [Set up sign-in methods](how-to/sign-in-methods.md): email links, GitHub, your identity provider, a trusted proxy, passkeys.
 - [Manage accounts and vaults](how-to/manage-accounts.md): invitations, suspension, more vaults, sharing.
+- [Run mindin for a team](how-to/run-mindin-for-a-team.md): an organisation, its email domain, a wiki, locked vaults, removing someone.
 - [Back up and rotate keys](how-to/back-up-and-rotate.md)
 - [Open a vault for support, or import one](how-to/support-access-and-import.md)
 

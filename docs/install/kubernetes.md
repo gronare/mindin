@@ -22,17 +22,9 @@
 
 4. Open `VAULT_PUBLIC_URL/account` and sign in.
 
-## What the manifests set
+## Notes
 
-- **One pod.** The Deployment runs one pod with the `Recreate` strategy, so the old pod stops before the new one starts.
-- **Probes.** Both hit `/.well-known/oauth-protected-resource/mcp`, which answers without a token. When `VAULT_PUBLIC_URL` carries a path, such as `/vault`, the probe path is `/.well-known/oauth-protected-resource/vault/mcp`.
-- **Memory.** The limit is 512 MiB, which is enough without search by meaning; [Search by meaning](semantic-search.md#kubernetes) needs more.
-
-The server also answers two health routes, under the path of `VAULT_PUBLIC_URL` when it has one:
-
-- `GET /up` answers `ok` while the process serves.
-- `GET /ready` answers `200` when the account store answers, the storage is reachable and every readiness check an installed [extension](../reference/extensions.md) adds passes. Otherwise it answers `503` with a JSON body naming the checks that failed, such as `{"ready": false, "failing": ["storage"]}`. The built-in checks, `account_store` and `storage`, each look at most once every 5 seconds.
-
-The image sets `VAULT_AUTH_DIR=/data/auth` and `VAULT_CACHE_DIR=/data/cache`. Back up `/data/auth` together with the master key; see [Back up and rotate keys](../how-to/back-up-and-rotate.md).
-
-An Ingress controller that rewrites the `Host` header needs [`VAULT_ALLOWED_HOSTS`](../how-to/reverse-proxy.md).
+- The Deployment runs one pod with the `Recreate` strategy. Its probes hit `/.well-known/oauth-protected-resource/mcp`; with a path in `VAULT_PUBLIC_URL`, such as `/vault`, that is `/.well-known/oauth-protected-resource/vault/mcp`.
+- The 512 MiB memory limit is enough without [search by meaning](semantic-search.md#kubernetes).
+- Back up `/data/auth` together with the master key; see [Back up and rotate keys](../how-to/back-up-and-rotate.md).
+- An Ingress controller that rewrites the `Host` header needs [`VAULT_ALLOWED_HOSTS`](../how-to/reverse-proxy.md).

@@ -1,6 +1,6 @@
 # The schema file
 
-`.vault/schema.yml` in the vault sets its rules. It is deep-merged over the preset it names (`preset: para`), or over the built-in layout when it names none, so it only needs to carry what differs. `preset: custom` starts from nothing. `VAULT_SCHEMA` points at a local file that overrides the one in the vault. [Notes and layouts](../explanation/notes-and-layouts.md) explains the folders and kinds.
+`.vault/schema.yml` in the vault sets its rules. It is deep-merged over the preset it names (`preset: para`), or over the built-in layout when it names none, so it only needs to carry what differs. `preset: custom` starts from nothing, or from a copy of another layout's schema and views when you pick one to start from (`mindin init --preset custom --from para`, or Start from on the vault's page), which records it as `made_from: para`. `VAULT_SCHEMA` points at a local file that overrides the one in the vault. [Notes and layouts](../explanation/notes-and-layouts.md) explains the folders and kinds.
 
 ## Changing the built-in rules
 

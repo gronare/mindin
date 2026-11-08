@@ -211,6 +211,17 @@ button.secondary:not(.btn) {{ padding: 7px 14px; font: inherit; font-size: 14px;
 .record {{ display: grid; grid-template-columns: 5rem minmax(0, 1fr); gap: 6px 12px; align-items: center;
   font-size: 14px; }}
 .record .lab {{ color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }}
+.supports {{ display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); gap: 6px 12px;
+  align-items: baseline; font-size: 14px; min-width: 0; }}
+.supports .chip {{ justify-self: start; min-width: 3.4rem; text-align: center; }}
+.supports .why {{ color: var(--muted); font-size: 13px; min-width: 0; overflow-wrap: anywhere; }}
+.supports b {{ font-weight: 500; }}
+.startfrom {{ grid-column: 2; display: grid; gap: 6px; margin-top: 8px; padding-top: 10px;
+  border-top: 1px solid var(--line); font-size: 13px; }}
+.option .startfrom > * {{ grid-column: 1; min-width: 0; }}
+.startfrom .row {{ align-items: center; }}
+.startfrom select {{ width: auto; min-width: 11rem; font-size: 14px; }}
+.startfrom .lab {{ color: var(--muted); font-size: 13px; }}
 @media (max-width: 560px) {{
   .top nav {{ margin-left: 0; width: 100%; }}
   .body {{ padding: 18px 14px 22px; }}
@@ -227,6 +238,8 @@ button.secondary:not(.btn) {{ padding: 7px 14px; font: inherit; font-size: 14px;
   .record {{ grid-template-columns: 1fr; gap: 2px; }}
   .record .lab {{ margin-top: 6px; }}
   .tablewrap.noact td:last-child {{ grid-column: 1; grid-row: auto; align-self: start; }}
+  .supports {{ grid-template-columns: max-content minmax(0, 1fr); row-gap: 2px; }}
+  .supports .why {{ grid-column: 2; margin-bottom: 6px; }}
 }}
 </style>
 </head>

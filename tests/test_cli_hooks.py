@@ -388,6 +388,19 @@ def test_init_force_overwrites(vault: Vault, vault_dir: Path):
     assert "stale_after_days" in (vault_dir / ".vault" / "schema.yml").read_text(encoding="utf-8")
 
 
+def test_init_starts_custom_from_a_layout(vault: Vault, vault_dir: Path, capsys):
+    assert main(["init", "--preset", "custom", "--from", "para", "--force"]) == 0
+    schema = (vault_dir / ".vault" / "schema.yml").read_text(encoding="utf-8")
+    assert "preset: custom\nmade_from: para\n" in schema and "Resources/Logs:" in schema
+    assert (vault_dir / "Projects.base").exists()
+    assert "layout: custom" in capsys.readouterr().err
+
+
+def test_init_from_needs_the_custom_preset(vault: Vault, capsys):
+    assert main(["init", "--preset", "para", "--from", "simple"]) == 2
+    assert "--from goes with --preset custom" in capsys.readouterr().err
+
+
 def test_search_command_prints_rows(vault: Vault, capsys):
     assert main(["search", "orchard", "--limit", "2"]) == 0
     assert capsys.readouterr().out.startswith("2 of 5")

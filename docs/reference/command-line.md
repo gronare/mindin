@@ -28,7 +28,7 @@ In a terminal, `setup` also asks once whether to share anonymous usage data, the
 ```sh
 mindin serve --transport stdio          # the default, also with no subcommand
 mindin serve --transport http --host 0.0.0.0 --port 8765
-mindin init [--preset default|para|simple|journal|custom] [--force]
+mindin init [--preset default|para|simple|journal|custom] [--from default|para|simple|journal] [--force]
 mindin sync [--rebuild]                 # refresh the index; --rebuild reads every note again
 mindin embed-worker [--listen 127.0.0.1:7400] [--model <name>]  # the model in its own process
 mindin search "bokning" --limit 5       # the same ranking, from a shell

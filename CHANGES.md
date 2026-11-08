@@ -19,6 +19,8 @@ What each mindin release brings, one line per change, as you would tell someone 
 - The `rules` tool gives every member's Claude the rules a vault's schema carries.
 - A vault can refuse writes that hold a secret, a card number or a personnummer.
 - `mindin schema check` lists a schema's problems and which tools its layout turns on, also for a file before you save it.
+- A vault's page lists what a Custom layout supports, and what to add to turn each part on.
+- Custom can start from a copy of the Built-in, PARA, Simple or Journal layout, on the vault's page or with `mindin init --preset custom --from para`.
 - Only the owner or an organisation admin changes a shared vault's schema, and without one it takes no writes.
 - The plugin's team-wiki skill drafts a wiki page when work is finished and writes it on a yes.
 - A trusted proxy's identity token can name the proxy's own host, listed in `VAULT_IDENTITY_AUDIENCE`.

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from mindin import provision
 from mindin.backends import SCHEMA_KEY
-from mindin.presets import PRESETS, SHARED_LAYOUTS, SHARED_PRESET
+from mindin.presets import CUSTOM_PRESET, PRESETS, SHARED_LAYOUTS, SHARED_PRESET
 
 if TYPE_CHECKING:
     from mindin.hosted.accounts.keys import SealedVaults
@@ -25,9 +25,13 @@ EDITING = (
 )
 
 
-def describe(named: str) -> str:
+def titled(named: str, source: str | None = None) -> str:
+    return f"{PRESETS[named].title}, made from {PRESETS[source].title}" if source else PRESETS[named].title
+
+
+def describe(named: str, source: str | None = None) -> str:
     if named in PRESETS:
-        return f"This vault uses {PRESETS[named].title}."
+        return f"This vault uses {titled(named, source)}."
     return f"This vault's schema names {named!r}, a layout this version does not ship; it is read as written."
 
 
@@ -52,16 +56,17 @@ def provision_vault(sealed: SealedVaults, vault: Vault, preset: str, dav_url: st
     provision.initialize(backend, preset=preset, welcome={"DAV_URL": dav_url})
 
 
-def switch_layout(vaults: SubjectVaults, vault: Vault, preset: str) -> str:
+def switch_layout(vaults: SubjectVaults, vault: Vault, preset: str, start_from: str | None = None) -> str:
     backend = vaults.backend_factory(vault.id)[0]
     current = provision.named_preset(provision.stored(backend, SCHEMA_KEY))
     if current == BUILT_IN:
         raise LayoutKept("The built-in layout is kept; it is switched from the CLI only.")
-    if current == preset:
+    if current == preset and preset != CUSTOM_PRESET:
         return f"This vault already uses {PRESETS[preset].title}."
+    source = start_from if preset == CUSTOM_PRESET else None
     welcome = {"DAV_URL": vaults.dav_url} if current is None else None
-    result = provision.initialize(backend, force=current is not None, preset=preset, welcome=welcome)
+    result = provision.initialize(backend, force=current is not None, preset=preset, welcome=welcome, start_from=source)
     vaults.refresh(vault.id)
     vaults.publish(vault.id, "schema")
     moved = " No note was moved or deleted." if current is not None else ""
-    return f"This vault now uses {PRESETS[result.preset].title}.{moved}"
+    return f"This vault now uses {titled(result.preset, source)}.{moved}"

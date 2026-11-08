@@ -56,14 +56,21 @@ from mindin.hosted.pages.html import (
 from mindin.hosted.pages.shared import SharedPages
 from mindin.hosted.pages.web import Browser, app_script
 from mindin.hosted.signin.email import SmtpFactory
-from mindin.presets import OFFERED, PRESETS
-from mindin.schema import Schema, broken_schema_lines, schema_from_text
+from mindin.presets import CUSTOM_PRESET, OFFERED, PRESETS, STARTING_POINTS
+from mindin.schema import Capability, Schema, broken_schema_lines, capabilities, schema_from_text
 
 if TYPE_CHECKING:
     from mindin.hosted.pages.account import SelfDeletion
     from mindin.vault import SubjectVaults
 
 KIND_OF_PURPOSE = {MACHINE_KEY_PURPOSE: ("Computer", "Sign out")}
+EMPTY_START = "empty"
+SUPPORTED = (
+    ("Backlog and task notes", "task"),
+    ("Repo logs and the stop hook's commit check", "log"),
+    ("Close moves notes to", "archive"),
+    ("Session start loads", "system"),
+)
 
 
 class VaultPages:
@@ -230,6 +237,7 @@ decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url
 
     def layout_box(self, vault: Vault, csrf: str, schema: str | None) -> str:
         current = provision.named_preset(schema)
+        source = provision.made_from(schema) if current == CUSTOM_PRESET else None
         shown = layout_contents(schema) if schema is not None else ""
         if current == BUILT_IN:
             return f'<div class="box"><h2>Layout</h2><p class="small muted">{esc(describe(current))}</p>{shown}</div>'
@@ -240,11 +248,13 @@ decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url
                 "Use this layout",
             )
         else:
-            heading, lead, label = "Layout", f"{describe(current)} {SWITCHING}", "Switch layout"
+            heading, lead, label = "Layout", f"{describe(current, source)} {SWITCHING}", "Switch layout"
+        options = layout_options(current or OFFERED[0], True, current, source)
+        supports = layout_supports(schema_from_text(schema)) if schema is not None and current == CUSTOM_PRESET else ""
         return f"""<div class="box"><h2>{heading}</h2>
-<p class="small muted">{esc(lead)}</p>{shown}<p class="small muted">{esc(EDITING)}</p>
+<p class="small muted">{esc(lead)}</p>{shown}{supports}<p class="small muted">{editing_hint(source)}</p>
 {form_head(csrf, self.vault_url(vault, "/layout"), ' class="stack"')}
-<fieldset class="choice"><legend>Layout</legend>{layout_options(current or OFFERED[0])}</fieldset>
+<fieldset class="choice"><legend>Layout</legend>{options}</fieldset>
 <div><button class="btn" type="submit">{label}</button></div></form></div>"""
 
     async def pick_layout(self, request: Request) -> Response:
@@ -259,8 +269,14 @@ decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url
         if preset not in OFFERED:
             notice = error_box("Pick one of the layouts.")
             return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, 400))
+        start = form.get("from", EMPTY_START) if preset == CUSTOM_PRESET else EMPTY_START
+        if start not in (*STARTING_POINTS, EMPTY_START):
+            notice = error_box("Pick a layout to start Custom from.")
+            return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, 400))
+        start_from = None if start == EMPTY_START else start
         try:
-            notice, status = notice_box(await anyio.to_thread.run_sync(switch_layout, self.vaults, vault, preset)), 200
+            switched = await anyio.to_thread.run_sync(switch_layout, self.vaults, vault, preset, start_from)
+            notice, status = notice_box(switched), 200
         except LayoutKept as exc:
             notice, status = error_box(str(exc)), 409
         return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, status))
@@ -537,10 +553,78 @@ def layout_contents(text: str) -> str:
 <pre class="diff">{esc(text)}</pre></details>"""
 
 
-def layout_options(selected: str) -> str:
+def layout_options(selected: str, start: bool = False, current: str | None = None, source: str | None = None) -> str:
     return "".join(
-        f'<label class="option"><input type="radio" name="preset" value="{esc(name)}" required'
+        start_option(name == selected, current, source)
+        if name == CUSTOM_PRESET and start
+        else f'<label class="option"><input type="radio" name="preset" value="{esc(name)}" required'
         f"{' checked' if name == selected else ''}><b>{esc(PRESETS[name].title)}</b>"
         f"<span>{esc(PRESETS[name].summary)}</span></label>"
         for name in OFFERED
     )
+
+
+def start_option(checked: bool, current: str | None, source: str | None) -> str:
+    over = current == CUSTOM_PRESET
+    picked = current if current in STARTING_POINTS else None
+    choices = "".join(
+        f'<option value="{esc(name)}"{" selected" if name == picked else ""}>{esc(PRESETS[name].title)}</option>'
+        for name in STARTING_POINTS
+    )
+    made = f" This vault's is made from {PRESETS[source].title}." if source else ""
+    note = (
+        f"Replaces your edits with that layout's schema; the one you have now is saved as "
+        f"{provision.PREVIOUS_SCHEMA_KEY}. Notes are never moved."
+        if over
+        else "Copies that layout's schema and views for you to edit. Notes are never moved."
+    )
+    radio = f'<input type="radio" name="preset" value="{CUSTOM_PRESET}" id="layout-custom" required'
+    title = esc(PRESETS[CUSTOM_PRESET].title)
+    lab = "Start over from" if over else "Start from"
+    return f"""<div class="option">{radio}{" checked" if checked else ""}>\
+<label for="layout-custom"><b>{title}</b></label><span>A schema you edit yourself.{esc(made)}</span>
+<div class="startfrom"><div class="row"><label class="lab" for="layout-from">{lab}</label>
+<select id="layout-from" name="from">{choices}<option value="{EMPTY_START}">empty</option></select></div>
+<span class="muted">{esc(note)}</span></div></div>"""
+
+
+def editing_hint(source: str | None) -> str:
+    if source is None:
+        return esc(EDITING)
+    return (
+        f"Edit <code>{esc(SCHEMA_KEY)}</code> over WebDAV or in the vault folder with any editor (Obsidian hides "
+        "dot-folders); <code>mindin schema check</code> tells you what's wrong before you save. If an edit does not "
+        "hold, the vault keeps running on the layout the file names, and this page, context and lint say what is wrong."
+    )
+
+
+def layout_supports(schema: Schema) -> str:
+    rows = []
+    for (label, kind), found in zip(SUPPORTED, capabilities(schema), strict=True):
+        on, why = supported(kind, found)
+        chip = '<span class="chip">on</span>' if on else '<span class="chip off">off</span>'
+        rows.append(f'{chip}<b>{esc(label)}</b><span class="why">{why}</span>')
+    example = (
+        f'<p class="small muted">Name folders in <code>{esc(SCHEMA_KEY)}</code> to turn these on, one line each, for '
+        'example <code>Work: { kind: task, description: "Open work." }</code>. Or start Custom from a layout below '
+        "and edit that.</p>"
+        if not schema.folders
+        else ""
+    )
+    return f"""<div class="subhead"><p class="group-label">What the layout supports</p>
+<div class="supports">{"".join(rows)}</div></div>{example}"""
+
+
+def supported(kind: str, found: Capability) -> tuple[bool, str]:
+    folders = ", ".join(f"<code>{esc(name)}/</code>" for name in found.folders)
+    add = f"<code>kind: {kind}</code>"
+    plural = "s" if len(found.folders) > 1 else ""
+    if kind == "archive":
+        return (True, folders) if found.folders else (False, f"keeps them in place: no folder with {add}")
+    if kind == "system":
+        if found.folders:
+            return True, f"system notes from {folders}"
+        return (True, "notes of kind <code>system</code>") if found.on else (False, f"nothing: no folder with {add}")
+    if found.folders:
+        return True, f"{kind} folder{plural} {folders}"
+    return False, f"no {kind} folder: add a folder with {add}"

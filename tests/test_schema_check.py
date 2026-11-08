@@ -85,3 +85,20 @@ def test_json_carries_the_problems_and_the_summary(tmp_path: Path, capsys):
 def test_a_missing_file_is_a_usage_error(tmp_path: Path, capsys):
     assert main(["schema", "check", str(tmp_path / "nowhere.yml")]) == 2
     assert "cannot read" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("name", ["default", "para", "simple", "journal"])
+def test_custom_made_from_a_layout_holds_and_matches_it(name: str):
+    from mindin.provision import custom_schema
+
+    made = schema_from_text(custom_schema(name))
+    source = schema_from_text(preset_file(name).read_text(encoding="utf-8"))
+    assert made.problems == () and made.preset == "custom" and made.made_from == name
+    assert list(made.folders) == list(source.folders) and made.kind_values == source.kind_values
+
+
+def test_made_from_must_be_a_name():
+    assert (
+        "made_from must be the name of the layout the schema was copied from"
+        in schema_from_text("preset: custom\nmade_from: 3\n").problems
+    )

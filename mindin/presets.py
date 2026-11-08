@@ -107,6 +107,7 @@ DEFAULT_SCHEMA_TEMPLATE = PRESETS[DEFAULT_PRESET].schema_template
 OFFERED = tuple(name for name, preset in PRESETS.items() if preset.offered)
 SHARED_LAYOUTS = (SHARED_PRESET, WIKI_PRESET)
 PERSONAL_LAYOUTS = tuple(name for name in PRESETS if name not in SHARED_LAYOUTS)
+STARTING_POINTS = tuple(name for name in PERSONAL_LAYOUTS if name != CUSTOM_PRESET)
 
 
 def template(name: str) -> str:

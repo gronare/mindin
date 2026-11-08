@@ -29,7 +29,7 @@ from mindin.frontmatter import parse
 from mindin.hosted import cli as hosted_cli
 from mindin.hosted.config import auth_config
 from mindin.places import adopt_config
-from mindin.presets import PERSONAL_LAYOUTS, PRESETS
+from mindin.presets import CUSTOM_PRESET, PERSONAL_LAYOUTS, PRESETS, STARTING_POINTS
 from mindin.schema import CLAIM_KEY, Schema, capabilities, schema_from_text
 from mindin.server import run_stdio
 from mindin.terminal import Terminal, terminal
@@ -71,15 +71,18 @@ def command_init(args: argparse.Namespace) -> int:
     if url is not None:
         from mindin import remote
 
-        if args.preset or args.force:
+        if args.preset or args.force or args.start_from:
             print(f"mindin: a server vault picks and switches its layout on {url}/account", file=sys.stderr)
             return 2
         for line in remote.tool_text(url, "init").splitlines():
             print(f"mindin: {line}" if line.startswith("kept ") else line, file=sys.stderr)
         print(template("claude-md-snippet.md"))
         return 0
+    if args.start_from and args.preset != CUSTOM_PRESET:
+        print(f"mindin: --from goes with --preset {CUSTOM_PRESET}", file=sys.stderr)
+        return 2
     vault = open_vault()
-    result = provision.initialize(vault.backend, force=args.force, preset=args.preset)
+    result = provision.initialize(vault.backend, force=args.force, preset=args.preset, start_from=args.start_from)
     print(f"layout: {result.preset}", file=sys.stderr)
     if result.preset not in PRESETS:
         print(
@@ -576,6 +579,12 @@ def build_parser() -> argparse.ArgumentParser:
             "the layout to write; a new vault defaults to default, an existing one keeps its own. "
             "With --force it switches an existing vault's schema and views; notes are never moved or deleted"
         ),
+    )
+    init.add_argument(
+        "--from",
+        dest="start_from",
+        choices=STARTING_POINTS,
+        help="with --preset custom: copy this layout's schema and views to edit, instead of an empty schema",
     )
     init.set_defaults(func=command_init)
 

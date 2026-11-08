@@ -174,3 +174,86 @@ async def test_the_layout_box_names_the_kinds_each_folder_takes_and_the_root(sit
     assert "<dt>Every note needs</dt><dd>title, date, updated, tags, status, team, author</dd>" in wiki.text
     assert "This layout names no folders; a note can go anywhere." in custom.text
     assert "<th>Kinds</th>" not in custom.text and "Switch layout" in custom.text
+
+
+def supports_rows(page: str) -> list[tuple[str, str, str]]:
+    block = re.search(r'<div class="supports">(.*?)</div>', page, re.S)
+    assert block, "no supports list on the page"
+    found = re.findall(r'<span class="chip( off)?">(on|off)</span><b>(.*?)</b><span class="why">(.*?)</span>', block[1])
+    return [(chip, label.replace("&#x27;", "'"), re.sub(r"<[^>]+>", "", why)) for _, chip, label, why in found]
+
+
+@pytest.mark.anyio
+async def test_a_curated_layout_shows_no_supports_list(site: Hosted):
+    http = await site.member("ann@example.com", sub="sub-ann")
+    async with http:
+        page = await http.get("/account/vaults/notes")
+        await http.post("/account/vaults/notes/layout", data={"csrf": csrf_of(page.text), "preset": "para"})
+        again = await http.get("/account/vaults/notes")
+    assert "This vault uses PARA." in again.text
+    assert "What the layout supports" not in again.text
+    assert "Start from" in again.text and "Start over from" not in again.text
+
+
+@pytest.mark.anyio
+async def test_an_empty_custom_layout_says_what_to_add(site: Hosted):
+    http = await site.member("ann@example.com", sub="sub-ann")
+    async with http:
+        page = await http.get("/account/vaults/notes")
+        data = {"csrf": csrf_of(page.text), "preset": "custom", "from": "empty"}
+        await http.post("/account/vaults/notes/layout", data=data)
+        again = await http.get("/account/vaults/notes")
+    assert "This vault uses Custom." in again.text
+    assert supports_rows(again.text) == [
+        ("off", "Backlog and task notes", "no task folder: add a folder with kind: task"),
+        ("off", "Repo logs and the stop hook's commit check", "no log folder: add a folder with kind: log"),
+        ("off", "Close moves notes to", "keeps them in place: no folder with kind: archive"),
+        ("off", "Session start loads", "nothing: no folder with kind: system"),
+    ]
+    assert 'Work: { kind: task, description: "Open work." }' in again.text
+
+
+@pytest.mark.anyio
+async def test_custom_starts_from_para_with_its_folders_and_views(site: Hosted, vaults: SubjectVaults):
+    http = await site.member("ann@example.com", sub="sub-ann")
+    async with http:
+        page = await http.get("/account/vaults/notes")
+        data = {"csrf": csrf_of(page.text), "preset": "custom", "from": "para"}
+        switched = await http.post("/account/vaults/notes/layout", data=data)
+        again = await http.get("/account/vaults/notes")
+    assert switched.status_code == 200 and "This vault now uses Custom, made from PARA." in switched.text
+    assert "This vault uses Custom, made from PARA." in again.text
+    assert "<code>mindin schema check</code> tells you what's wrong before you save" in again.text
+    assert "Start over from" in again.text and "This vault&#x27;s is made from PARA." in again.text
+    assert supports_rows(again.text) == [
+        ("on", "Backlog and task notes", "task folder Projects/"),
+        ("on", "Repo logs and the stop hook's commit check", "log folder Resources/Logs/"),
+        ("on", "Close moves notes to", "Archive/"),
+        ("on", "Session start loads", "system notes from Areas/"),
+    ]
+    assert "Work: { kind: task" not in again.text
+    vault = vaults.backend_factory(site.vault_of("ann@example.com"))[0]
+    schema = vault.get(SCHEMA_KEY)[0]
+    assert "preset: custom\nmade_from: para\n" in schema and "Resources/Logs:" in schema
+    assert {"Projects.base", "Areas.base", "Log.base"} <= {entry.key for entry in vault.list()}
+
+
+@pytest.mark.anyio
+async def test_starting_custom_over_keeps_the_edited_schema_as_previous(site: Hosted, vaults: SubjectVaults):
+    http = await site.member("ann@example.com", sub="sub-ann")
+    vault = vaults.backend_factory(site.vault_of("ann@example.com"))[0]
+    async with http:
+        page = await http.get("/account/vaults/notes")
+        csrf = csrf_of(page.text)
+        await http.post("/account/vaults/notes/layout", data={"csrf": csrf, "preset": "custom", "from": "para"})
+        edited = vault.get(SCHEMA_KEY)[0] + "synonyms:\n  - [car, automobile]\n"
+        vault.put(SCHEMA_KEY, edited)
+        custom = {"csrf": csrf, "preset": "custom"}
+        unknown = await http.post("/account/vaults/notes/layout", data={**custom, "from": "x"})
+        over = await http.post("/account/vaults/notes/layout", data={**custom, "from": "simple"})
+    assert unknown.status_code == 400 and "Pick a layout to start Custom from." in unknown.text
+    assert over.status_code == 200 and "This vault now uses Custom, made from Simple." in over.text
+    assert vault.get(provision.PREVIOUS_SCHEMA_KEY)[0] == edited
+    assert "made_from: simple" in vault.get(SCHEMA_KEY)[0]
+    keys = {entry.key for entry in vault.list()}
+    assert "Categories.base" in keys and "Projects.base" not in keys

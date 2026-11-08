@@ -44,6 +44,11 @@ class Schema:
     def preset(self) -> str:
         return str(self.data.get("preset") or DEFAULT_PRESET)
 
+    @property
+    def made_from(self) -> str | None:
+        named = self.data.get("made_from")
+        return str(named) if named else None
+
     @cached_property
     def folders(self) -> dict[str, Folder]:
         folders: dict[str, Folder] = {}
@@ -327,6 +332,8 @@ def schema_problems(data: Any) -> list[str]:
     problems: list[str] = []
     if "preset" in data and not isinstance(data["preset"], str):
         problems.append(f"preset must be the name of a preset: {', '.join(PRESETS)}")
+    if "made_from" in data and not isinstance(data["made_from"], str):
+        problems.append("made_from must be the name of the layout the schema was copied from")
     if "root_description" in data and not isinstance(data["root_description"], str):
         problems.append("root_description must be text")
     for name, spec in _mapping(data.get("folders"), ["folders"], problems).items():
@@ -468,6 +475,7 @@ class Capability:
     tool: str
     on: bool
     reason: str
+    folders: tuple[str, ...] = ()
 
 
 def _named(word: str, folders: list[str]) -> str:
@@ -484,10 +492,12 @@ def capabilities(schema: Schema) -> list[Capability]:
     else:
         loads = "notes of kind system" if "system" in schema.kind_values else ""
     return [
-        Capability("backlog_add, backlog and task open", bool(tasks), task_reason),
-        Capability("log_append and the stop hook's commit check", bool(log), log_reason),
-        Capability("close", True, close_reason),
-        Capability("session start", bool(loads), f"loads {loads}" if loads else "loads no system notes"),
+        Capability("backlog_add, backlog and task open", bool(tasks), task_reason, tuple(tasks)),
+        Capability("log_append and the stop hook's commit check", bool(log), log_reason, (log,) if log else ()),
+        Capability("close", True, close_reason, (archive,) if archive else ()),
+        Capability(
+            "session start", bool(loads), f"loads {loads}" if loads else "loads no system notes", tuple(systems)
+        ),
     ]
 
 

@@ -31,6 +31,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - `mindin.extension_api` exports every name an extension and its tests use.
 - `server.sh` sets up a server with Docker in one command and invites its first account.
 - The Docker images run on arm64 too, such as Apple Silicon, Graviton and a Raspberry Pi.
+- Each release attaches a CycloneDX SBOM of the Python package and of both container images.
 
 ### Fixed
 - `/vault:login` signs in with the same mindin version the plugin runs.

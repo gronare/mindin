@@ -193,3 +193,38 @@ jobs:
         run: |
           cp deploy/docker/.env.example example.env
           gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber scripts/install.sh scripts/server.sh deploy/docker/compose.yml deploy/docker/Caddyfile example.env
+
+  sbom:
+    needs: [release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --all-extras --no-dev
+      - name: CycloneDX SBOM of the Python package and its locked dependencies
+        run: uvx --from cyclonedx-bom@8.0.1 cyclonedx-py environment --pyproject pyproject.toml --of JSON -o "mindin-$GITHUB_REF_NAME.cdx.json" .venv/bin/python
+      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ghcr.io/gronare/mindin:${{ github.ref_name }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: cyclonedx-json
+          output-file: mindin-image-${{ github.ref_name }}.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ghcr.io/gronare/mindin:${{ github.ref_name }}-semantic
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: cyclonedx-json
+          output-file: mindin-image-${{ github.ref_name }}-semantic.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attach the SBOMs to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber ./*.cdx.json

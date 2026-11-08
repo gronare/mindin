@@ -4,6 +4,7 @@ import os
 import re
 import time
 import zlib
+from pathlib import Path
 
 import numpy
 
@@ -23,12 +24,17 @@ def concept_vector(text: str) -> numpy.ndarray:
 class ConceptModel:
     def __init__(self, model: str) -> None:
         self.model = model
-        self.delay = float(os.environ.get("FAKE_EMBED_DELAY") or 0)
+        gate = os.environ.get("FAKE_EMBED_GATE")
+        self.gate = Path(gate) if gate else None
         self.quick = set((os.environ.get("FAKE_EMBED_QUICK") or "quick").split(","))
 
     def embed(self, texts: list[str]) -> list[numpy.ndarray]:
-        if self.delay and not (len(texts) == 1 and texts[0] in self.quick):
-            time.sleep(self.delay)
+        if self.gate is not None and not (len(texts) == 1 and texts[0] in self.quick):
+            with self.gate.with_suffix(".entered").open("a") as entered:
+                entered.write(f"{texts}\n")
+            deadline = time.monotonic() + 30
+            while not self.gate.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
         return [concept_vector(text) for text in texts]
 
 

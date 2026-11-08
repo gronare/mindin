@@ -47,6 +47,18 @@ def cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
+def gate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    path = tmp_path / "embed.gate"
+    monkeypatch.setenv("FAKE_EMBED_GATE", str(path))
+    return path
+
+
+def entered(gate: Path) -> int:
+    marks = gate.with_suffix(".entered")
+    return len(marks.read_text().splitlines()) if marks.exists() else 0
+
+
+@pytest.fixture
 def make(cache: Path):
     made: list[SharedEmbedder] = []
 
@@ -153,42 +165,43 @@ def test_a_worker_of_another_version_is_restarted(make, cache: Path):
     assert wait_until(lambda: not alive(old))
 
 
-def test_a_query_behind_a_slow_embed_goes_by_words(make, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("FAKE_EMBED_DELAY", "2")
+def test_a_query_behind_a_slow_embed_goes_by_words(make, gate: Path):
     embedder = make(query_wait=0.3)
     embedder.query("quick")
     bulk = threading.Thread(target=embedder.passages, args=(["slow", "texts"],))
     bulk.start()
-    time.sleep(0.2)
+    assert wait_until(lambda: entered(gate) == 1)
     started = time.monotonic()
     assert embedder.query("oauth") is None
     assert time.monotonic() - started < 1.5
+    gate.touch()
     bulk.join()
 
 
-def test_a_query_jumps_ahead_of_queued_embeds(make, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("FAKE_EMBED_DELAY", "1")
+def test_a_query_jumps_ahead_of_queued_embeds(make, gate: Path):
     embedder = make(query_wait=5)
     embedder.query("quick")
     bulks = [threading.Thread(target=embedder.passages, args=([f"slow {n}"],)) for n in range(3)]
     for bulk in bulks:
         bulk.start()
-        time.sleep(0.05)
+    assert wait_until(lambda: entered(gate) == 1)
     started = time.monotonic()
     assert embedder.query("quick") is not None
     assert time.monotonic() - started < 2.0
+    assert entered(gate) == 1
+    gate.touch()
     for bulk in bulks:
         bulk.join()
 
 
-def test_a_query_is_answered_while_a_slow_embed_runs(make, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("FAKE_EMBED_DELAY", "3")
+def test_a_query_is_answered_while_a_slow_embed_runs(make, gate: Path):
     embedder = make(query_wait=1.0)
     embedder.query("quick")
     bulk = threading.Thread(target=embedder.passages, args=(["slow", "texts"],))
     bulk.start()
-    time.sleep(0.3)
+    assert wait_until(lambda: entered(gate) == 1)
     assert numpy.allclose(embedder.query("quick"), concept_vector("quick"))
+    gate.touch()
     bulk.join()
 
 

@@ -79,10 +79,11 @@ A `ChangeBus` (`publish`, `listen`, `close`) carries `Change(vault_id, kind, ori
 `mindin.extension_api` exports:
 
 - Hooks and the server: `Extension`, `Server`, `Access`, `Section`, `VaultSection`, `OrganisationSection`, `HealthCheck`, `SignInCheck`, `Subcommands`.
-- The account store: `Database`, `Connection`, `HostedStore`, `Account`, `Vault`, `Organisation`, `Organisations`, `OrganisationError`, `Identities`, `Proof`, `SupportAccess`, `STORE_VERSION`, `rewrite_slugs`, `has_table`, `account_tables`, `account_of`, `digest`, `scope_label`, `delete_departed`, `SHARED`, `MACHINE_KEY_PURPOSE`, `INVITATION_TTL`.
+- The account store: `Database`, `Connection`, `HostedStore`, `Account`, `Vault`, `Organisation`, `Organisations`, `OrganisationError`, `Identities`, `Proof`, `SupportAccess`, `SupportRequest`, `RequestRefused`, `ask_for_support`, `STORE_VERSION`, `rewrite_slugs`, `has_table`, `account_tables`, `account_of`, `digest`, `scope_label`, `delete_departed`, `SHARED`, `MACHINE_KEY_PURPOSE`, `INVITATION_TTL`.
 - Pages and mail: `Browser`, `page`, `esc`, `stamp`, `limited`, `RateCounter`, `Mailer`, `SmtpFactory`, `EMAIL_ADDRESS`, and `branded(subject, heading, lead, button, link, note)`, a `Mail` in the sign-in mails' look whose `images()` go with it to `Mailer.send`.
 - Accounts made and storage kept: `Registrant`, `Periodic`, `Leases`, `StorageLimits`, `with_defaults`, `LimitReached`.
 - Vaults and storage: `SubjectVaults`, `SealedVaults`, `SelfDeletion`, `VaultFacts`, `VaultBackend`, `S3Backend`, `make_subject_backend`, `MUST_NOT_EXIST`, `VersionConflict`, `honours_conditions`, `Keyring`, `MasterKey`, `VaultKeys`, `History`, `Actor`.
 - Changes: `ChangeBus`, `Change`, `Kind`, `Listener`.
+- Support requests: `ask_for_support(store, config, account, vault, operator, reason)` records a request for one vault, or any with `vault=None`, and emails the account; it returns the `SupportRequest` and whether the email went out, and raises `RequestRefused` when the account already has one waiting. `SupportAccess(store)` lists them with `requests()`, reads an account's with `pending(account_id)` and takes one back with `withdraw(account_id)`.
 - Settings: `AuthConfig`, `SmtpConfig`, `GithubConfig`, `OidcConfig`, `ConfigError`, `env`, `local_root`, `auth_dir`, `semantic_requested`.
 - Running the server in a test: `build_hosted_app`, `cli_main`, `installed`, `passes`.

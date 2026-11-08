@@ -5,6 +5,7 @@ import io
 import shutil
 import sqlite3
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
 import httpx2
@@ -28,7 +29,7 @@ from mindin.backends import make_subject_backend
 from mindin.backends.local import LocalBackend
 from mindin.backends.sealed import SealedBackend, Unreadable, new_data_key
 from mindin.cli import main
-from mindin.hosted.accounts.access import SupportAccess
+from mindin.hosted.accounts.access import SupportAccess, ask_for_support
 from mindin.hosted.accounts.keys import Keyring, MasterKey, SealedVaults, VaultKeys
 from mindin.hosted.accounts.store import HostedStore, digest
 from mindin.hosted.database import SqliteDatabase
@@ -498,14 +499,20 @@ def cli_env(site: Hosted, monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_support_access_is_granted_per_vault(site: Hosted, cli_env: None, capsys: pytest.CaptureFixture[str]):
     http = await two_vaults(site)
     support = ["--operator", "sam", "--reason", "ticket 12"]
+    assert main(["support", "request", "ann@example.com", "--vault", "orchard", *support]) == 0
     async with http:
         page = await http.get("/account/settings")
+        elsewhere = await http.post(
+            "/account/support/approve", data={"csrf": csrf_of(page.text), "vault": "workshop", "duration": "hour"}
+        )
         granted = await http.post(
-            "/account/support", data={"csrf": csrf_of(page.text), "vault": "orchard", "duration": "hour"}
+            "/account/support/approve", data={"csrf": csrf_of(page.text), "vault": "orchard", "duration": "hour"}
         )
         after = await http.get("/account/settings")
-    assert granted.status_code == 303
-    assert "Orchard: open to support until" in after.text
+    assert "asks to open Orchard: ticket 12" in page.text
+    assert '<select name="vault">' not in page.text
+    assert elsewhere.status_code == granted.status_code == 303
+    assert "Orchard: open to support until" in after.text and "Workshop: open" not in after.text
     assert main(["support", "files", "ann@example.com", *support]) == 1
     assert "--vault" in capsys.readouterr().err
     assert main(["support", "files", "ann@example.com", "--vault", "workshop", *support]) == 1
@@ -514,6 +521,78 @@ async def test_support_access_is_granted_per_vault(site: Hosted, cli_env: None, 
     assert "Prune in March" in capsys.readouterr().out
     rows = SupportAccess(site.store).log(site.store.account("ann@example.com").id)
     assert [row["vault_name"] for row in rows] == ["Orchard"]
+
+
+@pytest.mark.anyio
+async def test_a_request_for_any_vault_lets_the_account_pick_one_or_decline(
+    site: Hosted, cli_env: None, capsys: pytest.CaptureFixture[str]
+):
+    http = await two_vaults(site)
+    support = ["--operator", "sam", "--reason", "the search misses notes"]
+    assert main(["support", "request", "ann@example.com", *support]) == 0
+    assert main(["support", "request", "ann@example.com", *support]) == 1
+    assert "already has a support request waiting" in capsys.readouterr().err
+    async with http:
+        asked = await http.get("/account/settings")
+        declined = await http.post("/account/support/decline", data={"csrf": csrf_of(asked.text)})
+        after_decline = await http.get("/account/settings")
+        approved_late = await http.post(
+            "/account/support/approve", data={"csrf": csrf_of(asked.text), "vault": "orchard", "duration": "day"}
+        )
+        assert main(["support", "request", "ann@example.com", *support]) == 0
+        again = await http.get("/account/settings")
+        await http.post(
+            "/account/support/approve", data={"csrf": csrf_of(again.text), "vault": "workshop", "duration": "week"}
+        )
+        granted = await http.get("/account/settings")
+    assert "asks to open any of your vaults: the search misses notes" in asked.text
+    assert '<option value="orchard">Orchard</option><option value="workshop">Workshop</option>' in asked.text
+    assert declined.status_code == approved_late.status_code == 303
+    assert "<h2>Support access</h2>" not in after_decline.text
+    assert "Workshop: open to support until" in granted.text and "Orchard: open" not in granted.text
+    workshop = site.store.own_vault(site.store.account("ann@example.com").id, "workshop")
+    assert SupportAccess(site.store).grant_until(workshop.id) == pytest.approx(site.clock.now + 7 * 86400, abs=2)
+
+
+@pytest.mark.anyio
+async def test_the_operator_lists_and_withdraws_waiting_requests(
+    site: Hosted, cli_env: None, capsys: pytest.CaptureFixture[str]
+):
+    http = await two_vaults(site)
+    assert main(["support", "requests"]) == 0
+    assert "no support requests are waiting" in capsys.readouterr().out
+    assert main(["support", "request", "ann@example.com", "--vault", "barn", "--operator", "sam", "--reason", "x"]) == 1
+    assert "owns no vault 'barn'" in capsys.readouterr().err
+    assert (
+        main(["support", "request", "ann@example.com", "--vault", "orchard", "--operator", "sam", "--reason", "x"]) == 0
+    )
+    capsys.readouterr()
+    assert main(["support", "requests"]) == 0
+    assert "ann@example.com  orchard  sam  x" in capsys.readouterr().out
+    assert main(["support", "withdraw", "ann@example.com"]) == 0
+    assert main(["support", "withdraw", "ann@example.com"]) == 1
+    async with http:
+        page = await http.get("/account/settings")
+    assert "<h2>Support access</h2>" not in page.text
+
+
+@pytest.mark.anyio
+async def test_a_request_emails_the_account_a_link_to_its_account_page(site: Hosted):
+    await two_vaults(site)
+    account = site.store.account("ann@example.com")
+    orchard = site.store.own_vault(account.id, "orchard")
+    request, mailed = ask_for_support(
+        site.store, site.config, account, orchard, "sam", "ticket 12", site.smtp.factory, site.clock
+    )
+    message = site.smtp.messages[-1]
+    text = message.get_body(("plain",)).get_content()
+    assert mailed and request.vault == orchard
+    assert message["To"] == "ann@example.com" and message["Subject"] == "Support asks to open your vault"
+    assert "sam from support on localhost asks to open your vault Orchard: ticket 12" in text
+    assert "Open your account page: http://localhost/account/settings" in text
+    SupportAccess(site.store).withdraw(account.id)
+    silent = replace(site.config, smtp=None)
+    assert ask_for_support(site.store, silent, account, None, "sam", "ticket 13", clock=site.clock)[1] is False
 
 
 @pytest.mark.anyio

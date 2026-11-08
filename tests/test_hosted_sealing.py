@@ -253,7 +253,7 @@ async def post_account(http: httpx2.AsyncClient, path: str, **fields: str) -> ht
 
 
 @pytest.mark.anyio
-async def test_support_opens_a_vault_only_under_a_live_grant_and_every_access_is_logged(
+async def test_support_opens_a_vault_only_once_the_account_approves_its_request_and_every_access_is_logged(
     site: Hosted, capsys: pytest.CaptureFixture[str]
 ):
     http = await site.member("ann@example.com", sub="sub-ann")
@@ -262,10 +262,14 @@ async def test_support_opens_a_vault_only_under_a_live_grant_and_every_access_is
     async with http:
         written = await call_tool(http, key, "write_file", {"path": "Areas/secret.md", "content": NOTE_BODY})
         assert not written.get("isError")
+        before = (await http.get("/account/settings")).text
         assert main(["support", "files", "ann@example.com", *support]) == 1
         assert "refused" in capsys.readouterr().err
-        assert "Nobody from support has opened your vaults" in (await http.get("/account/settings")).text
-        assert (await post_account(http, "/account/support", vault="notes", duration="day")).status_code == 303
+        assert main(["support", "request", "ann@example.com", *support]) == 0
+        assert "waits on their account page" in capsys.readouterr().out
+        asked = (await http.get("/account/settings")).text
+        assert main(["support", "files", "ann@example.com", *support]) == 1
+        assert (await post_account(http, "/account/support/approve", vault="notes", duration="day")).status_code == 303
         assert main(["support", "files", "ann@example.com", *support]) == 0
         assert "Areas/secret.md" in capsys.readouterr().out.splitlines()
         assert main(["support", "read", "ann@example.com", "Areas/secret.md", *support]) == 0
@@ -273,9 +277,15 @@ async def test_support_opens_a_vault_only_under_a_live_grant_and_every_access_is
         page = (await http.get("/account/settings")).text
         assert (await post_account(http, "/account/support/end", vault="notes")).status_code == 303
         assert main(["support", "read", "ann@example.com", "Areas/secret.md", *support]) == 1
-    assert "Personal: open to support until" in page
+        after = (await http.get("/account/settings")).text
+    assert "<h2>Support access</h2>" not in before
+    assert "<strong>quill</strong> from support asks to open any of your vaults: ticket 4711" in asked
+    assert "Nobody from support has opened your vaults" in asked
+    assert "Personal: open to support until" in page and "asks to open" not in page
     assert page.count("ticket 4711") == 2
     assert "read Areas/secret.md" in page and "list files" in page and "quill" in page
+    assert "<h2>Support access</h2>" in after and after.count("ticket 4711") == 2
+    assert "open to support until" not in after and "asks to open" not in after
     account = site.store.account("ann@example.com")
     assert len(SupportAccess(site.store).log(account.id)) == 2
 

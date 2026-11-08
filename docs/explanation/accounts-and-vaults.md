@@ -32,7 +32,7 @@ Every connection reaches one vault, the one it was made for, and asks for read o
 
 The Account page, `VAULT_PUBLIC_URL/account/settings`, shows who the person is, their [ways in](../how-to/sign-in-methods.md#several-ways-into-one-account), and:
 
-- **Support access.** The person can let the server's staff open one vault for a limited time; see [Support access](../how-to/support-access-and-import.md).
+- **Support access.** When the server's staff ask, the person can open one vault to them for a limited time; see [Support access](../how-to/support-access-and-import.md).
 - **Deletion.** The account deletes itself after a sign-in within the last ten minutes and its email typed out: every vault's key goes first, then their files, indexes, keys, connections and the ways in. It is refused while the account owns a shared vault that has other members.
 
 `hosted.sqlite` under `VAULT_AUTH_DIR` holds the accounts, the ways in, the hashed keys and tokens, the registered clients and every vault's sealed key.

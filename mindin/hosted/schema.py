@@ -127,6 +127,20 @@ SUPPORT_TABLES = (
 )""",
     "CREATE INDEX IF NOT EXISTS vault_access_account ON vault_access(account_id, at)",
 )
+SUPPORT_REQUEST_TABLES = (
+    """CREATE TABLE IF NOT EXISTS vault_support_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    vault_id TEXT REFERENCES vaults(id),
+    operator TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    requested_at INTEGER NOT NULL,
+    answer TEXT CHECK (answer IN ('approved', 'declined', 'withdrawn')),
+    answered_at INTEGER
+)""",
+    """CREATE UNIQUE INDEX IF NOT EXISTS vault_support_requests_pending ON vault_support_requests(account_id)
+    WHERE answer IS NULL""",
+)
 SHARED_TABLES = (
     """CREATE TABLE IF NOT EXISTS vault_members (
     vault_id TEXT NOT NULL REFERENCES vaults(id),
@@ -380,4 +394,8 @@ def to_organisations(connection: sqlite3.Connection) -> None:
     run(connection, ORGANISATION_TABLES)
 
 
-STEPS = (to_vaults, to_shared, to_account_slugs, to_opened_tables, to_organisations)
+def to_support_requests(connection: sqlite3.Connection) -> None:
+    run(connection, SUPPORT_REQUEST_TABLES)
+
+
+STEPS = (to_vaults, to_shared, to_account_slugs, to_opened_tables, to_organisations, to_support_requests)

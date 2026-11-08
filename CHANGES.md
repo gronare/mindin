@@ -25,6 +25,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - `mindin setup --server` offers to bring the folder or bucket it replaces along.
 - `mindin accounts import` leaves `.git/` and Mac leftovers behind, and `--dry-run` lists what it would do.
 - `GET /api/vault/limits` tells a signed-in machine its vault's storage limits and usage.
+- `mindin support request` asks an account to open a vault, and the account approves or declines on its Account page.
 - Extensions can add background work, storage limits, an email-link check and organisation page sections.
 - Extensions can decide on every new account and hear of each write the storage limits refuse.
 - `mindin.extension_api` exports every name an extension and its tests use.

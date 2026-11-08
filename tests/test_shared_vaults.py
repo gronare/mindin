@@ -320,17 +320,19 @@ async def test_obsidian_access_in_a_shared_vault_mints_the_members_own_webdav_ke
 @pytest.mark.anyio
 async def test_support_access_to_a_shared_vault_is_the_owners_to_grant(site: Hosted):
     ann, bo = await club(site)
+    access = SupportAccess(site.store)
+    for email in ("ann@example.com", "bo@example.com"):
+        access.ask(site.store.account(email), None, "quill", "ticket 4711")
     async with ann, bo:
         owner = (await ann.get("/account/settings")).text
         member = (await bo.get("/account/settings")).text
-        form = await bo.get("/account/settings")
         tried = await bo.post(
-            "/account/support", data={"csrf": csrf_of(form.text), "vault": "orchardclub", "duration": "day"}
+            "/account/support/approve", data={"csrf": csrf_of(member), "vault": "orchardclub", "duration": "day"}
         )
     assert '<option value="orchardclub">Orchard club</option>' in owner
     assert "orchardclub" not in member
     assert tried.status_code == 303
-    assert SupportAccess(site.store).grant_until(club_vault(site).id) is None
+    assert access.grant_until(club_vault(site).id) is None
 
 
 # --- what belongs in a shared vault ---------------------------------------------------------------------------

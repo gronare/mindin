@@ -1,6 +1,6 @@
 {
  "fresh": {
-  "user_version": 5,
+  "user_version": 6,
   "objects": [
    [
     "index",
@@ -217,6 +217,12 @@
     "vault_members_account",
     "vault_members",
     "CREATE INDEX vault_members_account ON vault_members(account_id)"
+   ],
+   [
+    "index",
+    "vault_support_requests_pending",
+    "vault_support_requests",
+    "CREATE UNIQUE INDEX vault_support_requests_pending ON vault_support_requests(account_id)\n    WHERE answer IS NULL"
    ],
    [
     "index",
@@ -388,6 +394,12 @@
    ],
    [
     "table",
+    "vault_support_requests",
+    "vault_support_requests",
+    "CREATE TABLE vault_support_requests (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    vault_id TEXT REFERENCES vaults(id),\n    operator TEXT NOT NULL,\n    reason TEXT NOT NULL,\n    requested_at INTEGER NOT NULL,\n    answer TEXT CHECK (answer IN ('approved', 'declined', 'withdrawn')),\n    answered_at INTEGER\n)"
+   ],
+   [
+    "table",
     "vaults",
     "vaults",
     "CREATE TABLE \"vaults\" (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    slug TEXT NOT NULL,\n    created_at INTEGER NOT NULL,\n    kind TEXT NOT NULL DEFAULT 'personal' CHECK (kind IN ('personal', 'shared'))\n)"
@@ -395,7 +407,7 @@
   ]
  },
  "migrated": {
-  "user_version": 5,
+  "user_version": 6,
   "objects": [
    [
     "index",
@@ -615,6 +627,12 @@
    ],
    [
     "index",
+    "vault_support_requests_pending",
+    "vault_support_requests",
+    "CREATE UNIQUE INDEX vault_support_requests_pending ON vault_support_requests(account_id)\n    WHERE answer IS NULL"
+   ],
+   [
+    "index",
     "vaults_account",
     "vaults",
     "CREATE INDEX vaults_account ON vaults(account_id)"
@@ -780,6 +798,12 @@
     "vault_support_grants",
     "vault_support_grants",
     "CREATE TABLE vault_support_grants (\n    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    granted_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "vault_support_requests",
+    "vault_support_requests",
+    "CREATE TABLE vault_support_requests (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    vault_id TEXT REFERENCES vaults(id),\n    operator TEXT NOT NULL,\n    reason TEXT NOT NULL,\n    requested_at INTEGER NOT NULL,\n    answer TEXT CHECK (answer IN ('approved', 'declined', 'withdrawn')),\n    answered_at INTEGER\n)"
    ],
    [
     "table",

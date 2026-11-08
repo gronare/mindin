@@ -89,6 +89,7 @@ def pass_vault(connection: Any, vault: Vault, account_id: str) -> Vault:
     )
     connection.execute("UPDATE vaults SET account_id = ? WHERE id = ?", (account_id, vault.id))
     connection.execute("DELETE FROM vault_support_grants WHERE vault_id = ?", (vault.id,))
+    connection.execute("DELETE FROM vault_support_requests WHERE vault_id = ?", (vault.id,))
     handed = vault_of(connection.execute("SELECT * FROM vaults WHERE id = ?", (vault.id,)).fetchone())
     assert handed is not None
     return handed

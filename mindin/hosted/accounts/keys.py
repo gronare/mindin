@@ -292,6 +292,7 @@ VAULT_ROWS = (
     "tokens",
     "devices",
     "vault_support_grants",
+    "vault_support_requests",
     "vault_members",
     "vault_invitations",
     "vault_changes",

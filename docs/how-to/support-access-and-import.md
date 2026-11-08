@@ -1,8 +1,23 @@
 # Open a vault for support, or import one
 
-The support commands open a vault only while its account allows it; whoever runs the server can still read every vault (see [Encryption](../explanation/encryption.md#support-access)). A person grants access to one vault on the Account page (`/account/settings`), for an hour, a day or seven days, and can end it early. Every access is logged with time, vault, operator and reason, and the log shows on the Account page. Support access to a [shared vault](../explanation/shared-vaults.md) is the owner's to grant.
+The support commands open a vault only while its account allows it; whoever runs the server can still read every vault (see [Encryption](../explanation/encryption.md#support-access)). The operator asks first, with a reason. The person sees the request on the Account page (`/account/settings`), and by email when the server sends email, then approves it for an hour, a day or seven days, or declines it. They can end a grant early, and it ends by itself when the time is up. Every access is logged with time, vault, operator and reason. The Support access box on the Account page shows while a request waits or a grant is open, and whenever the log has entries. Support access to a [shared vault](../explanation/shared-vaults.md) is the owner's to grant.
 
 Each command names who runs it and why, and refuses without the grant. `--vault <slug>` names the vault when the account has more than one.
+
+## Ask for access
+
+```sh
+mindin support request ann@example.com --vault workshop --operator sam --reason "lost note"
+```
+
+Without `--vault`, the person picks which of their vaults to open when they approve. An account has one request waiting at a time. `support requests` lists the requests that wait for an answer, and `support withdraw <account>` takes one back:
+
+```sh
+mindin support requests
+mindin support withdraw ann@example.com
+```
+
+The email's subject is "Support asks to open your vault"; it carries the reason and a button to the Account page. Without email the request waits on the page until the person signs in.
 
 ## Read a vault
 

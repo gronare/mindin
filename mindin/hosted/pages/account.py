@@ -8,10 +8,11 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 from starlette.routing import Route
 
-from mindin.hosted.accounts.access import GRANT_CHOICES, SupportAccess
+from mindin.hosted.accounts.access import GRANT_CHOICES, SupportAccess, SupportRequest
 from mindin.hosted.accounts.deletion import erase_account
 from mindin.hosted.accounts.keys import SealedVaults
 from mindin.hosted.accounts.store import Account
+from mindin.hosted.accounts.vaults import Vault
 from mindin.hosted.pages.html import box, button, error_box, esc, form_head, hidden_field, muted, table
 from mindin.hosted.pages.templates import stamp
 from mindin.hosted.pages.web import SESSION_COOKIE, Browser, page
@@ -27,49 +28,64 @@ class SupportDesk:
 
     def section(self, account: Account, csrf: str) -> str:
         vaults = self.browser.store.vaults(account.id)
-        granted = [(vault, self.access.grant_until(vault.id)) for vault in vaults]
+        granted = [(vault, until) for vault in vaults if (until := self.access.grant_until(vault.id))]
+        request = self.access.pending(account.id)
+        history = self.access.log(account.id)
+        if request is None and not granted and not history:
+            return ""
         live = "".join(
             f'<li class="row"><span>{esc(vault.name)}: open to support until {esc(stamp(until))}</span>'
             f"{form_head(csrf, self.browser.local('/account/support/end'))}{hidden_field('vault', vault.slug)}"
             f"{button('End now', 'btn secondary small')}</form></li>"
             for vault, until in granted
-            if until
         )
-        offered = [vault for vault, until in granted if not until]
-        form = ""
-        if offered:
-            vault_choices = "".join(
-                f'<option value="{esc(vault.slug)}">{esc(vault.name)}</option>' for vault in offered
-            )
-            durations = "".join(
-                f'<option value="{name}"{" selected" if name == "day" else ""}>{label}</option>'
-                for name, (label, _) in GRANT_CHOICES.items()
-            )
-            head = form_head(csrf, self.browser.local("/account/support"), ' class="row"')
-            form = (
-                f"{head}"
-                f'<label class="field">Vault<select name="vault">{vault_choices}</select></label>'
-                f'<label class="field">For<select name="duration">{durations}</select></label>'
-                f"{button('Allow support access', 'btn secondary')}</form>"
-            )
+        granted_list = f'<ul class="plain stack">{live}</ul>' if live else ""
+        asked = self.request_form(request, vaults, csrf) if request else ""
         rows = "".join(
             f'<tr><td class="nowrap">{esc(stamp(row["at"]))}</td><td>{esc(row["vault_name"] or "a deleted vault")}</td>'
             f"<td>{esc(row['operator'])}</td><td>{esc(row['reason'])}</td><td>{esc(row['action'])}</td></tr>"
-            for row in self.access.log(account.id)
+            for row in history
         )
         log = (
             table(["When", "Vault", "Who", "Why", "What"], [rows])
             if rows
             else muted("Nobody from support has opened your vaults.")
         )
-        granted_list = f'<ul class="plain stack">{live}</ul>' if live else ""
         lead = muted(
-            "Support opens a vault only through a grant you give here, for one vault and a set time, and every look"
-            " is logged."
+            "Support opens a vault only when you approve its request here, for one vault and a set time, and every"
+            " look is logged."
         )
-        return box(f"<h2>Support access</h2>{lead}{granted_list}{form}{log}")
+        return box(f"<h2>Support access</h2>{lead}{asked}{granted_list}{log}")
 
-    async def grant(self, request: Request) -> Response:
+    def request_form(self, request: SupportRequest, vaults: list[Vault], csrf: str) -> str:
+        if request.vault is not None:
+            vault_field = hidden_field("vault", request.vault.slug)
+        elif len(vaults) == 1:
+            vault_field = hidden_field("vault", vaults[0].slug)
+        else:
+            choices = "".join(f'<option value="{esc(vault.slug)}">{esc(vault.name)}</option>' for vault in vaults)
+            vault_field = f'<label class="field">Vault<select name="vault">{choices}</select></label>'
+        durations = "".join(
+            f'<option value="{name}"{" selected" if name == "day" else ""}>{label}</option>'
+            for name, (label, _) in GRANT_CHOICES.items()
+        )
+        head = form_head(csrf, self.browser.local("/account/support/approve"), ' class="row"')
+        approve = (
+            f'{head}{vault_field}<label class="field">For<select name="duration">{durations}</select></label>'
+            f"{button('Approve', 'btn')}</form>"
+        )
+        decline = (
+            f"{form_head(csrf, self.browser.local('/account/support/decline'))}"
+            f"{button('Decline', 'btn secondary')}</form>"
+        )
+        asks = (
+            f"<p><strong>{esc(request.operator)}</strong> from support asks to open {esc(request.vault_label)}:"
+            f" {esc(request.reason)}</p>"
+        )
+        asked = muted(f"Asked {esc(stamp(request.requested_at))}.")
+        return f'{asks}{asked}<div class="row">{approve}{decline}</div>'
+
+    async def approve(self, request: Request) -> Response:
         submitted = await self.browser.account_form(request)
         if isinstance(submitted, Response):
             return submitted
@@ -77,7 +93,14 @@ class SupportDesk:
         choice = GRANT_CHOICES.get(form.get("duration", ""))
         vault = self.browser.store.own_vault(account.id, form.get("vault", ""))
         if choice is not None and vault is not None:
-            self.access.grant(vault, choice[1])
+            self.access.approve(account, vault, choice[1])
+        return RedirectResponse(self.browser.local("/account/settings"), status_code=303)
+
+    async def decline(self, request: Request) -> Response:
+        submitted = await self.browser.account_form(request)
+        if isinstance(submitted, Response):
+            return submitted
+        self.access.decline(submitted[0].id)
         return RedirectResponse(self.browser.local("/account/settings"), status_code=303)
 
     async def end(self, request: Request) -> Response:
@@ -92,7 +115,8 @@ class SupportDesk:
 
     def routes(self, prefix: str, limited: Callable) -> list[Route]:
         return [
-            Route(prefix + "/account/support", endpoint=limited(self.grant), methods=["POST"]),
+            Route(prefix + "/account/support/approve", endpoint=limited(self.approve), methods=["POST"]),
+            Route(prefix + "/account/support/decline", endpoint=limited(self.decline), methods=["POST"]),
             Route(prefix + "/account/support/end", endpoint=limited(self.end), methods=["POST"]),
         ]
 

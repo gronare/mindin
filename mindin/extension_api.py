@@ -21,7 +21,7 @@ from mindin.extensions import (
     VaultSection,
     installed,
 )
-from mindin.hosted.accounts.access import SupportAccess
+from mindin.hosted.accounts.access import RequestRefused, SupportAccess, SupportRequest, ask_for_support
 from mindin.hosted.accounts.deletion import delete_departed
 from mindin.hosted.accounts.history import History
 from mindin.hosted.accounts.keys import Keyring, MasterKey, SealedVaults, VaultFacts, VaultKeys
@@ -95,6 +95,7 @@ __all__ = [
     "Proof",
     "RateCounter",
     "Registrant",
+    "RequestRefused",
     "S3Backend",
     "SealedVaults",
     "Section",
@@ -107,6 +108,7 @@ __all__ = [
     "Subcommands",
     "SubjectVaults",
     "SupportAccess",
+    "SupportRequest",
     "Vault",
     "VaultBackend",
     "VaultFacts",
@@ -115,6 +117,7 @@ __all__ = [
     "VersionConflict",
     "account_of",
     "account_tables",
+    "ask_for_support",
     "auth_dir",
     "branded",
     "build_hosted_app",

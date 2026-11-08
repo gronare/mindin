@@ -9,22 +9,10 @@ from pathlib import Path
 import pytest
 from mcp.client import Client
 from test_server import TOOL_NAMES
-from test_setup import STORAGE_VARS
 
 from mindin import cli
 from mindin.server import build_server
 from mindin.vault import Unconfigured, Vault, VaultResolver
-
-
-def forget_the_vault(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in STORAGE_VARS:
-        monkeypatch.setenv(name, "")
-        monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_" + name, "")
-
-
-@pytest.fixture
-def nothing_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    forget_the_vault(monkeypatch)
 
 
 def served_by_mindin(monkeypatch: pytest.MonkeyPatch) -> Vault | VaultResolver:
@@ -35,8 +23,8 @@ def served_by_mindin(monkeypatch: pytest.MonkeyPatch) -> Vault | VaultResolver:
 
 
 @pytest.mark.anyio
-async def test_the_server_without_a_vault_lists_the_same_tools_as_with_one(vault, monkeypatch):
-    forget_the_vault(monkeypatch)
+async def test_the_server_without_a_vault_lists_the_same_tools_as_with_one(vault, forget_storage, monkeypatch):
+    forget_storage()
     resolver = served_by_mindin(monkeypatch)
     assert isinstance(resolver, Unconfigured)
     async with Client(build_server(resolver)) as unconfigured, Client(build_server(vault)) as configured:

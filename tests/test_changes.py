@@ -5,8 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys, delete_vault
-from mindin.auth.hosted_store import HostedStore
+from mindin.auth.hosted_keys import SealedVaults, delete_vault
 from mindin.backends import SCHEMA_KEY
 from mindin.changes import NULL_BUS, Announcing, Change, LocalBus
 from mindin.search import search
@@ -14,20 +13,6 @@ from mindin.vault import SubjectVaults, Vault
 
 FRONT = "date: 2026-09-01\nupdated: 2026-09-01\ntags: [orchard]\nstatus: active\n"
 QUINCE = f"---\ntitle: Quince\n{FRONT}---\n\nThe quince wants frost before picking.\n"
-
-
-@pytest.fixture
-def sealed(storage: Path, tmp_path: Path) -> SealedVaults:
-    store = HostedStore(tmp_path / "auth", extensions=())
-    return SealedVaults(store, VaultKeys(store, Keyring(MasterKey.generate())))
-
-
-@pytest.fixture
-def vault_id(sealed: SealedVaults) -> str:
-    account, _ = sealed.store.invite("ann@example.com")
-    vault = sealed.store.first_vault(account.id)
-    assert vault is not None
-    return vault.id
 
 
 def replica(sealed: SealedVaults, cache: Path, bus: LocalBus | None) -> SubjectVaults:

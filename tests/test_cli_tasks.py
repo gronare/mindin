@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -12,19 +13,15 @@ from mindin.cli import main
 from mindin.config import adopt_config, plugin_options
 from mindin.frontmatter import parse
 
-STORAGE_VARS = ("VAULT_PATH", "S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_BUCKET", "S3_PREFIX", "S3_REGION")
-
 
 @pytest.fixture(autouse=True)
-def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, forget_storage: Callable[[], None]) -> Path:
     claude_dir = tmp_path / "claude"
     claude_dir.mkdir()
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_dir))
     monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.delenv("VAULT_SCHEMA", raising=False)
-    for name in STORAGE_VARS:
-        monkeypatch.setenv(name, "")
-        monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_" + name, "")
+    forget_storage()
     return claude_dir
 
 

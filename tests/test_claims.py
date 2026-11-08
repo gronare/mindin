@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
@@ -17,19 +18,18 @@ from mindin.schema import CLAIM_KEY, Schema, default_schema_data, instructions
 from mindin.vault import Vault
 
 NOTE = "Projects/orchard-fresh.md"
-STORAGE_VARS = ("VAULT_PATH", "S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_BUCKET", "S3_PREFIX", "S3_REGION")
 
 
 @pytest.fixture
-def cli_vault(vault_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def cli_vault(
+    vault_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, forget_storage: Callable[[], None]
+) -> Path:
     claude_dir = tmp_path / "claude"
     claude_dir.mkdir()
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_dir))
     monkeypatch.setenv("VAULT_CACHE_DIR", str(tmp_path / "cli-cache"))
     monkeypatch.delenv("VAULT_SCHEMA", raising=False)
-    for name in STORAGE_VARS:
-        monkeypatch.setenv(name, "")
-        monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_" + name, "")
+    forget_storage()
     monkeypatch.setenv("VAULT_PATH", str(vault_dir))
     return vault_dir
 

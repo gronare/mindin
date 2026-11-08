@@ -7,9 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys, delete_vault
+from mindin.auth.hosted_keys import SealedVaults, delete_vault
 from mindin.auth.hosted_snapshots import IndexSnapshots
-from mindin.auth.hosted_store import HostedStore
 from mindin.backends import SCHEMA_KEY
 from mindin.changes import Announcing, Change, LocalBus
 from mindin.vault import SubjectVaults, Vault
@@ -63,20 +62,6 @@ def index_file(path: Path, *notes: tuple[str, str]) -> Path:
 def settle(vaults: SubjectVaults) -> None:
     assert vaults._snapshotting is not None
     vaults._snapshotting.submit(lambda: None).result(5)
-
-
-@pytest.fixture
-def sealed(storage: Path, tmp_path: Path) -> SealedVaults:
-    store = HostedStore(tmp_path / "auth", extensions=())
-    return SealedVaults(store, VaultKeys(store, Keyring(MasterKey.generate())))
-
-
-@pytest.fixture
-def vault_id(sealed: SealedVaults) -> str:
-    account, _ = sealed.store.invite("bo@example.com")
-    vault = sealed.store.first_vault(account.id)
-    assert vault is not None
-    return vault.id
 
 
 def sealed_vaults(sealed: SealedVaults, cache: Path, **kwargs) -> SubjectVaults:

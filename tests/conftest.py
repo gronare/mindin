@@ -1,18 +1,32 @@
 from __future__ import annotations
 
+import os
 import re
 import shutil
+from collections.abc import Callable
 from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
 from forwarded_support import Proxy
 
+from mindin.auth.hosted_keys import Keyring, MasterKey, SealedVaults, VaultKeys
+from mindin.auth.hosted_store import HostedStore
 from mindin.backends import s3
 from mindin.vault import SubjectVaults, Vault, open_vault
 
 FIXTURE_VAULT = Path(__file__).parent / "fixtures" / "vault"
 TOKEN_RE = re.compile(r"@@(TODAY|D(\d+))@@")
+STORAGE_VARS = (
+    "VAULT_PATH",
+    "S3_ENDPOINT",
+    "S3_ACCESS_KEY",
+    "S3_SECRET_KEY",
+    "S3_BUCKET",
+    "S3_PREFIX",
+    "S3_REGION",
+    "VAULT_SERVER_URL",
+)
 
 
 def _substitute(text: str) -> str:
@@ -86,3 +100,33 @@ def vaults(storage: Path, tmp_path: Path) -> SubjectVaults:
     opened = SubjectVaults(cache=tmp_path / "cache", prefix="users", dav_url="http://localhost/dav/")
     yield opened
     opened.close()
+
+
+@pytest.fixture
+def sealed(storage: Path, tmp_path: Path) -> SealedVaults:
+    store = HostedStore(tmp_path / "auth", extensions=())
+    return SealedVaults(store, VaultKeys(store, Keyring(MasterKey.generate())))
+
+
+@pytest.fixture
+def vault_id(sealed: SealedVaults) -> str:
+    account, _ = sealed.store.invite("ann@example.com")
+    vault = sealed.store.first_vault(account.id)
+    assert vault is not None
+    return vault.id
+
+
+@pytest.fixture
+def forget_storage(monkeypatch: pytest.MonkeyPatch) -> Callable[[], None]:
+    def forget() -> None:
+        for name in STORAGE_VARS:
+            monkeypatch.setenv(name, "")
+            monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_" + name, "")
+
+    return forget
+
+
+@pytest.fixture
+def nothing_configured(forget_storage: Callable[[], None]) -> Path:
+    forget_storage()
+    return Path(os.environ["CLAUDE_CONFIG_DIR"])

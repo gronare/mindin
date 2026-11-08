@@ -93,6 +93,8 @@ class ForwardedSignIn:
     def account(self, forwarded: Forwarded) -> Account | None:
         known = self.login.identities.account_for("forwarded", forwarded.proof.subject)
         if known is not None:
+            if known.active:
+                self.login.identities.join_by_domain(known)
             return known
         return self.login.identities.sign_in(forwarded.proof, self.login.config.registration).account
 

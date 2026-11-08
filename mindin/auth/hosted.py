@@ -56,6 +56,7 @@ from mindin.auth.hosted_access import SupportAccess, SupportDesk
 from mindin.auth.hosted_deletion import SelfDeletion
 from mindin.auth.hosted_keys import Keyring, SealedVaults, VaultKeys
 from mindin.auth.hosted_limits import Quotas
+from mindin.auth.hosted_org_pages import OrganisationPages
 from mindin.auth.hosted_ready import built_in_checks
 from mindin.auth.hosted_snapshots import IndexSnapshots
 from mindin.auth.hosted_store import Account, ApiKeyCredentials, HostedStore
@@ -603,6 +604,7 @@ def build_hosted_app(
     support = SupportDesk(browser, SupportAccess(store, clock))
     deletion = SelfDeletion(browser, vaults, sealed)
     pages = VaultPages(browser, vaults, sealed, deletion, smtp_factory)
+    organisation_pages = OrganisationPages(pages)
     extended = Server(auth, store, clock, browser, vaults, sealed, deletion, smtp_factory)
     for extension in extensions:
         extension.attach(extended)
@@ -614,7 +616,7 @@ def build_hosted_app(
         added = "".join(section(account, csrf) for section in extended.account_sections)
         return f'<div class="cols">{added}{support.section(account, csrf)}</div>'
 
-    browser.sections += [extended_and_support, deletion.section]
+    browser.sections += [organisation_pages.section, extended_and_support, deletion.section]
     server = build_server(vaults, personal_tokens=credentials, dav_url=auth.dav_url, machine_tools=True)
     mcp_app = server.streamable_http_app(
         host=host, transport_security=transport_security(auth), stateless_http=auth.stateless_http
@@ -696,7 +698,7 @@ def build_hosted_app(
         Route(prefix + "/logout", endpoint=limited(browser.sign_out), methods=["POST"]),
     ]
     routes += login.routes(prefix) + pages.routes(prefix, limited) + support.routes(prefix, limited)
-    routes += deletion.routes(prefix, limited) + extended.routes
+    routes += deletion.routes(prefix, limited) + organisation_pages.routes(prefix, limited) + extended.routes
     routes.append(Mount(prefix + "/dav", app=WebDav(vaults, credentials, mount=prefix + "/dav")))
     routes.append(Mount(prefix or "/", app=mcp_app))
     guard = Middleware(
@@ -706,7 +708,7 @@ def build_hosted_app(
         metadata_url=resource_metadata_url,
         forwarded=forwarded,
     )
-    periodic = PeriodicRunner(extended.periodic, Leases(store, clock).claim)
+    periodic = PeriodicRunner([organisation_pages.periodic(), *extended.periodic], Leases(store, clock).claim)
 
     def close() -> None:
         periodic.stop()

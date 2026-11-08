@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import anyio
 from starlette.requests import Request
@@ -17,6 +18,9 @@ from mindin.auth.hosted_web import error_box, esc, hidden_field
 from mindin.backends import NotFound
 from mindin.shared import WHAT_BELONGS, Actor
 
+if TYPE_CHECKING:
+    from mindin.auth.hosted_orgs import Organisations, OrgVault
+
 RECENT_ROWS = 5
 WEB_CLIENT = "the vault's web page"
 
@@ -31,6 +35,28 @@ class SharedPages:
         self.store = pages.store
         self.browser = pages.browser
         self.invitations = Invitations(pages.browser.config, pages.store, pages.smtp_factory)
+        self.organisations: Organisations | None = None
+
+    def org_vault(self, vault: Vault) -> OrgVault | None:
+        return self.organisations.org_vault(vault) if self.organisations is not None else None
+
+    def org_section(self, account: Account, vault: Vault, item: OrgVault, members: list[Member]) -> str:
+        assert self.organisations is not None
+        table = self.member_rows(account, vault, "", [member for member in members if not member.invited], False)
+        manage = (
+            f' <a href="{esc(self.pages.local(f"/account/organisation/{item.organisation.id}"))}">Manage</a>'
+            if self.organisations.is_admin(item.organisation, account.id)
+            else ""
+        )
+        editors = ", ".join(editor.email for editor in item.editors) or "none yet"
+        locked = (
+            f'<p class="small muted">Locked: only its editors write ({esc(editors)}); every other member reads.</p>'
+            if item.locked
+            else ""
+        )
+        return f"""<div class="stack"><h2>Members</h2>{locked}{table}
+<p class="small muted">Every member of {esc(item.organisation.name)} reaches this vault; its admins manage who that
+is.{manage}</p></div>"""
 
     def history(self, vault: Vault) -> History:
         return self.pages.sealed.history(vault.id)
@@ -70,8 +96,8 @@ class SharedPages:
         items = "".join(self.change_item(account, vault, change) for change in changes)
         return f'<ul class="plain history">{items}</ul>'
 
-    def member_rows(self, account: Account, vault: Vault, csrf: str, members: list[Member]) -> str:
-        owner = vault.account_id == account.id
+    def member_rows(self, account: Account, vault: Vault, csrf: str, members: list[Member], manage: bool = True) -> str:
+        owner = manage and vault.account_id == account.id
         now = self.browser.clock()
         rows = []
         for member in members:
@@ -144,12 +170,38 @@ ends the moment you remove them.</p></div>"""
 <div><button class="btn danger" type="submit">Delete this vault for good</button></div></form></details>
 </div></div>"""
 
+    def org_ending(self, account: Account, vault: Vault, csrf: str) -> str:
+        if vault.account_id != account.id:
+            return ""
+        name = esc(vault.name)
+        return f"""<div class="danger-zone"><h2>Delete</h2>
+<p class="small muted">Deletes the vault for every member of the organisation.</p>
+<details><summary class="btn danger">Delete {name}…</summary>
+{self.pages.form_head(csrf, self.pages.vault_url(vault, "/delete"), ' class="stack"')}
+<label class="field">Type {name} to confirm
+<input type="text" name="name" autocomplete="off" required maxlength="{NAME_MAX}"></label>
+<p class="small muted">Its notes, history, keys and connections go, for everyone.</p>
+<div><button class="btn danger" type="submit">Delete this vault for good</button></div></form></details></div>"""
+
     def render(self, account: Account, csrf: str, vault: Vault, notice: str = "", status_code: int = 200) -> Response:
         facts = self.pages.facts(vault)
         owner = self.store.account_by_id(vault.account_id)
         whose = "you own it" if vault.account_id == account.id else f"owned by {owner.email if owner else 'nobody'}"
+        item = self.org_vault(vault)
+        if item is not None:
+            whose = item.organisation.name
         lead = " · ".join(["Shared", "docs only", counted(facts.notes, "note"), whose])
         members = self.store.members(vault)
+        people = (
+            self.members_section(account, vault, csrf, members)
+            if item is None
+            else self.org_section(account, vault, item, members)
+        )
+        ending = (
+            self.ending_section(account, vault, csrf, members)
+            if item is None
+            else self.org_ending(account, vault, csrf)
+        )
         changes = self.history(vault).changes(limit=RECENT_ROWS)
         name = esc(vault.name)
         body = f"""<div><div class="breadcrumb"><a href="{esc(self.pages.local("/account"))}">Vaults</a> › {name}</div>
@@ -160,10 +212,10 @@ ends the moment you remove them.</p></div>"""
 <div class="stack"><div class="head"><h2>Recent changes</h2>
 <a class="small" href="{esc(self.pages.vault_url(vault, "/history"))}">Full history</a></div>
 {self.change_list(account, vault, changes)}</div>
-{self.members_section(account, vault, csrf, members)}
+{people}
 {self.pages.connect_section(account, vault, csrf, "Your connections and keys")}
 {self.pages.added(account, vault, csrf)}
-{self.ending_section(account, vault, csrf, members)}"""
+{ending}"""
         return self.browser.app(vault.name, body, status_code=status_code)
 
     async def viewing(self, request: Request, path: str) -> tuple[Account, str, Vault] | Response:
@@ -255,10 +307,21 @@ Nothing in the history is lost.</p>
             return found
         if not found[2].shared:
             return self.pages.not_found()
+        if self.org_vault(found[2]) is not None:
+            notice = error_box("The organisation's admins decide who reaches this vault, on the organisation page.")
+            return await anyio.to_thread.run_sync(lambda: self.render(found[0], found[1], found[2], notice, 409))
+        return found
+
+    async def submitted_any(self, request: Request) -> tuple[Account, str, Vault, dict] | Response:
+        found = await self.pages.submitted(request)
+        if isinstance(found, Response):
+            return found
+        if not found[2].shared:
+            return self.pages.not_found()
         return found
 
     async def restore(self, request: Request) -> Response:
-        found = await self.submitted_shared(request, owner=False)
+        found = await self.submitted_any(request)
         if isinstance(found, Response):
             return found
         account, csrf, vault, _ = found

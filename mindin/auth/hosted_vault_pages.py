@@ -132,7 +132,9 @@ class VaultPages:
     def vault_row(self, account: Account, vault: Vault) -> str:
         if vault.shared:
             role = "Owner" if vault.account_id == account.id else "Member"
-            chips = f'<span class="chip shared">Shared</span> <span class="chip role">{role}</span>'
+            item = self.shared.org_vault(vault)
+            label = item.organisation.name if item is not None else "Shared"
+            chips = f'<span class="chip shared">{esc(label)}</span> <span class="chip role">{role}</span>'
             facts = self.shared.summary_line(account, vault, self.facts(vault))
         else:
             chips, facts = '<span class="chip">Personal</span>', self.summary_line(vault, self.facts(vault))

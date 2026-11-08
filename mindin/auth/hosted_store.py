@@ -40,6 +40,7 @@ from mindin.auth.hosted_vaults import (
     vault_of,
 )
 from mindin.auth.pages import stamp
+from mindin.auth.registration import Registrant
 from mindin.config import private_dir
 from mindin.extensions import Extension, installed, supplied_database
 from mindin.shared import Actor
@@ -246,9 +247,13 @@ class HostedStore:
         self.database = (
             database or supplied_database(chosen, directory) or SqliteDatabase(private_dir(directory) / "hosted.sqlite")
         )
+        from mindin.auth.hosted_orgs import SCHEMA as ORGANISATION_SCHEMA
+
         with self.connect() as connection:
             self.database.create(connection, SCHEMA)
         self.database.migrate(MIGRATIONS)
+        with self.connect() as connection:
+            self.database.create(connection, ORGANISATION_SCHEMA)
         with self.connect() as connection:
             for extension in chosen:
                 extension.migrate(connection)
@@ -270,7 +275,7 @@ class HostedStore:
             rows = connection.execute("SELECT * FROM accounts ORDER BY created_at, email").fetchall()
         return [account for account in map(account_of, rows) if account is not None]
 
-    def invite(self, email: str) -> tuple[Account, bool]:
+    def invite(self, email: str, method: str = "operator", label: str = "") -> tuple[Account, bool]:
         address = email.strip().lower()
         if "@" not in address:
             raise ValueError(f"{email!r} is not an email address")
@@ -279,12 +284,17 @@ class HostedStore:
             return existing, False
         moment = now()
         account_id = "acc_" + secrets.token_urlsafe(16)
+        registrant = Registrant(method, address, (address,), label or address, invited=True)
         with self.connect() as connection:
             connection.execute(
                 "INSERT INTO accounts(id, email, status, status_changed_at, created_at) VALUES(?, ?, 'invited', ?, ?)",
                 (account_id, address, moment, moment),
             )
             add_first_vault(connection, account_id, moment)
+            made = account_of(connection.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone())
+            assert made is not None
+            for extension in self.extensions:
+                extension.registered(connection, made, registrant)
         created = self.account(address)
         assert created is not None
         return created, True

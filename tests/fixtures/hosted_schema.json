@@ -22,6 +22,12 @@
    ],
    [
     "index",
+    "organisation_members_account",
+    "organisation_members",
+    "CREATE INDEX organisation_members_account ON organisation_members(account_id)"
+   ],
+   [
+    "index",
     "sqlite_autoindex_accounts_1",
     "accounts",
     null
@@ -78,6 +84,42 @@
     "index",
     "sqlite_autoindex_identities_1",
     "identities",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisation_departures_1",
+    "organisation_departures",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisation_domains_1",
+    "organisation_domains",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisation_editors_1",
+    "organisation_editors",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisation_members_1",
+    "organisation_members",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisation_vaults_1",
+    "organisation_vaults",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisations_1",
+    "organisations",
     null
    ],
    [
@@ -199,6 +241,42 @@
     "identities",
     "identities",
     "CREATE TABLE identities (\n    method TEXT NOT NULL,\n    subject TEXT NOT NULL,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    email TEXT NOT NULL DEFAULT '',\n    label TEXT NOT NULL DEFAULT '',\n    public_key BLOB,\n    sign_count INTEGER NOT NULL DEFAULT 0,\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    PRIMARY KEY (method, subject)\n)"
+   ],
+   [
+    "table",
+    "organisation_departures",
+    "organisation_departures",
+    "CREATE TABLE organisation_departures (\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    email TEXT NOT NULL COLLATE NOCASE,\n    former_account TEXT NOT NULL,\n    removed_at INTEGER NOT NULL,\n    delete_after INTEGER,\n    PRIMARY KEY (organisation_id, email)\n)"
+   ],
+   [
+    "table",
+    "organisation_domains",
+    "organisation_domains",
+    "CREATE TABLE organisation_domains (\n    domain TEXT PRIMARY KEY COLLATE NOCASE,\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    added_at INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "organisation_editors",
+    "organisation_editors",
+    "CREATE TABLE organisation_editors (\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    added_at INTEGER NOT NULL,\n    PRIMARY KEY (vault_id, account_id)\n)"
+   ],
+   [
+    "table",
+    "organisation_members",
+    "organisation_members",
+    "CREATE TABLE organisation_members (\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    role TEXT NOT NULL CHECK (role IN ('admin', 'member')),\n    source TEXT NOT NULL,\n    joined_at INTEGER NOT NULL,\n    PRIMARY KEY (organisation_id, account_id)\n)"
+   ],
+   [
+    "table",
+    "organisation_vaults",
+    "organisation_vaults",
+    "CREATE TABLE organisation_vaults (\n    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    locked INTEGER NOT NULL DEFAULT 0,\n    created_at INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "organisations",
+    "organisations",
+    "CREATE TABLE organisations (\n    id TEXT PRIMARY KEY,\n    name TEXT NOT NULL,\n    removal TEXT NOT NULL DEFAULT 'keep' CHECK (removal IN ('keep', 'export-and-delete')),\n    removal_days INTEGER NOT NULL DEFAULT 30,\n    created_at INTEGER NOT NULL\n)"
    ],
    [
     "table",
@@ -291,6 +369,12 @@
    ],
    [
     "index",
+    "organisation_members_account",
+    "organisation_members",
+    "CREATE INDEX organisation_members_account ON organisation_members(account_id)"
+   ],
+   [
+    "index",
     "sqlite_autoindex_accounts_1",
     "accounts",
     null
@@ -347,6 +431,42 @@
     "index",
     "sqlite_autoindex_identities_1",
     "identities",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisation_departures_1",
+    "organisation_departures",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisation_domains_1",
+    "organisation_domains",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisation_editors_1",
+    "organisation_editors",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisation_members_1",
+    "organisation_members",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisation_vaults_1",
+    "organisation_vaults",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_organisations_1",
+    "organisations",
     null
    ],
    [
@@ -468,6 +588,42 @@
     "identities",
     "identities",
     "CREATE TABLE identities (\n    method TEXT NOT NULL,\n    subject TEXT NOT NULL,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    email TEXT NOT NULL DEFAULT '',\n    label TEXT NOT NULL DEFAULT '',\n    public_key BLOB,\n    sign_count INTEGER NOT NULL DEFAULT 0,\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    PRIMARY KEY (method, subject)\n)"
+   ],
+   [
+    "table",
+    "organisation_departures",
+    "organisation_departures",
+    "CREATE TABLE organisation_departures (\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    email TEXT NOT NULL COLLATE NOCASE,\n    former_account TEXT NOT NULL,\n    removed_at INTEGER NOT NULL,\n    delete_after INTEGER,\n    PRIMARY KEY (organisation_id, email)\n)"
+   ],
+   [
+    "table",
+    "organisation_domains",
+    "organisation_domains",
+    "CREATE TABLE organisation_domains (\n    domain TEXT PRIMARY KEY COLLATE NOCASE,\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    added_at INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "organisation_editors",
+    "organisation_editors",
+    "CREATE TABLE organisation_editors (\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    added_at INTEGER NOT NULL,\n    PRIMARY KEY (vault_id, account_id)\n)"
+   ],
+   [
+    "table",
+    "organisation_members",
+    "organisation_members",
+    "CREATE TABLE organisation_members (\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    role TEXT NOT NULL CHECK (role IN ('admin', 'member')),\n    source TEXT NOT NULL,\n    joined_at INTEGER NOT NULL,\n    PRIMARY KEY (organisation_id, account_id)\n)"
+   ],
+   [
+    "table",
+    "organisation_vaults",
+    "organisation_vaults",
+    "CREATE TABLE organisation_vaults (\n    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),\n    organisation_id TEXT NOT NULL REFERENCES organisations(id),\n    locked INTEGER NOT NULL DEFAULT 0,\n    created_at INTEGER NOT NULL\n)"
+   ],
+   [
+    "table",
+    "organisations",
+    "organisations",
+    "CREATE TABLE organisations (\n    id TEXT PRIMARY KEY,\n    name TEXT NOT NULL,\n    removal TEXT NOT NULL DEFAULT 'keep' CHECK (removal IN ('keep', 'export-and-delete')),\n    removal_days INTEGER NOT NULL DEFAULT 30,\n    created_at INTEGER NOT NULL\n)"
    ],
    [
     "table",

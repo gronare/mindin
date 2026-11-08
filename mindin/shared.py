@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -122,10 +122,20 @@ class Recorder(Protocol):
 class SharedBackend:
     preset = SHARED_PRESET
 
-    def __init__(self, inner: Any, rules: SharedRules, recorder: Recorder) -> None:
+    def __init__(
+        self, inner: Any, rules: SharedRules, recorder: Recorder, guard: Callable[[Actor], str] | None = None
+    ) -> None:
         self.inner = inner
         self.rules = rules
         self.recorder = recorder
+        self.guard = guard
+
+    def allowed(self) -> Actor:
+        actor = current_actor()
+        refusal = self.guard(actor) if self.guard is not None else ""
+        if refusal:
+            raise SharedRefusal(refusal)
+        return actor
 
     def list(self) -> list[Entry]:
         return self.inner.list()
@@ -140,6 +150,7 @@ class SharedBackend:
         return self.inner.get_bytes(key)
 
     def mkdir(self, key: str) -> None:
+        self.allowed()
         self.inner.mkdir(key)
 
     def forget_listing(self) -> None:
@@ -158,31 +169,35 @@ class SharedBackend:
         return self.put_checked(key, data)
 
     def put_checked(self, key: str, data: bytes, expected_version: str | None = None, content_type: str = "") -> str:
+        actor = self.allowed()
         self.rules.check_write(key, data)
         before = self.previous(key) if recorded(key) else None
         version = self.inner.put_checked(key, data, expected_version)
         if recorded(key) and before != data:
-            self.recorder.record(current_actor(), "created" if before is None else "updated", key, before, data)
+            self.recorder.record(actor, "created" if before is None else "updated", key, before, data)
         return version
 
     def delete(self, key: str) -> None:
+        actor = self.allowed()
         before = self.previous(key) if recorded(key) else None
         self.inner.delete(key)
         if before is not None:
-            self.recorder.record(current_actor(), "deleted", key, before, None)
+            self.recorder.record(actor, "deleted", key, before, None)
 
     def delete_checked(self, key: str, expected_version: str) -> None:
+        actor = self.allowed()
         before = self.previous(key) if recorded(key) else None
         delete_checked(self.inner, key, expected_version)
         if before is not None:
-            self.recorder.record(current_actor(), "deleted", key, before, None)
+            self.recorder.record(actor, "deleted", key, before, None)
 
     def move(self, src: str, dst: str) -> None:
+        actor = self.allowed()
         data, _ = self.inner.get_bytes(src)
         self.rules.check_write(dst, data)
         self.inner.move(src, dst)
         if recorded(src) or recorded(dst):
-            self.recorder.record(current_actor(), "moved", dst, data, data, from_path=src)
+            self.recorder.record(actor, "moved", dst, data, data, from_path=src)
 
 
 def shared_backend(backend: VaultBackend) -> SharedBackend | None:

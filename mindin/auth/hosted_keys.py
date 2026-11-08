@@ -10,6 +10,7 @@ import shutil
 import sys
 import time
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import cast
 
@@ -20,6 +21,7 @@ from mindin.auth import DEFAULT_SUBJECT_PREFIX, auth_dir
 from mindin.auth.database import account_tables
 from mindin.auth.hosted_history import HISTORY_PREFIX, History, history_key
 from mindin.auth.hosted_limits import Quotas
+from mindin.auth.hosted_orgs import locked_out
 from mindin.auth.hosted_store import Account, HostedStore
 from mindin.auth.hosted_vaults import DATA_KEY_TABLES, Vault
 from mindin.backends import Entry, VaultBackend, VaultError, is_vault_key, make_subject_backend
@@ -27,7 +29,7 @@ from mindin.backends.local import LocalBackend
 from mindin.backends.sealed import DATA_KEY_BYTES, NONCE_BYTES, SealedBackend, Storage, new_data_key
 from mindin.config import ConfigError, cache_dir, env
 from mindin.index import remove_index
-from mindin.shared import SharedBackend, SharedRules
+from mindin.shared import Actor, SharedBackend, SharedRules
 
 MASTER_KEY_ENV = "VAULT_HOSTED_MASTER_KEY"
 PREVIOUS_KEYS_ENV = "VAULT_HOSTED_MASTER_KEY_PREVIOUS"
@@ -219,7 +221,12 @@ class SealedVaults:
         backend = sealed if self.quotas is None else self.quotas.guard(vault, sealed)
         if not vault.shared:
             return backend, identifier
-        return SharedBackend(backend, SharedRules(vault.name), self.history(vault.id)), identifier
+        guard = partial(self.write_refusal, vault.id)
+        return SharedBackend(backend, SharedRules(vault.name), self.history(vault.id), guard), identifier
+
+    def write_refusal(self, vault_id: str, actor: Actor) -> str:
+        with self.store.connect() as connection:
+            return locked_out(connection, vault_id, actor)
 
     def storage(self, vault_id: str) -> tuple[Storage, str]:
         inner, identifier = make_subject_backend(vault_id, self.prefix)
@@ -266,6 +273,8 @@ VAULT_ROWS = (
     "vault_members",
     "vault_invitations",
     "vault_changes",
+    "organisation_editors",
+    "organisation_vaults",
 )
 
 

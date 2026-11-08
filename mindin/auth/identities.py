@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from mindin.auth import Registration
+from mindin.auth.hosted_orgs import domain_address, join_by_domain, on_a_domain
 from mindin.auth.hosted_store import Account, HostedStore, account_of, digest, now
 from mindin.auth.hosted_vaults import accept_invitations, add_first_vault, invited
 from mindin.auth.registration import Registrant
@@ -117,19 +118,21 @@ class Identities:
                 )
                 returning = self._signed_in(connection, row["account_id"], proof.name)
                 if returning is not None and returning.active:
+                    join_by_domain(connection, returning.id, (returning.email.lower(), *emails))
                     accept_invitations(connection, returning.id, (returning.email.lower(),))
                 return Outcome(returning)
             if not emails:
                 return Outcome(None, "unverified")
             account = self._by_email(connection, emails)
             if account is None:
-                registrant = Registrant(proof.method, proof.subject, emails, proof.label, invited(connection, emails))
+                welcomed = invited(connection, emails) or on_a_domain(connection, emails)
+                registrant = Registrant(proof.method, proof.subject, emails, proof.label, welcomed)
                 if registration != "open" and not registrant.invited:
                     return Outcome(None, "uninvited")
                 refused = refusal(self.store.extensions, registrant)
                 if refused:
                     return Outcome(None, "refused", refused)
-                account = self._create(connection, emails[0])
+                account = self._create(connection, domain_address(connection, emails) or emails[0])
                 for extension in self.store.extensions:
                     extension.registered(connection, account, registrant)
             if account.status == "suspended":
@@ -141,6 +144,7 @@ class Identities:
                     " WHERE id = ?",
                     (now(), account.id),
                 )
+            join_by_domain(connection, account.id, tuple(dict.fromkeys((account.email.lower(), *emails))))
             accept_invitations(connection, account.id, tuple(dict.fromkeys((*emails, account.email.lower()))))
             return Outcome(self._signed_in(connection, account.id, proof.name))
 
@@ -150,7 +154,8 @@ class Identities:
         with self.store.connect() as connection:
             if self._by_email(connection, emails) is not None:
                 return ""
-            registrant = Registrant("email", emails[0], emails, emails[0], invited(connection, emails))
+            welcomed = invited(connection, emails) or on_a_domain(connection, emails)
+            registrant = Registrant("email", emails[0], emails, emails[0], welcomed)
             return refusal(self.store.extensions, registrant)
 
     def account_for(self, method: str, subject: str) -> Account | None:
@@ -168,7 +173,12 @@ class Identities:
 
     def invited(self, email: str) -> bool:
         with self.store.connect() as connection:
-            return invited(connection, addresses((email,)))
+            emails = addresses((email,))
+            return invited(connection, emails) or on_a_domain(connection, emails)
+
+    def join_by_domain(self, account: Account) -> None:
+        with self.store.connect() as connection:
+            join_by_domain(connection, account.id, (account.email.lower(),))
 
     def link(self, account_id: str, proof: Proof) -> bool:
         with self.store.connect() as connection:

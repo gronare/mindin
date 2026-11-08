@@ -254,6 +254,12 @@ def command_members(args: argparse.Namespace) -> int:
     return hosted_members.command_members(args)
 
 
+def command_org(args: argparse.Namespace) -> int:
+    from mindin.auth import hosted_orgs
+
+    return hosted_orgs.command_org(args)
+
+
 def command_delete_account(args: argparse.Namespace) -> int:
     from mindin.auth import hosted_keys
 
@@ -829,6 +835,10 @@ def build_parser() -> argparse.ArgumentParser:
     importing.add_argument("--dry-run", action="store_true", help="list what would be imported, skipped and refused")
     add_operator(importing)
     importing.set_defaults(func=command_import)
+
+    from mindin.auth.hosted_orgs import add_commands as add_org_commands
+
+    add_org_commands(sub, command_org)
 
     master = sub.add_parser("master-key", help="the master key that wraps each hosted vault's data key")
     master_sub = master.add_subparsers(dest="master_key_command", required=True)

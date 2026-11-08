@@ -27,6 +27,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - `GET /api/vault/limits` tells a signed-in machine its vault's storage limits and usage.
 - Extensions can add background work, storage limits, an email-link check and organisation page sections.
 - Extensions can decide on every new account and hear of each write the storage limits refuse.
+- `mindin.extension_api` exports every name an extension and its tests use.
 
 ### Fixed
 - `/vault:login` signs in with the same mindin version the plugin runs.

@@ -11,7 +11,8 @@ from starlette.types import Scope
 
 from mindin.auth import READ_SCOPE, WRITE_SCOPE, ForwardedConfig
 from mindin.auth.hosted_store import Account
-from mindin.auth.hosted_web import esc, page
+from mindin.auth.hosted_web import page
+from mindin.auth.html import esc
 from mindin.auth.identities import Proof
 from mindin.auth.login import Login, next_field
 

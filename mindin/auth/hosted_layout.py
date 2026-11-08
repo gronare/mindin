@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from mindin import provision
-from mindin.auth.hosted_web import esc
 from mindin.backends import SCHEMA_KEY
-from mindin.presets import OFFERED, PRESETS
-from mindin.schema import broken_schema_lines, schema_from_text
+from mindin.presets import PRESETS, SHARED_LAYOUTS, SHARED_PRESET
+
+if TYPE_CHECKING:
+    from mindin.auth.hosted_keys import SealedVaults
+    from mindin.auth.hosted_vaults import Vault
+    from mindin.vault import SubjectVaults
 
 BUILT_IN = "default"
 SWITCHING = (
@@ -26,15 +31,6 @@ def describe(named: str) -> str:
     return f"This vault's schema names {named!r}, a layout this version does not ship; it is read as written."
 
 
-def broken_box(text: str | None) -> str:
-    lines = broken_schema_lines(schema_from_text(text)) if text is not None else []
-    if not lines:
-        return ""
-    said = [f"<p>{esc(line)}</p>" for line in lines if not line.startswith("- ")]
-    items = "".join(f"<li>{esc(line.removeprefix('- '))}</li>" for line in lines if line.startswith("- "))
-    return f'<div class="notice">{"".join(said)}{f"<ul>{items}</ul>" if items else ""}</div>'
-
-
 def layout_title(schema_text: str | None) -> str:
     named = provision.named_preset(schema_text)
     if named is None:
@@ -44,10 +40,28 @@ def layout_title(schema_text: str | None) -> str:
     return f"{named} layout"
 
 
-def layout_options(selected: str) -> str:
-    return "".join(
-        f'<label class="option"><input type="radio" name="preset" value="{esc(name)}" required'
-        f"{' checked' if name == selected else ''}><b>{esc(PRESETS[name].title)}</b>"
-        f"<span>{esc(PRESETS[name].summary)}</span></label>"
-        for name in OFFERED
-    )
+class LayoutKept(Exception):
+    pass
+
+
+def provision_vault(sealed: SealedVaults, vault: Vault, preset: str, dav_url: str) -> None:
+    backend, _ = sealed.for_vault(vault.id)
+    if vault.shared:
+        provision.initialize(backend, preset=preset if preset in SHARED_LAYOUTS else SHARED_PRESET)
+        return
+    provision.initialize(backend, preset=preset, welcome={"DAV_URL": dav_url})
+
+
+def switch_layout(vaults: SubjectVaults, vault: Vault, preset: str) -> str:
+    backend = vaults.backend_factory(vault.id)[0]
+    current = provision.named_preset(provision.stored(backend, SCHEMA_KEY))
+    if current == BUILT_IN:
+        raise LayoutKept("The built-in layout is kept; it is switched from the CLI only.")
+    if current == preset:
+        return f"This vault already uses {PRESETS[preset].title}."
+    welcome = {"DAV_URL": vaults.dav_url} if current is None else None
+    result = provision.initialize(backend, force=current is not None, preset=preset, welcome=welcome)
+    vaults.refresh(vault.id)
+    vaults.publish(vault.id, "schema")
+    moved = " No note was moved or deleted." if current is not None else ""
+    return f"This vault now uses {PRESETS[result.preset].title}.{moved}"

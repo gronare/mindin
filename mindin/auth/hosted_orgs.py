@@ -963,7 +963,7 @@ def told_on_departure(organisations: Organisations, departure: Departure) -> str
     if departure.delete_after is None:
         return f"mindin: removed {departure.account.email}; their account and own vaults stay"
     from mindin.auth import auth_config, mail
-    from mindin.auth.hosted_org_pages import departure_mail
+    from mindin.auth.hosted_org_mail import departure_mail
     from mindin.auth.login_email import Mailer
     from mindin.config import ConfigError
 

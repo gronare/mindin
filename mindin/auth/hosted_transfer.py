@@ -144,6 +144,11 @@ def zip_source(archive: zipfile.ZipFile) -> Source:
             yield member.filename, member.file_size, lambda member=member: archive.read(member)
 
 
+def import_zip(target: VaultBackend, file: IO[bytes]) -> Imported:
+    with zipfile.ZipFile(file) as archive:
+        return import_files(target, zip_source(archive))
+
+
 def export_zip(backend: VaultBackend, out: IO[bytes]) -> int:
     count = 0
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as archive:

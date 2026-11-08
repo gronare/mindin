@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import logging
 import re
-import smtplib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
@@ -12,9 +10,10 @@ from starlette.responses import Response
 from starlette.routing import Route
 
 from mindin import provision
-from mindin.auth import mail
-from mindin.auth.hosted_keys import StillShared, facts_of
-from mindin.auth.hosted_layout import layout_title
+from mindin.auth.hosted_deletion import delete_departed
+from mindin.auth.hosted_keys import facts_of
+from mindin.auth.hosted_layout import layout_title, provision_vault
+from mindin.auth.hosted_org_mail import OrgMail
 from mindin.auth.hosted_orgs import (
     ADMIN,
     ALLOWED,
@@ -28,7 +27,6 @@ from mindin.auth.hosted_orgs import (
     OrganisationError,
     Organisations,
     OrgDomain,
-    OrgInvitation,
     OrgMember,
     OrgVault,
     Removed,
@@ -37,17 +35,26 @@ from mindin.auth.hosted_orgs import (
 from mindin.auth.hosted_store import Account, MembershipError, VaultNameError
 from mindin.auth.hosted_vault_pages import VaultPages, counted
 from mindin.auth.hosted_vaults import NAME_MAX, SLUG_MAX, Vault
-from mindin.auth.hosted_web import copy_field, error_box, esc, hidden_field
+from mindin.auth.html import (
+    box,
+    button,
+    copy_field,
+    error_box,
+    esc,
+    form_head,
+    hidden_field,
+    muted,
+    notice_box,
+    row,
+    table,
+)
 from mindin.auth.login_email import Mailer
 from mindin.auth.pages import stamp
 from mindin.backends import SCHEMA_KEY
-from mindin.extensions import Periodic, may_erase
+from mindin.extensions import Periodic
 from mindin.presets import PRESETS, WIKI_PRESET
 
-logger = logging.getLogger(__name__)
-
 DEPARTURES_EVERY = 3600.0
-RESEND_AFTER = 600
 DAYS_RE = re.compile(r"[0-9]{1,3}")
 SOURCES = {
     "admin": "added by an admin",
@@ -76,11 +83,6 @@ def joined_by(member: OrgMember) -> str:
     if member.source == "domain":
         return f"joined through @{domain_of(member.account.email)}"
     return SOURCES.get(member.source, member.source)
-
-
-def mail_date(moment: int) -> str:
-    day = datetime.fromtimestamp(moment, UTC)
-    return f"{day.day} {day:%B %Y}"
 
 
 def short_date(moment: int) -> str:
@@ -119,58 +121,6 @@ def check_result(item: OrgDomain, now: float) -> str:
     return f"Checked {day_label(item.checked_at, now)}: {found}. DNS changes can take up to an hour."
 
 
-def notice_box(text: str) -> str:
-    return f'<div class="notice"><p>{esc(text)}</p></div>'
-
-
-def invitation_mail(public_url: str, item: OrgInvitation) -> mail.Mail:
-    name = item.organisation.name
-    inviter = item.invited_by.email if item.invited_by is not None else name
-    return mail.branded(
-        f"{name} invites you to its vaults",
-        f"Join {name}",
-        f"{inviter} added {item.account.email} to {name} on {mail.host_of(public_url)}. Accept on your account page"
-        f" to read and write {name}'s vaults. Your own vaults and your account stay yours.",
-        "Open your account page",
-        f"{public_url.rstrip('/')}/account/settings",
-        "The invitation waits there until you accept or decline it.",
-        "Not expecting this? Decline it there, or ignore this email: nothing changes until you accept.",
-    )
-
-
-def departure_mail(public_url: str, departure: Departure) -> mail.Mail:
-    when = mail_date(departure.delete_after or 0)
-    link = f"{public_url.rstrip('/')}/account"
-    return mail.branded(
-        f"{departure.organisation.name} removed you from its vaults",
-        "Download your vaults",
-        f"{departure.organisation.name} removed {departure.account.email} from its vaults on "
-        f"{mail.host_of(public_url)}. Your own vaults and your account are deleted on {when}. Sign in before"
-        f" {when} to keep your account, or to download each of your vaults as a zip.",
-        "Download your vaults",
-        link,
-        "Each vault's page has a Download zip button.",
-    )
-
-
-def delete_departed(organisations: Organisations, erase: Callable[[Account], None]) -> int:
-    deleted = 0
-    for organisation_id, account_id in organisations.due():
-        account = organisations.store.account_by_id(account_id)
-        if account is not None and not may_erase(organisations.store.extensions, account):
-            logger.info("organisation departure: an extension keeps %s", account.id)
-        elif account is not None and not organisations.of_account(account.id):
-            try:
-                erase(account)
-                deleted += 1
-                organisations.settle(organisation_id, account_id, erased=True)
-                continue
-            except StillShared as exc:
-                logger.warning("organisation departure: %s; the account stays", exc)
-        organisations.settle(organisation_id, account_id)
-    return deleted
-
-
 class OrganisationPages:
     def __init__(self, pages: VaultPages) -> None:
         self.pages = pages
@@ -178,7 +128,8 @@ class OrganisationPages:
         self.store = pages.store
         self.organisations = Organisations(self.store, self.browser.clock)
         smtp = self.browser.config.smtp
-        self.mailer = Mailer(smtp, pages.smtp_factory) if smtp else None
+        mailer = Mailer(smtp, pages.smtp_factory) if smtp else None
+        self.mail = OrgMail(self.organisations, mailer, self.browser.config.public_url, self.browser.clock)
         pages.shared.organisations = self.organisations
         self.sections: list[Callable[[Organisation, Account, str], str]] = []
 
@@ -189,7 +140,7 @@ class OrganisationPages:
         return self.local(f"/account/organisation/{organisation.id}{path}")
 
     def form(self, csrf: str, organisation: Organisation, path: str, extra: str = ' class="row"') -> str:
-        return self.pages.form_head(csrf, self.org_url(organisation, path), extra)
+        return form_head(csrf, self.org_url(organisation, path), extra)
 
     def section(self, account: Account, csrf: str) -> str:
         return self.invitations_section(account, csrf) + self.belongs_section(account)
@@ -197,24 +148,26 @@ class OrganisationPages:
     def invitations_section(self, account: Account, csrf: str) -> str:
         rows = "".join(
             f"<tr><td>{esc(item.organisation.name)}</td><td>{'Admin' if item.role == ADMIN else 'Member'}</td>"
-            f'<td><div class="row">{self.answer_button(csrf, item.organisation, "accept", "Accept")}'
-            f"{self.answer_button(csrf, item.organisation, 'decline', 'Decline')}</div></td></tr>"
+            f"<td>{row(self.answers(csrf, item.organisation))}</td></tr>"
             for item in self.organisations.invitations_of(account.id)
         )
         if not rows:
             return ""
-        return (
-            '<div class="stack"><h2>Organisation invitations</h2><div class="tablewrap"><table><thead><tr>'
-            f"<th>Name</th><th>Role</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>"
-            '<p class="small muted">Accepting lets the organisation\'s members reach its vaults with you. Your own'
-            " vaults stay yours, and an organisation that removes you never deletes your account.</p></div>"
+        note = muted(
+            "Accepting lets the organisation's members reach its vaults with you. Your own vaults stay yours, and an"
+            " organisation that removes you never deletes your account."
+        )
+        return box(f"<h2>Organisation invitations</h2>{table(['Name', 'Role', ''], [rows])}{note}", "stack")
+
+    def answers(self, csrf: str, organisation: Organisation) -> str:
+        return self.answer_button(csrf, organisation, "accept", "Accept") + self.answer_button(
+            csrf, organisation, "decline", "Decline"
         )
 
     def answer_button(self, csrf: str, organisation: Organisation, answer: str, label: str) -> str:
         return (
             f"{self.form(csrf, organisation, '/' + answer, '')}"
-            f'<button type="submit" class="btn{" secondary" if answer == "decline" else ""} small">{label}</button>'
-            "</form>"
+            f"{button(label, 'btn secondary small' if answer == 'decline' else 'btn small')}</form>"
         )
 
     def belongs_section(self, account: Account) -> str:
@@ -226,12 +179,8 @@ class OrganisationPages:
             f"<td>{self.manage_link(organisation) if role == ADMIN else ''}</td></tr>"
             for organisation, role in belongs
         )
-        return (
-            '<div class="stack"><h2>Organisation</h2><div class="tablewrap"><table><thead><tr><th>Name</th>'
-            f"<th>Role</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>"
-            '<p class="small muted">Your own vaults, keys and connections stay yours. The organisation\'s vaults show'
-            " under Vaults.</p></div>"
-        )
+        note = muted("Your own vaults, keys and connections stay yours. The organisation's vaults show under Vaults.")
+        return box(f"<h2>Organisation</h2>{table(['Name', 'Role', ''], [rows])}{note}", "stack")
 
     def manage_link(self, organisation: Organisation) -> str:
         return f'<a class="btn secondary small" href="{esc(self.org_url(organisation))}">Manage</a>'
@@ -250,8 +199,7 @@ class OrganisationPages:
         return (
             f"{self.form(csrf, organisation, path, '')}{hidden_field(field, value)}"
             f"{hidden_field('vault', vault) if vault else ''}"
-            f'<button type="submit" class="btn{kind} small" aria-label="{esc(label)} {esc(value)}">'
-            f"{esc(label)}</button></form>"
+            f"{button(label, f'btn{kind} small', f'{label} {value}')}</form>"
         )
 
     def domains_section(self, organisation: Organisation, csrf: str) -> str:
@@ -260,7 +208,7 @@ class OrganisationPages:
         listing = (
             f'<div class="vaults">{rows}</div>'
             if rows
-            else '<p class="small muted">No domain yet: only the people you add below are members.</p>'
+            else muted("No domain yet: only the people you add below are members.")
         )
         return f"""<div class="stack"><h2>Email domains</h2>
 <p class="small muted">Once a domain is verified, whoever signs in with a verified address at it joins the
@@ -289,7 +237,7 @@ placeholder="example.com" autocomplete="off"></label>
         facts = "Nobody joins through it until the record below is found. " + check_result(item, self.browser.clock())
         return (
             f'<div class="domain"><div class="head"><div>{name} <span class="chip warn">Not verified</span>'
-            f'<p class="facts">{esc(facts)}</p></div><div class="row">{check}{remove}</div></div>'
+            f'<p class="facts">{esc(facts)}</p></div>{row(check + remove)}</div>'
             f'<div class="record"><span class="lab">Host</span>{copy_field(f"record-host-{at}", item.record_name)}'
             '<span class="lab">Type</span><div><code>TXT</code></div>'
             f'<span class="lab">Value</span>{copy_field(f"record-value-{at}", item.record_value)}</div></div>'
@@ -315,7 +263,7 @@ placeholder="example.com" autocomplete="off"></label>
                 f"<tr><td>{esc(email)}</td><td>{role}</td><td>{self.signed_in(member.account)}</td>"
                 f"<td>{esc(joined_by(member))}</td>"
                 f'<td class="nowrap">{esc(stamp(member.joined_at)[:10])}</td>'
-                f'<td><div class="row">{change}{remove}</div></td></tr>'
+                f"<td>{row(change + remove)}</td></tr>"
             )
         return f"""<div class="stack"><h2>Members · {len(members)}</h2>
 <div class="tablewrap"><table><thead><tr><th>Member</th><th>Role</th><th>Signed in</th><th>Joined by</th><th>Since</th>
@@ -343,7 +291,7 @@ your verified domains joins once they accept the invitation on their account pag
             email = item.account.email
             resend = (
                 self.remove_button(csrf, organisation, "/invitations/resend", "email", email, "Send again")
-                if self.mailer is not None
+                if self.mail.sends
                 else ""
             )
             withdraw = self.remove_button(csrf, organisation, "/invitations/remove", "email", email, "Withdraw")
@@ -351,13 +299,14 @@ your verified domains joins once they accept the invitation on their account pag
             rows.append(
                 f"<tr><td>{esc(email)}</td><td>{esc(by)}</td>"
                 f'<td class="nowrap">{esc(stamp(item.mailed_at or item.sent_at)[:10])}</td>'
-                f'<td>waiting for them to accept on their account page</td><td><div class="row">{resend}{withdraw}'
-                "</div></td></tr>"
+                f"<td>waiting for them to accept on their account page</td><td>{row(resend + withdraw)}</td></tr>"
             )
         unsent = (
-            '<p class="small muted">This server sends no email, so each invitation waits on the person\'s account'
-            " page until they sign in and accept it.</p>"
-            if self.mailer is None
+            muted(
+                "This server sends no email, so each invitation waits on the person's account page until they sign in"
+                " and accept it."
+            )
+            if not self.mail.sends
             else ""
         )
         return f"""<div class="stack"><h2>Invitations · {len(items)}</h2>
@@ -380,8 +329,7 @@ your verified domains joins once they accept the invitation on their account pag
             toggle = (
                 f"{self.form(csrf, organisation, '/vaults/lock', '')}{hidden_field('vault', vault.slug)}"
                 f"{hidden_field('locked', '' if item.locked else 'on')}"
-                f'<button type="submit" class="btn secondary small">{"Unlock" if item.locked else "Lock"}</button>'
-                "</form>"
+                f"{button('Unlock' if item.locked else 'Lock', 'btn secondary small')}</form>"
             )
             adding = (
                 f"{self.form(csrf, organisation, '/vaults/editors')}{hidden_field('vault', vault.slug)}"
@@ -389,12 +337,12 @@ your verified domains joins once they accept the invitation on their account pag
                 ' placeholder="name@example.com" autocomplete="off"></label>'
                 '<button class="btn secondary" type="submit">Add editor</button></form>'
             )
-            listed = f'<ul class="plain">{editors}</ul>' if editors else '<p class="small muted">No editors.</p>'
+            listed = f'<ul class="plain">{editors}</ul>' if editors else muted("No editors.")
             editing = listed + adding if item.locked else ""
             rows.append(
                 f'<div class="box"><div class="head"><div><b><a href="{esc(self.pages.vault_url(vault))}">'
                 f"{esc(vault.name)}</a></b> <code>{esc(vault.slug)}</code>"
-                f'<p class="small muted">{esc(state)}</p><p class="facts">{esc(self.vault_facts(vault))}</p></div>'
+                f'{muted(esc(state))}<p class="facts">{esc(self.vault_facts(vault))}</p></div>'
                 f"{toggle}</div>{editing}</div>"
             )
         return "".join(rows)
@@ -406,7 +354,7 @@ your verified domains joins once they accept the invitation on their account pag
 
     def vaults_section(self, organisation: Organisation, csrf: str) -> str:
         items = self.organisations.vaults(organisation)
-        listing = self.vault_rows(organisation, csrf, items) or '<p class="small muted">No vault yet.</p>'
+        listing = self.vault_rows(organisation, csrf, items) or muted("No vault yet.")
         return f"""<div class="stack"><h2>Vaults</h2>
 <p class="small muted">Every member reads and writes the organisation's vaults, and every change is kept with who
 made it. Lock a vault to let only its editors write; everyone else still reads it.</p>
@@ -445,8 +393,7 @@ pattern="[0-9]{{1,3}}" value="{organisation.removal_days}" required></label>
         if not rows:
             return ""
         return (
-            '<h2 class="subhead">Removed</h2><div class="tablewrap noact"><table><thead><tr><th>Who</th>'
-            f"<th>Removed</th><th>Their account</th></tr></thead><tbody>{rows}</tbody></table></div>"
+            f'<h2 class="subhead">Removed</h2>{table(["Who", "Removed", "Their account"], [rows], "tablewrap noact")}'
         )
 
     def sharing_section(self, organisation: Organisation, csrf: str) -> str:
@@ -564,42 +511,27 @@ already exists.</p>
             f"{admission.account.email} already has an account here, so they join once they accept the invitation"
             " on their account page."
         )
-        if self.mailer is None:
+        if not self.mail.sends:
             return f"{waiting} This server sends no email; tell them it waits there."
         item = self.organisations.invitation(organisation, admission.account.email)
-        if self.resend_from(item) > self.browser.clock():
+        if self.mail.waiting(item):
             return f"{waiting} The email to them went out at {stamp(item.mailed_at)[11:]}."
-        if not self.send_invitation(item):
+        if not self.mail.invite(item):
             return f"{waiting} The email could not be sent; Send again tries once more."
         return f"{waiting} An email tells them so."
-
-    def resend_from(self, item: OrgInvitation) -> int:
-        return item.mailed_at + RESEND_AFTER if item.mailed_at else 0
-
-    def send_invitation(self, item: OrgInvitation) -> bool:
-        if self.mailer is None:
-            return False
-        subject, text, html = invitation_mail(self.public_url, item)
-        try:
-            self.mailer.send(item.account.email, subject, text, html, mail.images())
-        except (OSError, smtplib.SMTPException) as exc:
-            logger.warning("organisation invitation: sending failed: %s", exc)
-            return False
-        self.organisations.mailed(item)
-        return True
 
     def resend(self, _: Account, organisation: Organisation, form: dict) -> str:
         item = self.organisations.invitation(organisation, form.get("email", ""))
         email = item.account.email
-        if self.mailer is None:
+        if not self.mail.sends:
             raise OrganisationError(f"This server sends no email; the invitation waits on {email}'s account page.")
-        again = self.resend_from(item)
-        if again > self.browser.clock():
+        again = self.mail.resend_from(item)
+        if self.mail.waiting(item):
             raise OrganisationError(
                 f"The email to {email} went out at {stamp(item.mailed_at)[11:]}; send it again from"
                 f" {stamp(again)[11:]}."
             )
-        if not self.send_invitation(item):
+        if not self.mail.invite(item):
             raise OrganisationError(f"The email to {email} could not be sent. Try again later.")
         return f"The invitation email went to {email} again."
 
@@ -643,26 +575,13 @@ already exists.</p>
         if departure.delete_after is None:
             return f"{email} is removed; their own vaults stay with their account."
         when = stamp(departure.delete_after)[:10]
-        sent = self.send_departure(departure)
-        if sent:
-            self.organisations.told(departure)
+        sent = self.mail.depart(departure)
         told = "An email tells them how to download their vaults." if sent else "This server sends no email; tell them."
         return f"{email} is removed; their own vaults are deleted on {when} unless they sign in before then. {told}"
 
     @property
     def public_url(self) -> str:
-        return self.browser.config.public_url.rstrip("/")
-
-    def send_departure(self, departure: Departure) -> bool:
-        if self.mailer is None:
-            return False
-        subject, text, html = departure_mail(self.public_url, departure)
-        try:
-            self.mailer.send(departure.account.email, subject, text, html, mail.images())
-        except (OSError, smtplib.SMTPException) as exc:
-            logger.warning("organisation departure: sending failed: %s", exc)
-            return False
-        return True
+        return self.mail.public_url
 
     def removal(self, _: Account, organisation: Organisation, form: dict) -> str:
         raw = form.get("days", "")
@@ -680,7 +599,7 @@ already exists.</p>
         slug = form.get("slug", "").strip() or None
         layout = form.get("layout") or WIKI_PRESET
         vault = self.organisations.create_vault(organisation, account, form.get("name", ""), slug, layout)
-        self.pages.provision(vault, layout)
+        provision_vault(self.pages.sealed, vault, layout, self.pages.vaults.dav_url)
         return f"{vault.name} is at /mcp?vault={vault.slug} for every member."
 
     def lock(self, _: Account, organisation: Organisation, form: dict) -> str:

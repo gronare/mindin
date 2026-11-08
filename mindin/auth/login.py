@@ -11,7 +11,8 @@ from starlette.routing import BaseRoute, Route
 
 from mindin.auth import AuthConfig
 from mindin.auth.hosted_store import LOGIN_TTL, Account, HostedStore, digest
-from mindin.auth.hosted_web import LOGIN_COOKIE, Browser, Limits, client_address, error_box, esc, page
+from mindin.auth.hosted_web import LOGIN_COOKIE, Browser, Limits, client_address, page
+from mindin.auth.html import button, error_box, esc, form_head, hidden_field, muted, table
 from mindin.auth.identities import Identities, Outcome, Proof
 from mindin.auth.pages import content_security_policy, stamp
 from mindin.extensions import SignInCheck
@@ -25,10 +26,6 @@ class SignInMethod(Protocol):
     def connect_form(self, csrf: str) -> str: ...
 
     def routes(self, prefix: str) -> list[BaseRoute]: ...
-
-
-def hidden(name: str, value: str) -> str:
-    return f'<input type="hidden" name="{esc(name)}" value="{esc(value)}">'
 
 
 class Login:
@@ -125,24 +122,18 @@ class Login:
             f"<tr><td>{esc(way.method_name)}</td><td>{esc(way.label)}</td>"
             f'<td class="nowrap">{esc(stamp(way.last_used_at or way.created_at))}</td><td>'
             + (
-                f'<form method="post" action="{esc(self.local("/account/identities/remove"))}">'
-                f"{hidden('csrf', csrf)}{hidden('method', way.method)}{hidden('subject', way.subject)}"
-                f'<button type="submit" class="btn secondary small" aria-label="Remove {esc(way.method_name)}'
-                f' {esc(way.label)}">Remove</button></form>'
+                f"{form_head(csrf, self.local('/account/identities/remove'))}"
+                f"{hidden_field('method', way.method)}{hidden_field('subject', way.subject)}"
+                f"{button('Remove', 'btn secondary small', f'Remove {way.method_name} {way.label}')}</form>"
                 if removable
                 else ""
             )
             + "</td></tr>"
             for way in ways
         )
-        table = (
-            '<div class="tablewrap"><table><thead><tr><th>Method</th><th>Detail</th><th>Last used</th><th></th></tr>'
-            f"</thead><tbody>{rows}</tbody></table></div>"
-            if rows
-            else '<p class="small muted">No ways in yet.</p>'
-        )
+        listing = table(["Method", "Detail", "Last used", ""], [rows]) if rows else muted("No ways in yet.")
         adding = "".join(method.connect_form(csrf) for method in self.methods)
-        return f'<div class="stack"><h2>Ways in</h2>{table}<div class="adding">{adding}</div></div>'
+        return f'<div class="stack"><h2>Ways in</h2>{listing}<div class="adding">{adding}</div></div>'
 
     async def remove(self, request: Request) -> Response:
         submitted = await self.browser.account_form(request)
@@ -176,4 +167,4 @@ def added_sources(checks: tuple[SignInCheck, ...]) -> dict[str, tuple[str, ...]]
 
 
 def next_field(next_url: str) -> str:
-    return hidden("next", next_url)
+    return hidden_field("next", next_url)

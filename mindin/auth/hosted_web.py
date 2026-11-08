@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hmac
-import html
 import logging
 import time
 from collections.abc import Callable
@@ -15,6 +14,7 @@ from mindin.auth import READ_SCOPE, WRITE_SCOPE, AuthConfig
 from mindin.auth.cimd import is_loopback, is_metadata_url
 from mindin.auth.hosted_store import SESSION_TTL, Account, HostedStore, digest
 from mindin.auth.hosted_vaults import Vault
+from mindin.auth.html import error_box, esc, hidden_field
 from mindin.auth.pages import APP_PAGE, APP_SCRIPT, PAGE, PAGE_HEADERS, stamp
 
 logger = logging.getLogger(__name__)
@@ -44,10 +44,6 @@ dl { margin: 0 0 1.25rem; } dt { color: #56534d; font-size: .85rem; } dd { margi
 WIDE_STYLE = "main { max-width: 40rem; }\n"
 
 
-def esc(text: object) -> str:
-    return html.escape(str(text))
-
-
 def page(heading: str, lead: str, body: str = "", status_code: int = 200, wide: bool = False) -> HTMLResponse:
     style = EXTRA_STYLE + (WIDE_STYLE if wide else "")
     document = PAGE.format(heading=esc(heading), lead=esc(lead), body=body).replace("</style>", style + "</style>", 1)
@@ -71,23 +67,8 @@ async def app_script(_: Request) -> Response:
     return Response(APP_SCRIPT, media_type="text/javascript", headers={"Cache-Control": "public, max-age=3600"})
 
 
-def copy_field(field_id: str, text: str) -> str:
-    return (
-        f'<div class="copy"><code id="{esc(field_id)}">{esc(text)}</code>'
-        f'<button class="btn secondary small" type="button" data-copy="{esc(field_id)}" hidden>Copy</button></div>'
-    )
-
-
-def hidden_field(name: str, value: str) -> str:
-    return f'<input type="hidden" name="{esc(name)}" value="{esc(value)}">'
-
-
 def oauth_error(error: str, description: str, status_code: int = 400) -> JSONResponse:
     return JSONResponse({"error": error, "error_description": description}, status_code=status_code, headers=NO_STORE)
-
-
-def error_box(message: str) -> str:
-    return f'<p class="error">{esc(message)}</p>' if message else ""
 
 
 def client_address(request: Request) -> str:

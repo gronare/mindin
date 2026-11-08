@@ -15,7 +15,8 @@ from mindin.auth import MACHINE_KEY_PURPOSE, READ_SCOPE, SCOPES, WRITE_SCOPE, Au
 from mindin.auth.database import Row
 from mindin.auth.hosted_store import Account, HostedStore
 from mindin.auth.hosted_vaults import Vault
-from mindin.auth.hosted_web import NO_STORE, Browser, Limits, client_address, error_box, esc, oauth_error, page
+from mindin.auth.hosted_web import NO_STORE, Browser, Limits, client_address, oauth_error, page
+from mindin.auth.html import error_box, esc
 
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 CLI_CLIENT_ID = "cli"

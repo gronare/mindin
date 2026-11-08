@@ -5,16 +5,10 @@ import sys
 import time
 from collections.abc import Callable
 
-from starlette.requests import Request
-from starlette.responses import RedirectResponse, Response
-from starlette.routing import Route
-
 from mindin.auth import auth_dir
 from mindin.auth.database import Row
 from mindin.auth.hosted_store import Account, HostedStore
 from mindin.auth.hosted_vaults import Vault
-from mindin.auth.hosted_web import Browser, esc
-from mindin.auth.pages import stamp
 from mindin.backends import NotFound
 
 GRANT_CHOICES = {"hour": ("one hour", 3600), "day": ("one day", 86400), "week": ("seven days", 7 * 86400)}
@@ -79,86 +73,6 @@ class SupportAccess:
                 " WHERE vault_access.account_id = ? ORDER BY vault_access.at DESC, vault_access.id DESC LIMIT ?",
                 (account_id, limit),
             ).fetchall()
-
-
-class SupportDesk:
-    def __init__(self, browser: Browser, access: SupportAccess) -> None:
-        self.browser = browser
-        self.access = access
-
-    def section(self, account: Account, csrf: str) -> str:
-        vaults = self.browser.store.vaults(account.id)
-        granted = [(vault, self.access.grant_until(vault.id)) for vault in vaults]
-        live = "".join(
-            f'<li class="row"><span>{esc(vault.name)}: open to support until {esc(stamp(until))}</span>'
-            f'<form method="post" action="{esc(self.browser.local("/account/support/end"))}">'
-            f'<input type="hidden" name="csrf" value="{esc(csrf)}">'
-            f'<input type="hidden" name="vault" value="{esc(vault.slug)}">'
-            f'<button type="submit" class="btn secondary small">End now</button></form></li>'
-            for vault, until in granted
-            if until
-        )
-        offered = [vault for vault, until in granted if not until]
-        form = ""
-        if offered:
-            vault_choices = "".join(
-                f'<option value="{esc(vault.slug)}">{esc(vault.name)}</option>' for vault in offered
-            )
-            durations = "".join(
-                f'<option value="{name}"{" selected" if name == "day" else ""}>{label}</option>'
-                for name, (label, _) in GRANT_CHOICES.items()
-            )
-            form = (
-                f'<form class="row" method="post" action="{esc(self.browser.local("/account/support"))}">'
-                f'<input type="hidden" name="csrf" value="{esc(csrf)}">'
-                f'<label class="field">Vault<select name="vault">{vault_choices}</select></label>'
-                f'<label class="field">For<select name="duration">{durations}</select></label>'
-                '<button type="submit" class="btn secondary">Allow support access</button></form>'
-            )
-        rows = "".join(
-            f'<tr><td class="nowrap">{esc(stamp(row["at"]))}</td><td>{esc(row["vault_name"] or "a deleted vault")}</td>'
-            f"<td>{esc(row['operator'])}</td><td>{esc(row['reason'])}</td><td>{esc(row['action'])}</td></tr>"
-            for row in self.access.log(account.id)
-        )
-        log = (
-            '<div class="tablewrap"><table><thead><tr><th>When</th><th>Vault</th><th>Who</th><th>Why</th><th>What</th>'
-            f"</tr></thead><tbody>{rows}</tbody></table></div>"
-            if rows
-            else '<p class="small muted">Nobody from support has opened your vaults.</p>'
-        )
-        granted_list = f'<ul class="plain stack">{live}</ul>' if live else ""
-        return (
-            '<div class="box"><h2>Support access</h2><p class="small muted">Support opens a vault only through a grant '
-            "you give here, for one vault and a set time, and every look is logged.</p>"
-            f"{granted_list}{form}{log}</div>"
-        )
-
-    async def grant(self, request: Request) -> Response:
-        submitted = await self.browser.account_form(request)
-        if isinstance(submitted, Response):
-            return submitted
-        account, _, form = submitted
-        choice = GRANT_CHOICES.get(form.get("duration", ""))
-        vault = self.browser.store.own_vault(account.id, form.get("vault", ""))
-        if choice is not None and vault is not None:
-            self.access.grant(vault, choice[1])
-        return RedirectResponse(self.browser.local("/account/settings"), status_code=303)
-
-    async def end(self, request: Request) -> Response:
-        submitted = await self.browser.account_form(request)
-        if isinstance(submitted, Response):
-            return submitted
-        account, _, form = submitted
-        vault = self.browser.store.own_vault(account.id, form.get("vault", ""))
-        if vault is not None:
-            self.access.revoke(account.id, vault.id)
-        return RedirectResponse(self.browser.local("/account/settings"), status_code=303)
-
-    def routes(self, prefix: str, limited: Callable) -> list[Route]:
-        return [
-            Route(prefix + "/account/support", endpoint=limited(self.grant), methods=["POST"]),
-            Route(prefix + "/account/support/end", endpoint=limited(self.end), methods=["POST"]),
-        ]
 
 
 def chosen_vault(store: HostedStore, account: Account, ref: str | None) -> Vault | None:

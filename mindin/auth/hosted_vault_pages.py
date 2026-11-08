@@ -4,7 +4,7 @@ import tempfile
 import zipfile
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
-from typing import IO, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import anyio
 from mcp.server.transport_security import RequestBodyLimitMiddleware
@@ -16,16 +16,17 @@ from starlette.types import ASGIApp
 
 from mindin import provision
 from mindin.auth import MACHINE_KEY_PURPOSE, READ_SCOPE, WRITE_SCOPE
-from mindin.auth.hosted_deletion import SelfDeletion
-from mindin.auth.hosted_keys import SealedVaults, VaultFacts, delete_vault, facts_of
+from mindin.auth.hosted_deletion import erase_vault
+from mindin.auth.hosted_keys import SealedVaults, VaultFacts, facts_of
 from mindin.auth.hosted_layout import (
     BUILT_IN,
     EDITING,
     SWITCHING,
-    broken_box,
+    LayoutKept,
     describe,
-    layout_options,
     layout_title,
+    provision_vault,
+    switch_layout,
 )
 from mindin.auth.hosted_limits import LimitReached
 from mindin.auth.hosted_store import Account, VaultNameError, scope_label
@@ -34,18 +35,19 @@ from mindin.auth.hosted_transfer import (
     MAX_UPLOAD_BYTES,
     SPOOL_BYTES,
     BadArchive,
-    Imported,
     export_zip,
-    import_files,
-    zip_source,
+    import_zip,
 )
 from mindin.auth.hosted_vaults import KINDS, NAME_MAX, PERSONAL, SHARED, Vault, Waiting, vault_resource_url
-from mindin.auth.hosted_web import Browser, app_script, copy_field, error_box, esc, hidden_field
+from mindin.auth.hosted_web import Browser, app_script
+from mindin.auth.html import button, copy_field, error_box, esc, form_head, hidden_field, notice_box, table
 from mindin.auth.login_email import SmtpFactory
 from mindin.backends import SCHEMA_KEY, VaultBackend
-from mindin.presets import OFFERED, PRESETS, SHARED_LAYOUTS, SHARED_PRESET
+from mindin.presets import OFFERED, PRESETS
+from mindin.schema import broken_schema_lines, schema_from_text
 
 if TYPE_CHECKING:
+    from mindin.auth.hosted_account_pages import SelfDeletion
     from mindin.vault import SubjectVaults
 
 NBSP = " "
@@ -117,9 +119,6 @@ class VaultPages:
     def facts(self, vault: Vault) -> VaultFacts:
         return facts_of(self.storage(vault).list_all())
 
-    def form_head(self, csrf: str, action: str, extra: str = "") -> str:
-        return f'<form method="post" action="{esc(action)}"{extra}>{hidden_field("csrf", csrf)}'
-
     def summary_line(self, vault: Vault, facts: VaultFacts) -> str:
         keys = self.store.keys(vault.account_id, vault.id)
         computers = sum(1 for key in keys if key["purpose"] == MACHINE_KEY_PURPOSE)
@@ -172,10 +171,9 @@ and connections. A connection only ever reaches the vault it was made for.</p></
         rows = [
             f"<tr><td>{esc(link.name)}</td><td>Connector</td><td>{esc(scope_label(link.scopes))}</td>"
             f'<td class="nowrap">{esc(ago(link.last_used_at, now))}</td><td>'
-            f"{self.form_head(csrf, self.vault_url(vault, '/connections/disconnect'))}"
+            f"{form_head(csrf, self.vault_url(vault, '/connections/disconnect'))}"
             f"{hidden_field('client', link.client_id)}"
-            f'<button type="submit" class="btn secondary small" aria-label="Disconnect {esc(link.name)}">'
-            "Disconnect</button></form></td></tr>"
+            f"{button('Disconnect', 'btn secondary small', f'Disconnect {link.name}')}</form></td></tr>"
             for link in self.store.connections(vault.id, account.id)
         ]
         keys = sorted(self.store.keys(account.id, vault.id), key=lambda key: key["purpose"] != "device")
@@ -184,16 +182,12 @@ and connections. A connection only ever reaches the vault it was made for.</p></
             rows.append(
                 f"<tr><td>{esc(key['name'])}</td><td>{kind}</td><td>{esc(scope_label(key['scopes']))}</td>"
                 f'<td class="nowrap">{esc(ago(key["last_used_at"], now))}</td><td>'
-                f"{self.form_head(csrf, self.vault_url(vault, '/keys/revoke'))}{hidden_field('key', key['id'])}"
-                f'<button type="submit" class="btn secondary small" aria-label="{action} {esc(key["name"])}">'
-                f"{action}</button></form></td></tr>"
+                f"{form_head(csrf, self.vault_url(vault, '/keys/revoke'))}{hidden_field('key', key['id'])}"
+                f"{button(action, 'btn secondary small', action + ' ' + key['name'])}</form></td></tr>"
             )
         if not rows:
             return '<p class="small muted">Nothing reaches this vault yet.</p>'
-        return (
-            '<div class="tablewrap"><table><thead><tr><th>Name</th><th>Kind</th><th>Access</th><th>Last used</th>'
-            f"<th></th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
-        )
+        return table(["Name", "Kind", "Access", "Last used", ""], rows)
 
     def render_vault(
         self, account: Account, csrf: str, vault: Vault, notice: str = "", status_code: int = 200
@@ -214,13 +208,13 @@ and connections. A connection only ever reaches the vault it was made for.</p></
 <p class="small muted">Download every file in this vault as a zip, or bring files in from one; a file with the same
 path is replaced.</p>
 <div class="row"><a class="btn secondary" href="{esc(self.vault_url(vault, "/export"))}">Download zip</a></div>
-{self.form_head(csrf, self.vault_url(vault, "/import"), ' class="row" enctype="multipart/form-data"')}
+{form_head(csrf, self.vault_url(vault, "/import"), ' class="row" enctype="multipart/form-data"')}
 <label class="field">Import a zip<input type="file" name="archive" accept=".zip,application/zip" required></label>
 <button class="btn secondary" type="submit">Import</button></form></div>
 <div class="danger-zone"><h2>Delete this vault</h2>
 <p class="small muted">Removes its notes, keys and connections. Your other vaults stay as they are.</p>
 <details><summary class="btn danger">Delete {name}…</summary>
-{self.form_head(csrf, self.vault_url(vault, "/delete"), ' class="stack"')}
+{form_head(csrf, self.vault_url(vault, "/delete"), ' class="stack"')}
 <label class="field">Type {name} to confirm
 <input type="text" name="name" autocomplete="off" required maxlength="{NAME_MAX}"></label>
 <div><button class="btn danger" type="submit">Delete this vault for good</button></div></form></details></div>
@@ -247,7 +241,7 @@ decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url
 </div></div>
 <div class="stack"><h2>{esc(heading)}</h2>
 {self.connection_rows(account, vault, csrf)}
-{self.form_head(csrf, self.vault_url(vault, "/keys"), ' class="row"')}
+{form_head(csrf, self.vault_url(vault, "/keys"), ' class="row"')}
 <label class="field">New key, named after where it will live
 <input type="text" name="name" maxlength="64" required placeholder="laptop"></label>
 <label class="field narrow">Access<select name="access">
@@ -259,18 +253,18 @@ decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url
         if current == BUILT_IN:
             return f'<div class="box"><h2>Layout</h2><p class="small muted">{esc(describe(current))}</p></div>'
         if current is None:
-            heading, lead, button = (
+            heading, lead, label = (
                 "Pick a layout",
                 "This vault has no layout yet. Pick one to start.",
                 "Use this layout",
             )
         else:
-            heading, lead, button = "Layout", f"{describe(current)} {SWITCHING}", "Switch layout"
+            heading, lead, label = "Layout", f"{describe(current)} {SWITCHING}", "Switch layout"
         return f"""<div class="box"><h2>{heading}</h2>
 <p class="small muted">{esc(lead)}</p><p class="small muted">{esc(EDITING)}</p>
-{self.form_head(csrf, self.vault_url(vault, "/layout"), ' class="stack"')}
+{form_head(csrf, self.vault_url(vault, "/layout"), ' class="stack"')}
 <fieldset class="choice"><legend>Layout</legend>{layout_options(current or OFFERED[0])}</fieldset>
-<div><button class="btn" type="submit">{button}</button></div></form></div>"""
+<div><button class="btn" type="submit">{label}</button></div></form></div>"""
 
     async def pick_layout(self, request: Request) -> Response:
         found = await self.submitted(request)
@@ -284,23 +278,11 @@ decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url
         if preset not in OFFERED:
             notice = error_box("Pick one of the layouts.")
             return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, 400))
-        notice, status = await anyio.to_thread.run_sync(self.switch_layout, vault, preset)
+        try:
+            notice, status = notice_box(await anyio.to_thread.run_sync(switch_layout, self.vaults, vault, preset)), 200
+        except LayoutKept as exc:
+            notice, status = error_box(str(exc)), 409
         return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, status))
-
-    def switch_layout(self, vault: Vault, preset: str) -> tuple[str, int]:
-        backend = self.storage(vault)
-        current = provision.named_preset(provision.stored(backend, SCHEMA_KEY))
-        if current == BUILT_IN:
-            return error_box("The built-in layout is kept; it is switched from the CLI only."), 409
-        if current == preset:
-            return f'<div class="notice"><p>This vault already uses {esc(PRESETS[preset].title)}.</p></div>', 200
-        welcome = {"DAV_URL": self.vaults.dav_url} if current is None else None
-        result = provision.initialize(backend, force=current is not None, preset=preset, welcome=welcome)
-        self.vaults.refresh(vault.id)
-        self.vaults.publish(vault.id, "schema")
-        moved = " No note was moved or deleted." if current is not None else ""
-        title = esc(PRESETS[result.preset].title)
-        return f'<div class="notice"><p>This vault now uses {title}.{moved}</p></div>', 200
 
     def render_new(
         self, csrf: str, name: str = "", preset: str = "", error: str = "", status_code: int = 200, kind: str = ""
@@ -310,7 +292,7 @@ decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url
         body = f"""<div><div class="breadcrumb"><a href="{esc(self.local("/account"))}">Vaults</a> › New vault</div>
 <h1>New vault</h1></div>
 {error_box(error)}
-{self.form_head(csrf, self.local("/account/vaults"), ' class="form"')}
+{form_head(csrf, self.local("/account/vaults"), ' class="form"')}
 <label class="field" for="vault-name">Name
 <input id="vault-name" type="text" name="name" value="{esc(name)}" maxlength="{NAME_MAX}" required autofocus>
 <span class="small muted">Address:
@@ -396,15 +378,8 @@ references. Every change is kept with who made it.</span></label>
             vault = self.store.create_vault(account.id, name, kind=kind)
         except VaultNameError as exc:
             return self.render_new(csrf, name, preset, str(exc), status_code=400, kind=kind)
-        await anyio.to_thread.run_sync(self.provision, vault, preset)
+        await anyio.to_thread.run_sync(provision_vault, self.sealed, vault, preset, self.vaults.dav_url)
         return RedirectResponse(self.vault_url(vault), status_code=303)
-
-    def provision(self, vault: Vault, preset: str) -> None:
-        backend, _ = self.sealed.for_vault(vault.id)
-        if vault.shared:
-            provision.initialize(backend, preset=preset if preset in SHARED_LAYOUTS else SHARED_PRESET)
-            return
-        provision.initialize(backend, preset=preset, welcome={"DAV_URL": self.vaults.dav_url})
 
     async def make_key(self, request: Request) -> Response:
         found = await self.submitted(request)
@@ -479,19 +454,15 @@ references. Every change is kept with who made it.</span></label>
             notice = error_box("Choose a zip file.")
             return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, 400))
         try:
-            counts = await anyio.to_thread.run_sync(self.import_upload, vault, upload.file)
+            counts = await anyio.to_thread.run_sync(import_zip, self.vaults.for_subject(vault.id).backend, upload.file)
         except (zipfile.BadZipFile, BadArchive) as exc:
             notice = error_box(str(exc) if isinstance(exc, BadArchive) else "That file is not a zip archive.")
             return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, 400))
         except LimitReached as exc:
             notice, status = error_box(f"Nothing was imported. {exc}"), exc.status
             return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, status))
-        notice = f'<div class="notice"><p>Imported: {esc(counts.summary())}.</p></div>'
+        notice = notice_box(f"Imported: {counts.summary()}.")
         return await anyio.to_thread.run_sync(self.render_vault, account, csrf, vault, notice)
-
-    def import_upload(self, vault: Vault, file: IO[bytes]) -> Imported:
-        with zipfile.ZipFile(file) as archive:
-            return import_files(self.vaults.for_subject(vault.id).backend, zip_source(archive))
 
     async def delete(self, request: Request) -> Response:
         found = await self.owned(request)
@@ -503,17 +474,11 @@ references. Every change is kept with who made it.</span></label>
         if " ".join(form.get("name", "").split()) != vault.name:
             notice = error_box(f"Type the vault's name, {vault.name}, to delete it.")
             return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, 400))
-        await anyio.to_thread.run_sync(self.erase, vault)
+        await anyio.to_thread.run_sync(erase_vault, self.vaults, self.sealed, vault)
         whose = " for every member, with its history" if vault.shared else ""
         gone = f"{vault.name} is deleted{whose}, with its notes, keys and connections."
-        notice = f'<div class="notice"><p>{esc(gone)}</p></div>'
+        notice = notice_box(gone)
         return await anyio.to_thread.run_sync(self.render_list, account, notice)
-
-    def erase(self, vault: Vault) -> int:
-        self.vaults.discard(vault.id)
-        deleted = delete_vault(self.sealed, vault, self.vaults.cache)
-        self.vaults.publish(vault.id, "gone")
-        return deleted
 
     def routes(self, prefix: str, limited: Callable) -> list[Route]:
         upload: ASGIApp = RequestBodyLimitMiddleware(request_response(self.upload), MAX_UPLOAD_BYTES)
@@ -547,3 +512,21 @@ def waiting_notice(waiting: list[Waiting]) -> str:
 
 async def to_account(request: Request) -> RedirectResponse:
     return RedirectResponse(request.url.path.rstrip("/") + "/account", status_code=303)
+
+
+def broken_box(text: str | None) -> str:
+    lines = broken_schema_lines(schema_from_text(text)) if text is not None else []
+    if not lines:
+        return ""
+    said = [f"<p>{esc(line)}</p>" for line in lines if not line.startswith("- ")]
+    items = "".join(f"<li>{esc(line.removeprefix('- '))}</li>" for line in lines if line.startswith("- "))
+    return f'<div class="notice">{"".join(said)}{f"<ul>{items}</ul>" if items else ""}</div>'
+
+
+def layout_options(selected: str) -> str:
+    return "".join(
+        f'<label class="option"><input type="radio" name="preset" value="{esc(name)}" required'
+        f"{' checked' if name == selected else ''}><b>{esc(PRESETS[name].title)}</b>"
+        f"<span>{esc(PRESETS[name].summary)}</span></label>"
+        for name in OFFERED
+    )

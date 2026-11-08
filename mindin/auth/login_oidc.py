@@ -9,9 +9,10 @@ from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
 from mindin.auth import OidcConfig
-from mindin.auth.hosted_web import client_address, esc, page
+from mindin.auth.hosted_web import client_address, page
+from mindin.auth.html import esc, hidden_field
 from mindin.auth.identities import Proof
-from mindin.auth.login import Login, hidden, next_field
+from mindin.auth.login import Login, next_field
 from mindin.auth.upstream import Upstream, UpstreamError
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ class OidcSignIn:
 
     def connect_form(self, csrf: str) -> str:
         return (
-            f'<form method="post" action="{esc(self.login.local("/signin/oidc"))}">{hidden("csrf", csrf)}'
+            f'<form method="post" action="{esc(self.login.local("/signin/oidc"))}">{hidden_field("csrf", csrf)}'
             f'<button type="submit" class="secondary">Add {esc(self.config.name)}</button></form>'
         )
 

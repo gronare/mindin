@@ -24,7 +24,8 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
-from mindin.auth.hosted_web import NO_STORE, client_address, esc
+from mindin.auth.hosted_web import NO_STORE, client_address
+from mindin.auth.html import esc
 from mindin.auth.identities import Proof
 from mindin.auth.login import Login
 

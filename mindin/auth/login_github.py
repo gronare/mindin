@@ -11,9 +11,10 @@ from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
 from mindin.auth import GithubConfig
-from mindin.auth.hosted_web import client_address, esc, page
+from mindin.auth.hosted_web import client_address, page
+from mindin.auth.html import esc, hidden_field
 from mindin.auth.identities import Proof
-from mindin.auth.login import Login, hidden, next_field
+from mindin.auth.login import Login, next_field
 from mindin.auth.upstream import pkce_challenge
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ class GithubSignIn:
 
     def connect_form(self, csrf: str) -> str:
         return (
-            f'<form method="post" action="{esc(self.login.local("/signin/github"))}">{hidden("csrf", csrf)}'
+            f'<form method="post" action="{esc(self.login.local("/signin/github"))}">{hidden_field("csrf", csrf)}'
             '<button type="submit" class="secondary">Add GitHub</button></form>'
         )
 

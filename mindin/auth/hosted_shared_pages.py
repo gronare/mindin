@@ -8,14 +8,13 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
-from mindin.auth.hosted_history import PAGE_ROWS, Change, History
+from mindin.auth.hosted_history import PAGE_ROWS, Change, History, NothingToRestore, restore_change
 from mindin.auth.hosted_keys import VaultFacts
 from mindin.auth.hosted_members import Invitations
 from mindin.auth.hosted_store import Account, Member, MembershipError
 from mindin.auth.hosted_vault_pages import VaultPages, ago, counted
 from mindin.auth.hosted_vaults import NAME_MAX, Vault
-from mindin.auth.hosted_web import error_box, esc, hidden_field
-from mindin.backends import NotFound
+from mindin.auth.html import button, error_box, esc, form_head, hidden_field, muted, notice_box, table
 from mindin.shared import WHAT_BELONGS, Actor
 
 if TYPE_CHECKING:
@@ -23,10 +22,6 @@ if TYPE_CHECKING:
 
 RECENT_ROWS = 5
 WEB_CLIENT = "the vault's web page"
-
-
-def notice_box(text: str) -> str:
-    return f'<div class="notice"><p>{esc(text)}</p></div>'
 
 
 class SharedPages:
@@ -92,7 +87,7 @@ is.{manage}</p></div>"""
 
     def change_list(self, account: Account, vault: Vault, changes: list[Change]) -> str:
         if not changes:
-            return '<p class="small muted">No changes yet. Every write, move and delete shows here.</p>'
+            return muted("No changes yet. Every write, move and delete shows here.")
         items = "".join(self.change_item(account, vault, change) for change in changes)
         return f'<ul class="plain history">{items}</ul>'
 
@@ -108,31 +103,26 @@ is.{manage}</p></div>"""
             action = ""
             if owner and member.invited:
                 action = (
-                    f"{self.pages.form_head(csrf, self.pages.vault_url(vault, '/members/withdraw'))}"
+                    f"{form_head(csrf, self.pages.vault_url(vault, '/members/withdraw'))}"
                     f"{hidden_field('email', member.email)}"
-                    f'<button type="submit" class="btn secondary small" aria-label="Withdraw {esc(member.email)}">'
-                    "Withdraw</button></form>"
+                    f"{button('Withdraw', 'btn secondary small', f'Withdraw {member.email}')}</form>"
                 )
             elif owner and member.role == "member" and member.account_id:
                 action = (
-                    f"{self.pages.form_head(csrf, self.pages.vault_url(vault, '/members/remove'))}"
+                    f"{form_head(csrf, self.pages.vault_url(vault, '/members/remove'))}"
                     f"{hidden_field('account', member.account_id)}"
-                    f'<button type="submit" class="btn secondary small" aria-label="Remove {esc(member.email)}">'
-                    "Remove</button></form>"
+                    f"{button('Remove', 'btn secondary small', f'Remove {member.email}')}</form>"
                 )
             cells = f'<td>{esc(member.email)}</td><td>{role}</td><td class="nowrap">{esc(last)}</td>'
             rows.append(f"<tr>{cells}<td>{action}</td></tr>" if owner else f"<tr>{cells}</tr>")
-        head = "<th>Member</th><th>Role</th><th>Last change</th>" + ("<th></th>" if owner else "")
-        return (
-            f'<div class="tablewrap"><table><thead><tr>{head}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
-        )
+        return table(["Member", "Role", "Last change", *([""] if owner else [])], rows)
 
     def members_section(self, account: Account, vault: Vault, csrf: str, members: list[Member]) -> str:
         table = self.member_rows(account, vault, csrf, members)
         if vault.account_id != account.id:
             return f'<div class="stack"><h2>Members</h2>{table}</div>'
         return f"""<div class="stack"><h2>Members</h2>{table}
-{self.pages.form_head(csrf, self.pages.vault_url(vault, "/members/invite"), ' class="row"')}
+{form_head(csrf, self.pages.vault_url(vault, "/members/invite"), ' class="row"')}
 <label class="field">Invite by email
 <input type="email" name="email" required maxlength="254" placeholder="name@example.com" autocomplete="off"></label>
 <button class="btn" type="submit">Send invitation</button></form>
@@ -145,7 +135,7 @@ ends the moment you remove them.</p></div>"""
             return f"""<div class="danger-zone"><h2>Leave this vault</h2>
 <p class="small muted">Your keys and connections to {name} stop at once. Your past changes stay in its history.</p>
 <details><summary class="btn danger">Leave {name}…</summary>
-{self.pages.form_head(csrf, self.pages.vault_url(vault, "/leave"))}
+{form_head(csrf, self.pages.vault_url(vault, "/leave"))}
 <button class="btn danger" type="submit">Leave this vault</button></form></details></div>"""
         others = [member for member in members if member.role == "member" and member.account_id]
         if others:
@@ -153,7 +143,7 @@ ends the moment you remove them.</p></div>"""
                 f'<option value="{esc(member.account_id)}">{esc(member.email)}</option>' for member in others
             )
             hand_over = f"""<details><summary class="btn secondary">Make owner…</summary>
-{self.pages.form_head(csrf, self.pages.vault_url(vault, "/hand-over"), ' class="stack"')}
+{form_head(csrf, self.pages.vault_url(vault, "/hand-over"), ' class="stack"')}
 <label class="field">The new owner<select name="account">{options}</select></label>
 <p class="small muted">You stay a member and can still read and write.</p>
 <div><button class="btn" type="submit">Make owner</button></div></form></details>"""
@@ -163,7 +153,7 @@ ends the moment you remove them.</p></div>"""
 <p class="small muted">Make another member the owner, or delete the vault for everyone.</p>
 <div class="row">{hand_over}
 <details><summary class="btn danger">Delete {name}…</summary>
-{self.pages.form_head(csrf, self.pages.vault_url(vault, "/delete"), ' class="stack"')}
+{form_head(csrf, self.pages.vault_url(vault, "/delete"), ' class="stack"')}
 <label class="field">Type {name} to confirm
 <input type="text" name="name" autocomplete="off" required maxlength="{NAME_MAX}"></label>
 <p class="small muted">Its notes, history, members, keys and connections go, for everyone.</p>
@@ -177,7 +167,7 @@ ends the moment you remove them.</p></div>"""
         return f"""<div class="danger-zone"><h2>Delete</h2>
 <p class="small muted">Deletes the vault for every member of the organisation.</p>
 <details><summary class="btn danger">Delete {name}…</summary>
-{self.pages.form_head(csrf, self.pages.vault_url(vault, "/delete"), ' class="stack"')}
+{form_head(csrf, self.pages.vault_url(vault, "/delete"), ' class="stack"')}
 <label class="field">Type {name} to confirm
 <input type="text" name="name" autocomplete="off" required maxlength="{NAME_MAX}"></label>
 <p class="small muted">Its notes, history, keys and connections go, for everyone.</p>
@@ -282,7 +272,7 @@ through what.</p></div>
             restore = f"""<div class="box" id="restore"><h2>Restore the previous version</h2>
 <p class="small muted">Writes the version from before this change back to {esc(change.path)} as a new change.
 Nothing in the history is lost.</p>
-{self.pages.form_head(csrf, self.change_url(vault, change, "/restore"))}
+{form_head(csrf, self.change_url(vault, change, "/restore"))}
 <button class="btn" type="submit">Restore previous</button></form></div>"""
         body = f"""<div><div class="breadcrumb"><a href="{esc(self.pages.local("/account"))}">Vaults</a> ›
 <a href="{esc(self.pages.vault_url(vault))}">{name}</a> ›
@@ -331,18 +321,12 @@ Nothing in the history is lost.</p>
         return await anyio.to_thread.run_sync(lambda: self.render(account, csrf, vault, notice, status))
 
     def restore_change(self, account: Account, vault: Vault, change_id: int) -> tuple[str, int]:
-        history = self.history(vault)
-        change = history.change(change_id)
-        if change is None or not change.restorable:
-            return error_box("That change has no previous version to restore."), 404
         backend = self.pages.vaults.for_subject(vault.id).backend
+        actor = Actor(account.email, account.id, WEB_CLIENT)
         try:
-            changed = history.restore(change, Actor(account.email, account.id, WEB_CLIENT), backend)
-        except NotFound:
-            return error_box("The previous version is no longer stored."), 404
-        if not changed:
-            return notice_box(f"{change.path} already reads as it did before that change."), 200
-        return notice_box(f"Restored {change.path} as it was before that change; that is a new change of its own."), 200
+            return notice_box(restore_change(self.history(vault), change_id, actor, backend)), 200
+        except NothingToRestore as exc:
+            return error_box(str(exc)), 404
 
     async def invite(self, request: Request) -> Response:
         found = await self.submitted_shared(request, owner=True)

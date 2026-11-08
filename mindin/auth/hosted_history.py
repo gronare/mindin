@@ -168,6 +168,23 @@ class History:
         return True
 
 
+class NothingToRestore(Exception):
+    pass
+
+
+def restore_change(history: History, change_id: int, actor: Actor, backend: VaultBackend) -> str:
+    change = history.change(change_id)
+    if change is None or not change.restorable:
+        raise NothingToRestore("That change has no previous version to restore.")
+    try:
+        changed = history.restore(change, actor, backend)
+    except NotFound as exc:
+        raise NothingToRestore("The previous version is no longer stored.") from exc
+    if not changed:
+        return f"{change.path} already reads as it did before that change."
+    return f"Restored {change.path} as it was before that change; that is a new change of its own."
+
+
 def text_of(data: bytes | None) -> str:
     if data is None:
         return ""

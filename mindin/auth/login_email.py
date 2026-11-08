@@ -16,9 +16,10 @@ from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
 from mindin.auth import SmtpConfig, mail
-from mindin.auth.hosted_web import client_address, esc, page
+from mindin.auth.hosted_web import client_address, page
+from mindin.auth.html import esc, hidden_field
 from mindin.auth.identities import Proof, addresses
-from mindin.auth.login import Login, hidden, next_field
+from mindin.auth.login import Login, next_field
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,8 @@ class EmailSignIn:
         if document is None:
             return expired()
         body = (
-            f'<form method="post" action="{esc(self.login.local("/signin/email/confirm"))}">{hidden("token", token)}'
+            f'<form method="post" action="{esc(self.login.local("/signin/email/confirm"))}">'
+            f"{hidden_field('token', token)}"
             '<button type="submit">Sign in</button></form>'
         )
         return page("Sign in", f"Sign in as {document['email']}.", body)

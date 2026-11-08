@@ -52,8 +52,8 @@ from mindin.auth.cimd import (
     is_metadata_url,
 )
 from mindin.auth.device import DEVICE_GRANT, DeviceFlow
-from mindin.auth.hosted_access import SupportAccess, SupportDesk
-from mindin.auth.hosted_deletion import SelfDeletion
+from mindin.auth.hosted_access import SupportAccess
+from mindin.auth.hosted_account_pages import SelfDeletion, SupportDesk
 from mindin.auth.hosted_keys import Keyring, SealedVaults, VaultKeys
 from mindin.auth.hosted_limits import Quotas, limits_document
 from mindin.auth.hosted_org_pages import OrganisationPages

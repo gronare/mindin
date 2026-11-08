@@ -13,8 +13,8 @@ from hosted_support import INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_
 from mindin import provision
 from mindin.auth import hosted_orgs, hosted_store
 from mindin.auth.hosted_access import SupportAccess
+from mindin.auth.hosted_deletion import delete_departed
 from mindin.auth.hosted_keys import SealedVaults, StillShared, VaultKeys, delete_account
-from mindin.auth.hosted_org_pages import delete_departed
 from mindin.auth.hosted_orgs import OrganisationError, Organisations, OrgDomain, clean_domain
 from mindin.auth.hosted_store import HostedStore, MembershipError
 from mindin.auth.identities import Identities, Proof

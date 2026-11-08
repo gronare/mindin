@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
     from mindin.auth import AuthConfig
     from mindin.auth.database import Connection, Database
-    from mindin.auth.hosted_deletion import SelfDeletion
+    from mindin.auth.hosted_account_pages import SelfDeletion
     from mindin.auth.hosted_keys import SealedVaults
     from mindin.auth.hosted_limits import StorageLimits
     from mindin.auth.hosted_orgs import Organisation

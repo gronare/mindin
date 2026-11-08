@@ -5,14 +5,15 @@ from __future__ import annotations
 from mindin.auth import MACHINE_KEY_PURPOSE, AuthConfig, auth_dir
 from mindin.auth.database import Connection, Database, has_table
 from mindin.auth.hosted import limited
-from mindin.auth.hosted_deletion import SelfDeletion
+from mindin.auth.hosted_account_pages import SelfDeletion
 from mindin.auth.hosted_keys import SealedVaults, VaultFacts
 from mindin.auth.hosted_limits import StorageLimits, with_defaults
 from mindin.auth.hosted_members import INVITATION_TTL
 from mindin.auth.hosted_orgs import Organisation
 from mindin.auth.hosted_store import Account, HostedStore, account_of, digest, scope_label
 from mindin.auth.hosted_vaults import Vault, rewrite_slugs
-from mindin.auth.hosted_web import Browser, esc, page
+from mindin.auth.hosted_web import Browser, page
+from mindin.auth.html import esc
 from mindin.auth.identities import Identities
 from mindin.auth.login_email import ADDRESS as EMAIL_ADDRESS
 from mindin.auth.login_email import Mailer, SmtpFactory

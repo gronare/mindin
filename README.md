@@ -24,7 +24,7 @@ You need Docker with Compose v2, a domain pointing at the machine, and ports 80 
 
 Without the script, on one machine: `uv tool install mindin`, then `mindin setup`.
 
-mindin asks before it shares anonymous usage data, and sends nothing until you say yes: then, once a day, a random install id, mindin's version, the OS and CPU type and how mindin runs (plugin, CLI or server) go to signals.mindin.dev, never notes, names, paths or your vault's address. `mindin setup --signals yes|no` changes the answer. [The install signal](https://github.com/gronare/mindin/blob/main/docs/reference/install-signal.md) has the details.
+mindin asks before it shares anonymous usage data, and sends nothing until you say yes: then, once a day, a random install id, mindin's version, the OS and CPU type and how mindin runs (plugin, CLI or server) go to signals.mindin.dev, never notes, names, paths or your vault's address. `mindin setup --signals yes|no` changes the answer. [Configuration](https://github.com/gronare/mindin/blob/main/docs/reference/configuration.md#install-signal) has the setting.
 
 ## Use
 

@@ -19,7 +19,7 @@ mindin about [--json]                   # name, version and the commands for too
 
 `move` copies this machine's vault to the place it names, reads every file back to check it, and then saves that place as `setup` would; the old place is left as it was. [Move a vault](../how-to/move-a-vault.md) shows each direction.
 
-In a terminal, `setup` also asks once whether to share anonymous usage data, the [install signal](install-signal.md); an empty answer is no. The answer is saved as `[signals] install = true` or `false`, and `setup` asks again only while it is missing. `--signals yes|no` gives the answer from a script, and alone it changes only that.
+In a terminal, `setup` also asks once whether to share anonymous usage data, the [install signal](configuration.md#install-signal); an empty answer is no. The answer is saved as `[signals] install = true` or `false`, and `setup` asks again only while it is missing. `--signals yes|no` gives the answer from a script, and alone it changes only that.
 
 `about --json` prints the [contract](agent-commands.md#about) tools read.
 

@@ -46,7 +46,6 @@ Keeping a vault tidy:
 - [Hooks](reference/hooks.md): `session-start` and `stop`.
 - [The schema file](reference/schema.md): `.vault/schema.yml`.
 - [Device flow](reference/device-flow.md): signing a tool in without a browser.
-- [The install signal](reference/install-signal.md): the anonymous usage data mindin shares after a yes, and how to change the answer.
 - [Extensions](reference/extensions.md): adding tables, pages, routes and commands to a server from a package of your own.
 
 ## Explanation

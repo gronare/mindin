@@ -67,6 +67,7 @@ class ForwardedConfig:
     write_claims: tuple[str, ...] = (WRITE_SCOPE,)
     read_claims: tuple[str, ...] = (READ_SCOPE,)
     name: str = "your company's sign-in"
+    audiences: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -265,4 +266,5 @@ def forwarded_config() -> ForwardedConfig | None:
         write_claims=_words("VAULT_IDENTITY_WRITE_CLAIMS", (WRITE_SCOPE,)),
         read_claims=_words("VAULT_IDENTITY_READ_CLAIMS", (READ_SCOPE,)),
         name=_text("VAULT_IDENTITY_NAME") or ForwardedConfig.name,
+        audiences=_words("VAULT_IDENTITY_AUDIENCE", ()),
     )

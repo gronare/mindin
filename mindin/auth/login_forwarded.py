@@ -59,7 +59,7 @@ class ForwardedSignIn:
                 key=self.config.public_key,
                 algorithms=ALGORITHMS,
                 issuer=self.config.issuer,
-                audience=self.login.config.public_host,
+                audience=[self.login.config.public_host, *self.config.audiences],
                 options={"require": ["exp", "sub", "iss", "aud"]},
             )
         except jwt.PyJWTError as exc:

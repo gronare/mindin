@@ -7,6 +7,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 ### What's new
 - An organisation lets everyone at its email domain in on their first sign-in.
 - An admin can lock an organisation's vault so only its editors write.
+- A trusted proxy's identity token can name the proxy's own host, listed in `VAULT_IDENTITY_AUDIENCE`.
 - `mindin accounts import` leaves `.git/` and Mac leftovers behind, and `--dry-run` lists what it would do.
 - Extensions can add background work, storage limits and an email-link check.
 - Extensions can decide on every new account.

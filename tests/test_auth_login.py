@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import httpx2
@@ -455,6 +456,31 @@ async def test_a_forged_or_unentitled_forwarded_identity_is_refused(
     assert forged.status_code == 403
     assert unentitled.status_code == 403
     assert uninvited.status_code == 403 and uninvited.json()["error"] == "no_account"
+
+
+@pytest.mark.anyio
+async def test_a_forwarded_identity_for_another_listed_host_is_accepted_and_an_unlisted_one_refused(
+    vaults: SubjectVaults, tmp_path: Path, proxy: Proxy
+):
+    listed = replace(forwarded(proxy), audiences=("team.proxy.example", "other.proxy.example"))
+    async with hosted(vaults, tmp_path, forwarded=listed) as site, site.browser() as http:
+        site.invite("user1042@example.com")
+        own_host = await post_with(http, proxy.token("1042"))
+        proxy_host = await post_with(http, proxy.token("1042", aud="team.proxy.example"))
+        unlisted = await post_with(http, proxy.token("1042", aud="elsewhere.example"))
+    assert own_host.status_code == 200, own_host.text
+    assert proxy_host.status_code == 200, proxy_host.text
+    assert unlisted.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_a_forwarded_identity_for_another_host_is_refused_unless_listed(
+    vaults: SubjectVaults, tmp_path: Path, proxy: Proxy
+):
+    async with hosted(vaults, tmp_path, forwarded=forwarded(proxy)) as site, site.browser() as http:
+        site.invite("user1042@example.com")
+        refused = await post_with(http, proxy.token("1042", aud="team.proxy.example"))
+    assert refused.status_code == 403
 
 
 @pytest.mark.anyio

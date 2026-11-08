@@ -27,7 +27,7 @@ Register one confidential client with the callback above, and set the issuer, cl
 When a proxy in front authenticates people and forwards a signed identity token (the pattern Cloudflare Access uses), the server verifies it with `VAULT_IDENTITY_PUBLIC_KEY` (PEM, RS256 or ES256, raw or base64 on one line) and signs that person in, MCP requests included.
 
 - The token arrives in `X-Forwarded-Identity` (`VAULT_IDENTITY_HEADER`).
-- It needs `iss`, `sub`, `exp` and an `aud` naming this server's host.
+- It needs `iss`, `sub`, `exp` and an `aud` naming this server's host. When the proxy has a host of its own that clients connect to, and names that host in `aud`, list it in `VAULT_IDENTITY_AUDIENCE`. The account pages and WebDAV stay on `VAULT_PUBLIC_URL`, signed in another way, such as your identity provider.
 - It carries an entitlement in its `entitlements` list or its `scope`: `vault:write` or `vault:read` by default (`VAULT_IDENTITY_WRITE_CLAIMS`, `VAULT_IDENTITY_READ_CLAIMS`). A token with neither is refused.
 - `VAULT_IDENTITY_TYP` pins its `typ`, and `VAULT_IDENTITY_NAME` labels the button.
 

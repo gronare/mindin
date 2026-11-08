@@ -10,7 +10,7 @@ Memory for Claude and coding agents, kept as markdown notes you own, with a sche
 curl -fsSL https://mindin.dev/install.sh | sh
 ```
 
-It installs the `mindin` command with [uv](https://docs.astral.sh/uv/), asks where your vault lives (a folder, an S3 bucket or a vault server), and offers to add the vault to Claude Code, Codex and Cursor; it changes nothing in them without a yes. mindin was called notes-vault-mcp: the `notes-vault-mcp` package and command still work, and install and run mindin.
+It installs the `mindin` command with [uv](https://docs.astral.sh/uv/), asks where your vault lives (a folder, an S3 bucket or a vault server), and offers to add the vault to Claude Code, Codex and Cursor; it changes nothing in them without a yes. The `notes-vault-mcp` package and command install and run mindin too.
 
 ### A vault server
 

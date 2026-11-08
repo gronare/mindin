@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 SCHEMA_KEY = ".vault/schema.yml"
+PREVIOUS_SCHEMA_KEY = ".vault/schema.previous.yml"
 MUST_NOT_EXIST = "*"
 NOTE_SUFFIXES = (".md", ".base")
 FETCH_WORKERS = 16

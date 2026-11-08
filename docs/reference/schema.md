@@ -57,6 +57,27 @@ folders:
 
 `root_description` is the vault root's line in the same list. `backlog.folder` names which folder of kind `task` holds the backlog when there are several.
 
+## Bundle
+
+`bundle` tells every agent that works in the vault the same thing. The server adds it to the vault's instructions and to the `rules` tool's answer, so each member's Claude reads it from the vault itself. The wiki layout ships one.
+
+```yaml
+bundle:
+  instructions: |-
+    Write a page here once the work behind it is finished, after the user said yes to the draft.
+  session:
+    folders: [Areas, Guides, Decisions]
+    limit: 5
+```
+
+| Key | Meaning |
+| --- | --- |
+| `instructions` | When to write to this vault and how, in the agent's words. |
+| `session.folders` | The folders whose pages session start shows when their `repos` name the repo. |
+| `session.limit` | At most this many pages, 5 when left out. |
+
+In a shared vault, the schema and its bundle are changed by the vault's owner or an organisation admin, over WebDAV like any file in the vault. The server refuses a schema that does not hold or that names a personal layout, and keeps the one it replaces as `.vault/schema.previous.yml`. Members' writes to it are refused.
+
 ## Other keys
 
 | Key | Built-in default | Meaning |

@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from mindin.backends import SCHEMA_KEY, VaultBackend
+from mindin.bundle import bundle_problems, bundle_text
 from mindin.presets import DEFAULT_PRESET, PRESETS, base_preset, preset_data, template
 
 CLAIM_KEY = "kebbie"
@@ -371,6 +372,7 @@ def schema_problems(data: Any) -> list[str]:
                 problems.append(problem)
     _mapping(data.get("backlog"), ["backlog"], problems)
     _mapping(data.get("task"), ["task"], problems)
+    problems += bundle_problems(data)
     if problems:
         return problems
     return _contract_problems(Schema(data))
@@ -566,7 +568,7 @@ Workflow:
 `search` excludes the archive and superseded notes unless you ask for them, and says how many it hid.
 A wikilink [[stem]] is a search on the stem: that note comes first, even from the archive.
 {language}
-"""
+{bundle_text(schema)}"""
 
 
 def shared_instructions(schema: Schema, name: str) -> str:
@@ -578,6 +580,11 @@ def shared_instructions(schema: Schema, name: str) -> str:
     )
     tags = ", ".join(schema.tag_vocabulary)
     vocabulary = f"Tags come from this vocabulary: {tags}." if tags else "Tags are free-form."
+    write_step = (
+        "3. Write here only as this vault's own rules, below, say."
+        if bundle_text(schema)
+        else "3. Write a howto, decision, reference or trap in Resources/ when something is learned that others need."
+    )
     return f"""\
 This is {name}, a shared vault. Its owner and the members they invite read and write it, every change
 applies at once, and each one is kept with who made it, so it can be shown and restored.
@@ -601,11 +608,11 @@ Workflow:
    it too. `context` (path, repo) returns the system notes for the code you are about to touch.
 2. Correct a system note in place when the code or the facts change; it describes the present, never
    the history, which the server keeps.
-3. Write a howto, decision, reference or trap in Resources/ when something is learned that others need.
+{write_step}
 4. When a note no longer holds, `close` it with merged_into the note that replaces it; it moves to the
    archive.
 
 `search` excludes the archive and superseded notes unless you ask for them, and says how many it hid.
 A wikilink [[stem]] is a search on the stem: that note comes first, even from the archive.
 {_language_line(schema)}
-"""
+{bundle_text(schema)}"""

@@ -111,7 +111,7 @@ def build_server(
             return f"{exc}\n\n{general}"
         except VaultError:
             return general
-        return shared_instructions(vault.schema, vault.rules.name) if vault.rules is not None else general
+        return vault_rules(vault) if vault.rules is not None else general
 
     answer_instructions_per_vault(server, instructions_now)
 
@@ -483,6 +483,17 @@ def build_server(
             )
 
     @server.tool(
+        name="rules",
+        description=(
+            "CHEAP — a vault's own rules for agents: its folders, the frontmatter contract, when and how to write "
+            "there, and what session start shows from it. Read them before the first write to a vault reached "
+            "through `vault`; for this session's vault they are the server's instructions." + vault_note
+        ),
+    )
+    def rules_tool(vault: str | None = None) -> str:
+        return run(vault_rules, vault_slug=vault)
+
+    @server.tool(
         name="whoami",
         description="CHEAP — who this connection signs in as and whether it may write. Answers JSON.",
     )
@@ -540,6 +551,12 @@ def build_server(
             return run(lambda vault: _obsidian_access(personal_tokens, dav_url), write=True)
 
     return server
+
+
+def vault_rules(vault: Vault) -> str:
+    return (
+        shared_instructions(vault.schema, vault.rules.name) if vault.rules is not None else instructions(vault.schema)
+    )
 
 
 def _init(vault: Vault, force: bool, preset: str | None) -> str:

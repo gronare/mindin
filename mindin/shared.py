@@ -6,10 +6,10 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from mindin.backends import SCHEMA_KEY, Entry, NotFound, VaultBackend, VaultError, delete_checked
+from mindin.backends import PREVIOUS_SCHEMA_KEY, SCHEMA_KEY, Entry, NotFound, VaultBackend, VaultError, delete_checked
 from mindin.frontmatter import FrontmatterError, parse
-from mindin.presets import SHARED_PRESET
-from mindin.schema import Schema, load_schema
+from mindin.presets import SHARED_LAYOUTS, SHARED_PRESET
+from mindin.schema import Schema, schema_from_text
 
 CURRENT_KINDS = ("system", "howto", "decision", "reference", "trap")
 FOLDER_KINDS: dict[str, tuple[str, ...]] = {
@@ -67,6 +67,10 @@ def recorded(key: str) -> bool:
     return not key.endswith("/") and not any(segment.startswith(".") for segment in key.split("/"))
 
 
+def in_layout(key: str) -> bool:
+    return key.split("/", 1)[0] == ".vault"
+
+
 @dataclass(frozen=True)
 class SharedRules:
     name: str
@@ -97,7 +101,10 @@ class SharedRules:
 
     def check_write(self, key: str, data: bytes, schema: Schema) -> None:
         if key == SCHEMA_KEY or key.startswith(".vault/"):
-            raise SharedRefusal(f"{key} is refused: the layout of the shared vault {self.name} is fixed.")
+            raise SharedRefusal(
+                f"{key} is refused: the layout of the shared vault {self.name} is fixed for its members; its "
+                "owner or an organisation admin changes it."
+            )
         if not recorded(key) or not key.endswith(".md"):
             return
         try:
@@ -132,9 +139,11 @@ class SharedBackend:
         recorder: Recorder,
         guard: Callable[[Actor], str] | None = None,
         layout: str = SHARED_PRESET,
+        edits_layout: Callable[[Actor], bool] | None = None,
     ) -> None:
         self.inner = inner
         self.layout = layout
+        self.edits_layout = edits_layout
         self.rules = rules
         self.recorder = recorder
         self.guard = guard
@@ -159,7 +168,7 @@ class SharedBackend:
         return self.inner.get_bytes(key)
 
     def mkdir(self, key: str) -> None:
-        self.allowed()
+        self.guard_layout(self.allowed(), key)
         self.inner.mkdir(key)
 
     def forget_listing(self) -> None:
@@ -177,20 +186,56 @@ class SharedBackend:
     def put_bytes(self, key: str, data: bytes, content_type: str | None = None) -> str:
         return self.put_checked(key, data)
 
-    def schema(self) -> Schema:
-        return load_schema(self.inner)
+    def layout_editor(self, actor: Actor) -> bool:
+        return self.edits_layout is not None and self.edits_layout(actor)
+
+    def guard_layout(self, actor: Actor, *keys: str) -> None:
+        if any(in_layout(key) for key in keys) and not self.layout_editor(actor):
+            raise SharedRefusal(
+                f"{next(key for key in keys if in_layout(key))} is refused: the layout of the shared vault "
+                f"{self.rules.name} is fixed for its members; its owner or an organisation admin changes it."
+            )
+
+    def stored_schema(self) -> Schema:
+        stored = self.previous(SCHEMA_KEY)
+        if stored is None:
+            raise SharedRefusal(
+                f"The shared vault {self.rules.name} has no {SCHEMA_KEY}, so it takes no writes until its owner or "
+                "an organisation admin puts the schema back. Nothing was written."
+            )
+        return schema_from_text(stored.decode("utf-8", "replace"))
 
     def put_checked(self, key: str, data: bytes, expected_version: str | None = None, content_type: str = "") -> str:
         actor = self.allowed()
-        self.rules.check_write(key, data, self.schema())
+        if key == SCHEMA_KEY and self.layout_editor(actor):
+            return self.put_layout(data, expected_version)
+        self.rules.check_write(key, data, self.stored_schema())
         before = self.previous(key) if recorded(key) else None
         version = self.inner.put_checked(key, data, expected_version)
         if recorded(key) and before != data:
             self.recorder.record(actor, "created" if before is None else "updated", key, before, data)
         return version
 
+    def put_layout(self, data: bytes, expected_version: str | None) -> str:
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise SharedRefusal(f"{SCHEMA_KEY} must be UTF-8 text.") from exc
+        schema = schema_from_text(text)
+        problems = list(schema.problems) + list(schema.notices)
+        if schema.preset not in SHARED_LAYOUTS:
+            problems.append(f"preset must stay one of the shared layouts: {', '.join(SHARED_LAYOUTS)}")
+        if problems:
+            listed = "\n".join(f"- {problem}" for problem in problems)
+            raise SharedRefusal(f"{SCHEMA_KEY} is refused for the shared vault {self.rules.name}:\n{listed}")
+        previous = self.previous(SCHEMA_KEY)
+        if previous is not None and previous != data:
+            self.inner.put_checked(PREVIOUS_SCHEMA_KEY, previous)
+        return self.inner.put_checked(SCHEMA_KEY, data, expected_version)
+
     def delete(self, key: str) -> None:
         actor = self.allowed()
+        self.guard_layout(actor, key)
         before = self.previous(key) if recorded(key) else None
         self.inner.delete(key)
         if before is not None:
@@ -198,6 +243,7 @@ class SharedBackend:
 
     def delete_checked(self, key: str, expected_version: str) -> None:
         actor = self.allowed()
+        self.guard_layout(actor, key)
         before = self.previous(key) if recorded(key) else None
         delete_checked(self.inner, key, expected_version)
         if before is not None:
@@ -205,8 +251,9 @@ class SharedBackend:
 
     def move(self, src: str, dst: str) -> None:
         actor = self.allowed()
+        self.guard_layout(actor, src, dst)
         data, _ = self.inner.get_bytes(src)
-        self.rules.check_write(dst, data, self.schema())
+        self.rules.check_write(dst, data, self.stored_schema())
         self.inner.move(src, dst)
         if recorded(src) or recorded(dst):
             self.recorder.record(actor, "moved", dst, data, data, from_path=src)

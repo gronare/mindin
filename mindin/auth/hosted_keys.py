@@ -224,7 +224,25 @@ class SealedVaults:
             return backend, identifier
         guard = partial(self.write_refusal, vault.id)
         layout = self.layout(vault.id)
-        return SharedBackend(backend, SharedRules(vault.name), self.history(vault.id), guard, layout), identifier
+        editor = partial(self.edits_layout, vault.id)
+        rules = SharedRules(vault.name)
+        return SharedBackend(backend, rules, self.history(vault.id), guard, layout, editor), identifier
+
+    def edits_layout(self, vault_id: str, actor: Actor) -> bool:
+        if actor.account_id is None:
+            return False
+        with self.store.connect() as connection:
+            owner = connection.execute(
+                "SELECT 1 FROM vaults WHERE id = ? AND account_id = ?", (vault_id, actor.account_id)
+            )
+            admin = connection.execute(
+                "SELECT 1 FROM organisation_vaults JOIN organisation_members"
+                " ON organisation_members.organisation_id = organisation_vaults.organisation_id"
+                " WHERE organisation_vaults.vault_id = ? AND organisation_members.account_id = ?"
+                " AND organisation_members.role = 'admin'",
+                (vault_id, actor.account_id),
+            )
+            return owner.fetchone() is not None or admin.fetchone() is not None
 
     def layout(self, vault_id: str) -> str:
         with self.store.connect() as connection:

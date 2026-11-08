@@ -7,6 +7,7 @@
 | `backlog` | cheap | The backlog by priority then age, filtered by `area` and `priority`. |
 | `list_files` | cheap | Paths only. Takes `vault`, like `read_file`. |
 | `whoami` | cheap | The account a connection signs in as and whether it may write. |
+| `rules` | cheap | A vault's rules for agents: its folders, the frontmatter contract and its [bundle](schema.md#bundle). Takes `vault`, like `read_file`. |
 | `read_file` | moderate | One note, prefixed with `etag: <version>`. A superseded note carries a warning callout. `vault` reads from another vault the connection reaches, named as search rows name it. |
 | `lint` | moderate | Reads every note and reports drift. |
 | `write_file` | write | Validates against the schema and refuses the write if it does not hold. Stamps `updated`, fills `date`. `expected_etag` makes the write conditional; `"*"` creates a note that must not exist yet. Only `.md` notes outside dot-folders are written. `vault` writes to another vault the connection reaches. |

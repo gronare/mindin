@@ -39,3 +39,17 @@ search:
   body_weight: 1.0
   stem_weight: 20.0
   stemmed_weight: 0.5
+bundle:
+  instructions: |-
+    A page here is finished work that the whole organisation reads. Write one at four moments, each time after the user said yes to the draft:
+    - a project is finished: its summary in Projects/ (what was built and why), and a guide in Guides/ for what others will use;
+    - an issue or task is closed with something worth keeping: a guide in Guides/, or a correction to the area's page in Areas/;
+    - a decision is taken at the start of a project: a page in Decisions/ with the choice, the alternatives dropped and why, written before the build starts;
+    - an incident is closed: a review in Incidents/ with what happened, the cause, the fix and how to avoid it.
+    To write one:
+    1. Search this vault first. When a page covers the same thing, update that page.
+    2. Draft the page with team, author (the user's name), area (its page in Areas/, as [[stem]]) and repos (the repos it covers). Show the draft to the user and write it on an explicit yes.
+    3. Tasks, plans, logs and work in progress go in the user's own vault.
+  session:
+    folders: [Areas, Guides, Decisions]
+    limit: 5

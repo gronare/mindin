@@ -12,6 +12,8 @@ What each mindin release brings, one line per change, as you would tell someone 
 - `search` covers a member's own vault and the organisation's vaults, each row labelled with its vault.
 - `read_file`, `list_files`, `write_file` and `append_file` take `vault` to reach another vault.
 - Session start lists up to five organisation pages about the repo.
+- The `rules` tool gives every member's Claude the rules a vault's schema carries.
+- Only the owner or an organisation admin changes a shared vault's schema, and without one it takes no writes.
 - A trusted proxy's identity token can name the proxy's own host, listed in `VAULT_IDENTITY_AUDIENCE`.
 - `mindin accounts import` leaves `.git/` and Mac leftovers behind, and `--dry-run` lists what it would do.
 - Extensions can add background work, storage limits and an email-link check.

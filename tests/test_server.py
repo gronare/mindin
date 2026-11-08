@@ -25,6 +25,7 @@ TOOL_NAMES = {
     "lint",
     "init",
     "whoami",
+    "rules",
 }
 
 

@@ -5,7 +5,7 @@ from datetime import date
 
 import yaml
 
-from mindin.backends import MUST_NOT_EXIST, SCHEMA_KEY, NotFound, VaultBackend, VersionConflict
+from mindin.backends import MUST_NOT_EXIST, PREVIOUS_SCHEMA_KEY, SCHEMA_KEY, NotFound, VaultBackend, VersionConflict
 from mindin.presets import (
     DEFAULT_PRESET,
     PRESETS,
@@ -20,7 +20,6 @@ from mindin.schema import Schema, deep_merge
 BASES = PRESETS[DEFAULT_PRESET].files
 TEMPLATES = ("schema.yml", *BASES)
 WELCOME_KEY = "Welcome.md"
-PREVIOUS_SCHEMA_KEY = ".vault/schema.previous.yml"
 
 
 @dataclass

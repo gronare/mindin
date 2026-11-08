@@ -5,15 +5,16 @@ from pathlib import Path
 
 import pytest
 import yaml
-from hosted_support import Hosted, call_tool, csrf_of, hosted, text_of
+from hosted_support import INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_session, post_mcp, sse_payload, text_of
 
 from mindin import notes, provision
 from mindin.auth.hosted_keys import SealedVaults, VaultKeys
 from mindin.auth.hosted_orgs import Organisations
-from mindin.backends import SCHEMA_KEY
+from mindin.backends import PREVIOUS_SCHEMA_KEY, SCHEMA_KEY
 from mindin.backends.local import LocalBackend
-from mindin.presets import OFFERED, PERSONAL_LAYOUTS, PRESETS
-from mindin.schema import load_schema
+from mindin.bundle import SessionRules, bundle_of
+from mindin.presets import OFFERED, PERSONAL_LAYOUTS, PRESETS, preset_data
+from mindin.schema import Schema, load_schema, schema_problems, shared_instructions
 from mindin.vault import SubjectVaults, Vault
 
 FOLDERS = ["Areas", "Teams", "Guides", "Decisions", "Projects", "Incidents", "Archive"]
@@ -162,3 +163,104 @@ async def test_an_organisation_vault_made_without_a_layout_opens_as_a_wiki(site:
         await site.sign_in(ada, "ada@acme.test")
         guide = await write(site, ada, key(site, "ada@acme.test"), "Guides/adding-a-payment-method.md", GUIDE)
     assert not guide.get("isError"), text_of(guide)
+
+
+def test_the_wiki_bundle_says_when_to_write_and_what_session_start_shows():
+    schema = Schema(preset_data("wiki"))
+    bundle = bundle_of(schema)
+    assert bundle.session == SessionRules(("Areas", "Guides", "Decisions"), 5)
+    assert bundle.session.shows("Guides/adding-a-payment-method.md") and not bundle.session.shows("Teams/payments.md")
+    assert "explicit yes" in bundle.instructions and "Search this vault first" in bundle.instructions
+    told = shared_instructions(schema, "Wiki")
+    assert "3. Write here only as this vault's own rules, below, say." in told
+    assert told.endswith(
+        "At session start, `context` shows at most 5 pages from Areas/, Guides/, Decisions/ whose `repos` name the "
+        "repo being worked in.\n"
+    )
+    assert "own rules" not in shared_instructions(Schema(preset_data("shared")), "Club")
+
+
+def test_a_bundle_that_does_not_hold_names_each_problem():
+    data = preset_data("wiki")
+    data["bundle"] = {"instructions": ["no"], "session": {"folders": ["Nowhere"], "limit": 0}, "extra": 1}
+    assert schema_problems(data) == [
+        "bundle has unknown keys extra; it takes instructions, session",
+        "bundle.instructions must be text",
+        "bundle.session.folders names 'Nowhere', which is not one of the folders",
+        "bundle.session.limit must be a whole number, 1 or more",
+    ]
+
+
+async def org_with_wiki(site: Hosted, http) -> None:
+    organisation = Organisations(site.store, site.clock).create("Acme", "ada@acme.test")
+    Organisations(site.store, site.clock).add_member(organisation, "cy@acme.test")
+    await site.sign_in(http, "ada@acme.test")
+    settings = await http.get(f"/account/organisation/{organisation.id}")
+    made = await http.post(
+        f"/account/organisation/{organisation.id}/vaults",
+        data={"csrf": csrf_of(settings.text), "name": "Wiki", "slug": "wiki"},
+    )
+    assert made.status_code == 200, made.text
+
+
+def own_key(site: Hosted, email: str) -> str:
+    account = site.store.account(email)
+    vault = site.store.first_vault(account.id)
+    return site.store.create_key(account.id, "cli", ["vault:read", "vault:write"], purpose="device", vault_id=vault.id)
+
+
+@pytest.mark.anyio
+async def test_every_member_gets_the_wikis_rules_from_the_wiki_and_from_their_own_session(site: Hosted):
+    async with site.browser() as ada, site.browser() as cy:
+        await org_with_wiki(site, ada)
+        await site.sign_in(cy, "cy@acme.test")
+        secret = own_key(site, "cy@acme.test")
+        wiki_rules, own_rules = await in_one_session(cy, secret, [("rules", {"vault": "wiki"}), ("rules", {})])
+        opened = await post_mcp(cy, key(site, "cy@acme.test"), INITIALIZE, path="/mcp?vault=wiki")
+    told = sse_payload(opened.text)["result"]["instructions"]
+    assert "This vault's own rules:" in text_of(wiki_rules) and "write it on an explicit yes" in text_of(wiki_rules)
+    assert "This vault's own rules:" in told and "Guides/" in told
+    assert "own rules" not in text_of(own_rules) and "Projects/ — Open work" not in text_of(wiki_rules)
+
+
+@pytest.mark.anyio
+async def test_an_organisation_admin_edits_the_wikis_rules_and_a_member_cannot(site: Hosted):
+    edited = provision.template("presets/wiki/schema.yml").replace(
+        "A page here is finished work", "Ask the team lead first. A page here is finished work"
+    )
+    async with site.browser() as ada, site.browser() as cy:
+        await org_with_wiki(site, ada)
+        await site.sign_in(cy, "cy@acme.test")
+        admin_key, member_key = key(site, "ada@acme.test"), key(site, "cy@acme.test")
+        member = await cy.put(f"/dav/vault/{SCHEMA_KEY}", content=edited.encode(), headers=basic(member_key))
+        personal = await ada.put(
+            f"/dav/vault/{SCHEMA_KEY}", content=b"version: 1\npreset: para\n", headers=basic(admin_key)
+        )
+        admin = await ada.put(f"/dav/vault/{SCHEMA_KEY}", content=edited.encode(), headers=basic(admin_key))
+        rules = await call_tool(cy, member_key, "rules", {}, path="/mcp?vault=wiki")
+        previous = await cy.get(f"/dav/vault/{PREVIOUS_SCHEMA_KEY}", headers=basic(member_key))
+    assert member.status_code == 403 and "its owner or an organisation admin changes it" in member.text
+    assert personal.status_code == 403 and "preset must stay one of the shared layouts" in personal.text
+    assert admin.status_code in (200, 201, 204), admin.text
+    assert "Ask the team lead first." in text_of(rules)
+    assert previous.status_code == 200 and "Ask the team lead" not in previous.text
+
+
+def basic(secret: str) -> dict[str, str]:
+    return {"Authorization": "Basic " + base64.b64encode(f"member:{secret}".encode()).decode()}
+
+
+async def in_one_session(http, token: str, calls: list[tuple[str, dict]]) -> list[dict]:
+    session = await open_session(http, token, "/mcp")
+    answers = []
+    for number, (name, arguments) in enumerate(calls, 2):
+        body = {
+            "jsonrpc": "2.0",
+            "id": number,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        }
+        response = await post_mcp(http, token, body, session, "/mcp")
+        assert response.status_code == 200, response.text
+        answers.append(sse_payload(response.text)["result"])
+    return answers

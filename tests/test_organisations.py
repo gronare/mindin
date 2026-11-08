@@ -9,6 +9,7 @@ import httpx2
 import pytest
 from hosted_support import INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_session, post_mcp, sse_payload, text_of
 
+from mindin import provision
 from mindin.auth import hosted_orgs, hosted_store
 from mindin.auth.hosted_access import SupportAccess
 from mindin.auth.hosted_keys import SealedVaults, VaultKeys, delete_account
@@ -16,8 +17,11 @@ from mindin.auth.hosted_org_pages import delete_departed
 from mindin.auth.hosted_orgs import OrganisationError, Organisations, OrgDomain, clean_domain
 from mindin.auth.hosted_store import HostedStore, MembershipError
 from mindin.auth.identities import Identities, Proof
+from mindin.backends import SCHEMA_KEY
+from mindin.backends.local import LocalBackend
 from mindin.cli import main
 from mindin.extensions import Extension
+from mindin.shared import Actor, SharedBackend, SharedRefusal, SharedRules, acting_as
 from mindin.vault import SubjectVaults
 
 FRONT = "date: 2026-11-01\nupdated: 2026-11-01\nstatus: active\n"
@@ -410,6 +414,63 @@ async def test_org_vaults_take_no_invitations_and_cannot_be_left(site: Hosted):
         )
     assert left.status_code == 409 and invited.status_code == 409
     assert "Send invitation" not in owner_page.text and "Every member of Acme reaches this vault" in owner_page.text
+
+
+@pytest.mark.anyio
+async def test_a_member_neither_moves_nor_deletes_the_vaults_layout_over_webdav(site: Hosted):
+    ada, bea = await company(site)
+    async with ada, bea, site.browser() as cy:
+        await site.sign_in(cy, "cy@acme.test")
+        member = basic(key(site, "cy@acme.test"), "cy")
+        await cy.put("/dav/vault/Resources/deploys.md", content=DEPLOY.encode(), headers=member)
+        moved = await cy.request(
+            "MOVE", f"/dav/vault/{SCHEMA_KEY}", headers={**member, "Destination": "/dav/vault/Areas/schema.md"}
+        )
+        moved_in = await cy.request(
+            "MOVE", "/dav/vault/Resources/deploys.md", headers={**member, "Destination": f"/dav/vault/{SCHEMA_KEY}"}
+        )
+        deleted = await cy.delete(f"/dav/vault/{SCHEMA_KEY}", headers=member)
+        folder = await cy.delete("/dav/vault/.vault/", headers=member)
+        schema = await cy.get(f"/dav/vault/{SCHEMA_KEY}", headers=member)
+    assert [moved.status_code, moved_in.status_code, deleted.status_code, folder.status_code] == [403] * 4
+    assert schema.status_code == 200 and b"preset: shared" in schema.content
+
+
+def test_only_a_layout_editor_deletes_moves_or_makes_folders_under_the_vaults_layout(tmp_path: Path):
+    inner = LocalBackend(tmp_path / "vault")
+    provision.initialize(inner, preset="shared")
+    inner.put("Areas/orchard.md", DEPLOY.replace("kind: howto", "kind: system"))
+    admin = Actor("ada@acme.test", "acc_ada", "laptop")
+    member = Actor("cy@acme.test", "acc_cy", "laptop")
+    backend = SharedBackend(inner, SharedRules("Wiki"), NoHistory(), edits_layout=lambda actor: actor == admin)
+    _, version = inner.get(SCHEMA_KEY)
+    with acting_as(member):
+        for attempt in (
+            lambda: backend.delete(SCHEMA_KEY),
+            lambda: backend.delete_checked(SCHEMA_KEY, version),
+            lambda: backend.move(SCHEMA_KEY, "Areas/schema.md"),
+            lambda: backend.move("Areas/orchard.md", ".vault/orchard.md"),
+            lambda: backend.mkdir(".vault/more/"),
+        ):
+            with pytest.raises(SharedRefusal, match="layout of the shared vault Wiki is fixed"):
+                attempt()
+    assert inner.get(SCHEMA_KEY)[1] == version
+    with acting_as(admin):
+        backend.delete(SCHEMA_KEY)
+    with acting_as(member), pytest.raises(SharedRefusal, match="has no .vault/schema.yml, so it takes no writes"):
+        backend.put("Areas/pruning.md", DEPLOY.replace("kind: howto", "kind: system"))
+    with acting_as(admin), pytest.raises(SharedRefusal, match="has no .vault/schema.yml"):
+        backend.put("Areas/pruning.md", DEPLOY.replace("kind: howto", "kind: system"))
+    with acting_as(admin):
+        backend.put(SCHEMA_KEY, "preset: shared\n")
+    with acting_as(member):
+        backend.put("Areas/pruning.md", DEPLOY.replace("kind: howto", "kind: system"))
+    assert inner.get("Areas/pruning.md")[0].startswith("---")
+
+
+class NoHistory:
+    def record(self, *args, **kwargs) -> None:
+        pass
 
 
 def test_a_domain_matches_exactly_and_ignores_case(tmp_path: Path):

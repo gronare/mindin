@@ -49,7 +49,7 @@ mindin hook session-start | stop        # the Claude Code hooks, JSON on stdin
 mindin login [<url>] [--vault <slug>] [--name laptop] [--no-browser]
 mindin whoami [<url>]
 mindin logout [<url>] [--vault <slug>]
-mindin vault list | use <slug> [--dir <folder>] [--url <url>] | drop --dir <folder> [--url <url>]
+mindin vault list [--url <url>] | use <slug> [--dir <folder>] [--url <url>] | drop --dir <folder> [--url <url>]
 ```
 
 Without `<url>` or `--url` they take `VAULT_SERVER_URL`. See [Sign a machine in](../how-to/sign-in-a-machine.md).

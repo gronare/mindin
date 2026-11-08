@@ -3,9 +3,9 @@
 | Tool | Cost | What it does |
 | --- | --- | --- |
 | `search` | cheap | Full-text and, when on, meaning search over the index. Filters: `folder`, `status`, `tag`, `kind`, `area`, `path_prefix`, `since`, `include_archive`, `include_superseded`, `limit` (the schema's `search.default_limit` when left out). |
-| `context` | cheap | The session-start bundle for a `path` and `repo`, and the repo's origin `remote` for an organisation's pages; `format: "json"` answers it as data. |
+| `context` | cheap | The session-start bundle for a `path` and `repo`, and the repo's origin `remote` for an organisation's pages; `query` also brings reference notes whose title or tags hold it, `limit` (10) caps each list, and `format: "json"` answers it as data. |
 | `backlog` | cheap | The backlog by priority then age, filtered by `area` and `priority`. |
-| `list_files` | cheap | Paths only. Takes `vault`, like `read_file`. |
+| `list_files` | cheap | Paths only; `prefix` keeps the paths that start with it. Takes `vault`, like `read_file`. |
 | `whoami` | cheap | The account a connection signs in as and whether it may write. |
 | `rules` | cheap | A vault's rules for agents: its folders, the frontmatter contract and its [bundle](schema.md#bundle). Takes `vault`, like `read_file`. |
 | `read_file` | moderate | One note, prefixed with `etag: <version>`. A superseded note carries a warning callout. `vault` reads from another vault the connection reaches, named as search rows name it. |
@@ -13,7 +13,7 @@
 | `write_file` | write | Validates against the schema and refuses the write if it does not hold. Stamps `updated`, fills `date`. `expected_etag` makes the write conditional; `"*"` creates a note that must not exist yet. Only `.md` notes outside dot-folders are written. `vault` writes to another vault the connection reaches. |
 | `append_file` | write | Appends and bumps `updated`; the note must exist and still satisfy the schema. Takes `vault`, like `write_file`. |
 | `set_status` | write | Changes a note's status, with `priority` and `source` for the backlog. |
-| `close` | write | Finishes a note and moves it into the archive. |
+| `close` | write | Finishes a note and moves it into the archive, with status `complete` or the `status` it is given. `merged_into` names the note that took it over: status `superseded`, with `superseded_by` linking that note. |
 | `backlog_add` | write | Files a backlog note. |
 | `log_append` | write | One dated line in the repo log, with the commits and the branch. |
 | `move_file` | write | Moves or renames a note; it must satisfy the schema at the destination. |

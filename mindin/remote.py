@@ -18,7 +18,7 @@ from mcp_types import Implementation
 from mindin import changelog, credentials, hooks, notes, tasks
 from mindin.backends import SCHEMA_KEY
 from mindin.config import ConfigError, cache_dir, vault_id
-from mindin.git import current_branch, in_main_checkout, main_checkout, repo_name, repo_root
+from mindin.git import current_branch, in_main_checkout, main_checkout, remote_url, repo_name, repo_root
 from mindin.schema import NoHome, Schema, default_schema_data, schema_from_text
 
 T = TypeVar("T")
@@ -82,7 +82,13 @@ class Remote:
         return self._schema
 
     async def context(self, cwd: str) -> dict:
-        found = await self.call("context", path=str(in_main_checkout(cwd)), repo=repo_name(cwd), format="json")
+        found = await self.call(
+            "context",
+            path=str(in_main_checkout(cwd)),
+            repo=repo_name(cwd),
+            remote=remote_url(cwd) or None,
+            format="json",
+        )
         return json.loads(found)
 
     async def keys(self) -> list[str]:

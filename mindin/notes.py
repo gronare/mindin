@@ -6,7 +6,7 @@ import re
 import time
 import unicodedata
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 
@@ -513,6 +513,14 @@ def _relevant(note: Note, path: str | None, repo: str | None) -> bool:
     return path_overlap(note, path) > 0 or mentions_repo(note, repo)
 
 
+@dataclass(frozen=True)
+class RepoPage:
+    vault: str
+    key: str
+    title: str
+    line: str
+
+
 @dataclass
 class ContextBundle:
     system: list[tuple[Note, str]] = field(default_factory=list)
@@ -528,6 +536,7 @@ class ContextBundle:
     schema_problems: list[str] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
     shared: bool = False
+    organisation_pages: list[RepoPage] = field(default_factory=list)
 
     def render(self) -> str:
         now = time.time()
@@ -542,6 +551,12 @@ class ContextBundle:
                 for note in self.system_rows
             ]
             blocks.append("## other system notes\n" + "\n".join(rows))
+        if self.organisation_pages:
+            rows = [f"{page.vault} | {page.key} | {page.title} | {page.line}" for page in self.organisation_pages]
+            blocks.append(
+                "## organisation pages\n" + "\n".join(rows) + "\nEach row starts with its vault: "
+                "read one with read_file(path, vault=<vault>)."
+            )
         if self.tasks:
             rows = [_task_row(note, now) for note in self.tasks]
             blocks.append("## open tasks\n" + "\n".join(rows))
@@ -575,6 +590,7 @@ class ContextBundle:
             ],
             "triage": [{"key": note.key, "age": humanize_age(age_days(note, now))} for note in self.triage],
             "shared": self.shared,
+            "organisation_pages": [asdict(page) for page in self.organisation_pages],
         }
 
     def view(self) -> dict:
@@ -591,6 +607,7 @@ class ContextBundle:
             "backlog_total": self.backlog_total,
             "references": [note_fields(note, now) for note in self.references],
             "log_tail": list(self.log_tail),
+            "organisation_pages": [asdict(page) for page in self.organisation_pages],
         }
 
 

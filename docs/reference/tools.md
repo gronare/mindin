@@ -3,7 +3,7 @@
 | Tool | Cost | What it does |
 | --- | --- | --- |
 | `search` | cheap | Full-text and, when on, meaning search over the index. Filters: `folder`, `status`, `tag`, `kind`, `area`, `path_prefix`, `since`, `include_archive`, `include_superseded`, `limit` (the schema's `search.default_limit` when left out). |
-| `context` | cheap | The session-start bundle for a `path` and `repo`; `format: "json"` answers it as data. |
+| `context` | cheap | The session-start bundle for a `path` and `repo`, and the repo's origin `remote` for an organisation's pages; `format: "json"` answers it as data. |
 | `backlog` | cheap | The backlog by priority then age, filtered by `area` and `priority`. |
 | `list_files` | cheap | Paths only. Takes `vault`, like `read_file`. |
 | `whoami` | cheap | The account a connection signs in as and whether it may write. |

@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS notes (
   key TEXT PRIMARY KEY, version TEXT, mtime REAL, folder TEXT, stem TEXT,
   title TEXT, summary TEXT, status TEXT, kind TEXT, area TEXT,
   tags TEXT, paths TEXT, date TEXT, updated TEXT, superseded_by TEXT,
-  valid INT, error TEXT, size INT, priority TEXT, source TEXT, claim TEXT
+  valid INT, error TEXT, size INT, priority TEXT, source TEXT, claim TEXT, repos TEXT
 );
 CREATE INDEX IF NOT EXISTS notes_folder ON notes(folder);
 CREATE INDEX IF NOT EXISTS notes_stem ON notes(stem);
@@ -56,9 +56,9 @@ CREATE TABLE IF NOT EXISTS repos (repo TEXT PRIMARY KEY, root TEXT, seen_at TEXT
 
 NOTE_COLUMNS = (
     "key, version, mtime, folder, stem, title, summary, status, kind, area, "
-    "tags, paths, date, updated, superseded_by, valid, error, size, priority, source, claim"
+    "tags, paths, date, updated, superseded_by, valid, error, size, priority, source, claim, repos"
 )
-ADDED_COLUMNS = ("priority", "source", "claim")
+ADDED_COLUMNS = ("priority", "source", "claim", "repos")
 FTS_COLUMNS = {"stem", "stemmed"}
 
 
@@ -85,6 +85,7 @@ class Note:
     priority: str = ""
     source: str = ""
     claim: str = ""
+    repos: list[str] = field(default_factory=list)
 
 
 def stem_of(key: str) -> str:
@@ -124,6 +125,11 @@ def path_list(raw: Any) -> list[str]:
     return paths
 
 
+def text_list(raw: Any) -> list[str]:
+    values = raw if isinstance(raw, (list, tuple)) else [] if raw is None else str(raw).split(",")
+    return [text for value in values if (text := str(value).strip())]
+
+
 def _as_text(value: Any) -> str:
     if value is None:
         return ""
@@ -155,6 +161,7 @@ def note_from_text(key: str, text: str, version: str, mtime: float, size: int) -
     note.superseded_by = _as_text(frontmatter.get("superseded_by"))
     note.priority = _as_text(frontmatter.get("priority"))
     note.source = _as_text(frontmatter.get("source"))
+    note.repos = text_list(frontmatter.get("repos"))
     claim = claim_fields(frontmatter.get(CLAIM_KEY))
     note.claim = json.dumps(claim, ensure_ascii=False) if claim else ""
     return note, body
@@ -183,6 +190,7 @@ def _row_to_note(row: sqlite3.Row) -> Note:
         priority=row["priority"] or "",
         source=row["source"] or "",
         claim=row["claim"] or "",
+        repos=json.loads(row["repos"] or "[]"),
     )
 
 
@@ -335,7 +343,7 @@ class Index:
 
     def _insert(self, db: sqlite3.Connection, note: Note, body: str, text: str) -> None:
         db.execute(
-            f"INSERT INTO notes ({NOTE_COLUMNS}) VALUES ({', '.join('?' * 21)})",
+            f"INSERT INTO notes ({NOTE_COLUMNS}) VALUES ({', '.join('?' * 22)})",
             (
                 note.key,
                 note.version,
@@ -358,6 +366,7 @@ class Index:
                 note.priority,
                 note.source,
                 note.claim,
+                json.dumps(note.repos),
             ),
         )
         db.execute(

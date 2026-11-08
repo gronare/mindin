@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 
 import httpx2
@@ -468,9 +469,56 @@ async def test_a_member_of_no_organisation_searches_and_reads_one_vault_as_befor
             own,
             [("search", {"query": "klarna"}), ("read_file", {"path": "Resources/klarna.md", "vault": "wiki"})],
         )
+        bundle = await call_tool(dan, own, "context", {"path": "/src/payments", "repo": "klarna"})
     lines = text_of(found).splitlines()
     assert lines[0].startswith("1 of 1") and lines[1].startswith("Resources/klarna.md | Klarna |"), lines
     assert other.get("isError") and "does not reach a vault 'wiki'" in text_of(other)
+    assert "## system notes" not in text_of(bundle) and "organisation pages" not in text_of(bundle)
+
+
+def wiki_page(title: str, repos: str = "", area: str = "payments", kind: str = "howto") -> str:
+    listed = f"repos: [{repos}]\n" if repos else ""
+    return (
+        f'---\ntitle: {title}\n{FRONT}tags: [team]\nkind: {kind}\narea: "[[{area}]]"\n{listed}'
+        f"summary: How {title.lower()} works.\n---\n\nBody of {title}.\n"
+    )
+
+
+@pytest.mark.anyio
+async def test_flow_2_session_start_lists_the_wikis_pages_for_the_repo_capped(site: Hosted):
+    ada, bea = await company(site)
+    async with ada, bea:
+        wiki = key(site, "ada@acme.test")
+        pages = {
+            "Resources/disputes.md": wiki_page("Disputes", "github.com/acme/payments"),
+            "Resources/klarna.md": wiki_page("Klarna", "acme/payments"),
+            "Resources/ledger.md": wiki_page("Ledger", "payments"),
+            "Areas/payments.md": wiki_page("Payments", kind="system"),
+            "Resources/fees.md": wiki_page("Fees"),
+            "Resources/payouts.md": wiki_page("Payouts"),
+            "Resources/search.md": wiki_page("Search index", "acme/search-api", area="search"),
+        }
+        for path, text in pages.items():
+            assert not (await write(ada, wiki, path, text)).get("isError"), path
+        own = cli_key(site, "bea@acme.test")
+        hub = note("Payments", "Our payments service.", kind="system")
+        assert not (await write(bea, own, "Areas/payments.md", hub, slug="notes")).get("isError")
+        arguments = {"path": "/src/payments", "repo": "payments", "remote": "git@github.com:acme/payments.git"}
+        bundle = await call_tool(bea, own, "context", arguments | {"format": "json"})
+    text = json.loads(text_of(bundle))["text"]
+    section = text.split("## organisation pages\n", 1)[1].split("\n\n", 1)[0].splitlines()
+    rows = [line for line in section if line.startswith("wiki | ")]
+    assert len(rows) == 5, section
+    assert [row.split(" | ")[1] for row in rows[:4]] == [
+        "Resources/disputes.md",
+        "Resources/klarna.md",
+        "Resources/ledger.md",
+        "Areas/payments.md",
+    ], rows
+    assert rows[4].split(" | ")[1] in ("Resources/fees.md", "Resources/payouts.md"), rows
+    assert "wiki | Resources/klarna.md | Klarna | How klarna works." in rows
+    assert "search.md" not in text and "read_file(path, vault=<vault>)" in section[-1]
+    assert text.index("## system notes") < text.index("## organisation pages")
 
 
 class Plans(Extension):

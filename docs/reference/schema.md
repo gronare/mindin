@@ -25,6 +25,8 @@ frontmatter:
 
 `path` ties a note to code: a comma-separated list of directories (`~` is kept as written and also indexed expanded). `context` and the session-start hook match the working directory against it.
 
+`repos` ties a note in an organisation's vault to repositories: a list of repo names, such as `payments`, or remotes, such as `acme/payments` or `github.com/acme/payments`. A member's session start in a matching repo lists the note; see [Session start](../explanation/how-it-works.md#session-start). The shared layout lists it among its optional fields.
+
 ## Kinds
 
 Each kind carries a one-line rule, and the server puts the rules in its instructions so every client picks kinds the same way:

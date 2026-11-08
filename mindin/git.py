@@ -54,6 +54,10 @@ def in_main_checkout(cwd: str | Path) -> Path:
     return main / here.relative_to(root)
 
 
+def remote_url(cwd: str | Path) -> str:
+    return git(["remote", "get-url", "origin"], cwd)
+
+
 def current_branch(cwd: str | Path) -> str | None:
     return git(["branch", "--show-current"], cwd) or None
 

@@ -8,7 +8,7 @@ folders:
   Archive:   { kind: archive,   weight: 0.3, searched: false, description: "Retired notes, kept as they were. Searched only on request." }
 frontmatter:
   required: [title, date, updated, tags, status]
-  optional: [kind, area, summary, path, superseded_by, source]
+  optional: [kind, area, summary, path, repos, superseded_by, source]
   area_required_in: [Resources]
   status_values: [draft, active, complete, superseded]
   kind_values: [system, howto, decision, reference, trap]

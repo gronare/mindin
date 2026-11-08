@@ -11,7 +11,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import Tool as MCPTool
 
-from mindin import changelog, notes, provision, tasks, views
+from mindin import changelog, notes, provision, repo_pages, tasks, views
 from mindin.auth import MACHINE_KEY_PURPOSE, WRITE_SCOPE, AuthConfig
 from mindin.auth.scopes import ScopeError, require_write
 from mindin.backends import VaultError
@@ -327,7 +327,8 @@ def build_server(
             "CHEAP — the session-start call. Returns the system notes covering the code at `path`, the "
             "open tasks for it, the reference notes and the tail of the repo log, in one answer. Use it "
             'before searching blind. format "json" adds the system notes\' paths and dates and the triage '
-            "keys, for hooks that read it."
+            "keys, for hooks that read it. remote is the repo's origin URL; for a member of an organisation the "
+            "bundle adds the organisation's pages that name the repo or its area."
         ),
     )
     def context_tool(
@@ -336,12 +337,34 @@ def build_server(
         query: str | None = None,
         limit: int = 10,
         format: str = "text",
+        remote: str | None = None,
     ) -> str:
         def answer(vault: Vault) -> str:
             bundle = views.context_bundle(vault, path=path, repo=repo, query=query, limit=limit)
+            bundle.organisation_pages = organisation_pages(vault, bundle, path, repo, remote)
             return json.dumps(bundle.as_dict(), ensure_ascii=False) if format == "json" else bundle.render()
 
         return run(answer)
+
+    def organisation_pages(
+        current: Vault, bundle: notes.ContextBundle, path: str | None, repo: str | None, remote: str | None
+    ) -> list[notes.RepoPage]:
+        if not (path or repo):
+            return []
+        areas = {note.stem for note, _ in bundle.system} | {note.stem for note in bundle.system_rows}
+        found = []
+        for item in resolver.around():
+            if not item.organisation:
+                continue
+            try:
+                with resolver.using_reached(item) as vault:
+                    if vault is current:
+                        continue
+                    vault.sync()
+                    found += repo_pages.pages_for(vault, item.slug, path, repo, remote, areas)
+            except VaultError:
+                continue
+        return repo_pages.strongest(found)
 
     if machine_tools:
 

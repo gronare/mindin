@@ -19,7 +19,10 @@ A local SQLite index under `VAULT_CACHE_DIR` holds every note's frontmatter and 
 - the system notes whose `path` covers the directory;
 - the open tasks for it;
 - a triage list of open notes older than `stale_after_days`, with the three ways to settle each: close it, add a dated line, or park it in the backlog;
-- the backlog items for the area, the reference notes and the tail of the repo log.
+- the backlog items for the area, the reference notes and the tail of the repo log;
+- for a member of an [organisation](../how-to/run-mindin-for-a-team.md), up to five pages from the organisation's vaults about the repo, as title and one line, each labelled with its vault.
+
+An organisation page is about the repo when its `repos` list names the repo or its origin remote, when its `path` covers the directory, when it is the system note named after the repo, or, ranked last, when its `area` is one of the member's system notes for the directory. The pages that name the repo come first, the newest first among equals.
 
 The Claude Code session-start [hook](../reference/hooks.md) prints that bundle and then, for each system note, the commits touching the note's paths since the note was last updated. That answers "is this note still true?" before the agent trusts it. The stop hook refuses to end a session that left its commits unlogged.
 

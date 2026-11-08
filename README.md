@@ -54,6 +54,10 @@ Areas/myapp.md
 
 [docs/](https://github.com/gronare/mindin/blob/main/docs/README.md) has the install guides, the how-tos for each client, the reference for every tool, command and setting, and how it works.
 
+## Contributing
+
+See [CONTRIBUTING.md](https://github.com/gronare/mindin/blob/main/CONTRIBUTING.md). Report a vulnerability privately, as [SECURITY.md](https://github.com/gronare/mindin/blob/main/SECURITY.md) describes.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

@@ -96,6 +96,62 @@ def saved_settings() -> dict[str, str]:
     return {name: value for name, value in choice.settings(vault).items() if value} if choice else {}
 
 
+def saved_place() -> Place | None:
+    vault = {name: str(value) for name, value in saved_vault().items()}
+    return Place(vault) if vault.get("kind") in CHOICES_BY_KIND else None
+
+
+def movable(previous: Place | None) -> tuple[Place, int] | None:
+    from mindin import move
+
+    if previous is None or previous.vault["kind"] not in ("folder", "s3"):
+        return None
+    count = move.file_count(previous)
+    return (previous, count) if count else None
+
+
+def settle(choice: Choice, place: Place, overridden: bool) -> None:
+    save(place)
+    print(f"This machine's vault is {choice.describe(place.vault)}, saved in {config_path()}.")
+    if overridden:
+        print("The environment names another vault, and it decides while it is set; `mindin status` shows which.")
+
+
+def offer_move(
+    found: tuple[Place, int], choice: Choice, place: Place, args: argparse.Namespace, ask: Ask | None, overridden: bool
+) -> int:
+    from mindin import move
+    from mindin.transfer import count_text
+
+    previous, count = found
+    where = move.describe(previous)
+    url = place.vault["url"]
+    if ask is None:
+        settle(choice, place, overridden)
+        print(
+            f"{where[0].upper()}{where[1:]} still holds {count_text(count)} files and stays as it was. To bring them"
+            " here, run `mindin setup` in a terminal, or set it back and run"
+            f" `mindin move --to --server {url}`."
+        )
+        return 0
+    if ask(f"Bring {count_text(count)} files from {where} along? [Y/n]", False).strip().lower() not in ("", *YES):
+        settle(choice, place, overridden)
+        print(f"{where[0].upper()}{where[1:]} stays as it was; `mindin move` brings it later.")
+        return 0
+    target = Place({**place.vault, "vault": args.vault or ""})
+    code = move.move(previous, target, move.Options(no_browser=args.no_browser), ask)
+    if code != 0:
+        vault = f" --vault {args.vault}" if args.vault else ""
+        print(
+            f"mindin: this machine still uses {where}; `mindin setup --server {url}{vault}` offers the move again"
+            " and skips the files already copied.",
+            file=sys.stderr,
+        )
+    elif overridden:
+        print("The environment names another vault, and it decides while it is set; `mindin status` shows which.")
+    return code
+
+
 def save(place: Place) -> None:
     if place.vault["kind"] == "s3" and place.keys:
         credentials.save_s3_keys(place.vault["endpoint"], place.vault["bucket"], **place.keys)
@@ -290,11 +346,12 @@ def command_setup(args: argparse.Namespace, ask: Ask | None = None) -> int:
         choice = pick(interactive)
         place = choice.ask(interactive)
     overridden = environment_names_a_vault()
-    save(place)
-    print(f"This machine's vault is {choice.describe(place.vault)}, saved in {config_path()}.")
-    if overridden:
-        print("The environment names another vault, and it decides while it is set; `mindin status` shows which.")
+    found = movable(saved_place()) if choice.kind == "server" else None
+    if found is None:
+        settle(choice, place, overridden)
     code = choice.after(place, args)
+    if code == 0 and found is not None:
+        code = offer_move(found, choice, place, args, interactive, overridden)
     if code == 0 and args.signals is not None:
         record_signals(args.signals == "yes")
     elif code == 0 and interactive is not None and answered() is None:

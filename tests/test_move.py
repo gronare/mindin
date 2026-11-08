@@ -12,7 +12,7 @@ from remote_support import Served, serve
 
 from mindin import credentials, move, places
 from mindin.auth.hosted_limits import StorageLimits
-from mindin.cli import main
+from mindin.cli import build_parser, main
 from mindin.config import config_dir
 from mindin.vault import SubjectVaults
 
@@ -195,6 +195,71 @@ def test_a_vault_moves_from_a_folder_to_the_server_and_back_to_an_identical_tree
     assert tree(back) == tree(source)
     assert "passkeys, API and WebDAV keys" in out and f"Obsidian: open {back.resolve()}" in out
     assert saved_vault() == {"kind": "folder", "path": str(back.resolve())}
+
+
+def test_setup_with_a_server_offers_to_bring_the_saved_folder_along(
+    served: Served, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+):
+    source = folder(tmp_path / "vault", SOURCE | {".DS_Store": b"\x00"})
+    places.save(from_folder(source))
+    asked: list[str] = []
+
+    def answer(question: str, secret: bool) -> str:
+        asked.append(question)
+        return "" if question.startswith("Bring") else "n"
+
+    args = build_parser().parse_args(["setup", "--server", served.url])
+    assert places.command_setup(args, ask=answer) == 0
+    assert asked[0] == f"Bring 4 files from the folder {source.resolve()} along? [Y/n]"
+    assert on_server(served)["Welcome.md"] == SOURCE["Welcome.md"]
+    assert saved_vault() == {"kind": "server", "url": served.url}
+
+
+def test_setup_keeps_the_saved_folder_when_the_move_it_offered_fails(
+    served: Served, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+):
+    source = folder(tmp_path / "vault", SOURCE)
+    places.save(from_folder(source))
+    create = move.DavSide.create
+
+    def drops(self: move.DavSide, key: str, data: bytes) -> None:
+        raise move.MoveError("the connection dropped")
+
+    monkeypatch.setattr(move.DavSide, "create", drops)
+    args = build_parser().parse_args(["setup", "--server", served.url])
+    assert places.command_setup(args, ask=lambda question, secret: "" if question.startswith("Bring") else "n") == 1
+    err = capsys.readouterr().err
+    assert f"this machine still uses the folder {source.resolve()}" in err
+    assert f"`mindin setup --server {served.url}` offers the move again" in err
+    assert saved_vault() == {"kind": "folder", "path": str(source.resolve())}
+    monkeypatch.setattr(move.DavSide, "create", create)
+    asked: list[str] = []
+    places.command_setup(args, ask=lambda question, secret: asked.append(question) or "n")
+    assert asked[0].startswith("Bring 4 files"), "rerunning setup offers the move again"
+
+
+def test_setup_switches_to_the_server_when_the_move_is_declined(
+    served: Served, tmp_path: Path, capsys: pytest.CaptureFixture
+):
+    source = folder(tmp_path / "vault", SOURCE)
+    places.save(from_folder(source))
+    args = build_parser().parse_args(["setup", "--server", served.url])
+    assert places.command_setup(args, ask=lambda question, secret: "n") == 0
+    out = capsys.readouterr().out
+    assert f"This machine's vault is the server {served.url}" in out and "stays as it was" in out
+    assert saved_vault() == {"kind": "server", "url": served.url}
+    assert "Areas/a.md" not in on_server(served)
+
+
+def test_setup_from_a_script_names_the_files_it_left_and_how_to_bring_them(
+    served: Served, tmp_path: Path, capsys: pytest.CaptureFixture
+):
+    source = folder(tmp_path / "vault", SOURCE)
+    places.save(from_folder(source))
+    assert main(["setup", "--server", served.url]) == 0
+    out = capsys.readouterr().out
+    assert "still holds 4 files and stays as it was" in out and f"mindin move --to --server {served.url}" in out
+    assert "Areas/a.md" not in on_server(served)
 
 
 def test_a_stale_plugin_vault_path_is_reported_and_cleared_on_yes(

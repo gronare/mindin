@@ -135,4 +135,4 @@ Read by their bare name only.
 
 | Variable | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `VAULT_HOST` | yes | | Read by `compose.yml`, not by the server: the domain Caddy fetches a certificate for, and the host of `VAULT_PUBLIC_URL`. |
+| `VAULT_HOST` | yes | | Read by `compose.yml`, not by the server: the domain Caddy fetches a certificate for, and the host of `VAULT_PUBLIC_URL`. A name under `localhost`, such as `vault.localhost`, runs a trial on one machine with Caddy's own certificate. |

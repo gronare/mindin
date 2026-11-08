@@ -14,18 +14,13 @@ It installs the `mindin` command with [uv](https://docs.astral.sh/uv/), asks whe
 
 ### A vault server
 
-A vault server with Docker Compose, for claude.ai, Claude Desktop, mobile and every machine you work on. You need a domain pointing at the machine, ports 80 and 443 open, and an SMTP account for sign-in links.
+A vault server with Docker Compose, for claude.ai, Claude Desktop, mobile and every machine you work on. On the server:
 
 ```sh
-mkdir notes-vault && cd notes-vault
-curl -fsSL -O https://github.com/gronare/mindin/releases/latest/download/compose.yml -O https://github.com/gronare/mindin/releases/latest/download/Caddyfile
-curl -fsSL -o .env https://github.com/gronare/mindin/releases/latest/download/example.env
-docker compose run --rm --no-deps vault master-key generate   # paste into .env, with VAULT_HOST and SMTP
-docker compose up -d
-docker compose exec vault mindin accounts invite you@example.com
+curl -fsSL https://github.com/gronare/mindin/releases/latest/download/server.sh | sh
 ```
 
-Then open `https://VAULT_HOST/account` and sign in. [Install with Docker](https://github.com/gronare/mindin/blob/main/docs/install/docker.md) walks through each step.
+You need Docker with Compose v2, a domain pointing at the machine, and ports 80 and 443 open; an SMTP account sends sign-in links, or people sign in with GitHub. The script asks for the domain, the SMTP settings and your email, makes the master key, starts the server and prints the address to open. [Install with Docker](https://github.com/gronare/mindin/blob/main/docs/install/docker.md) has what it does and the same steps by hand.
 
 Without the script, on one machine: `uv tool install mindin`, then `mindin setup`.
 

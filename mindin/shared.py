@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from mindin.backends import PREVIOUS_SCHEMA_KEY, SCHEMA_KEY, Entry, NotFound, VaultBackend, VaultError, delete_checked
+from mindin.bundle import bundle_of
 from mindin.frontmatter import FrontmatterError, parse
+from mindin.guard import refusal
 from mindin.presets import SHARED_LAYOUTS, SHARED_PRESET
 from mindin.schema import Schema, schema_from_text
 
@@ -114,6 +116,14 @@ class SharedRules:
         self.check_note(key, frontmatter, schema)
 
 
+def content_refusal(key: str, data: bytes, schema: Schema) -> str:
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return ""
+    return refusal(key, text, bundle_of(schema).guard)
+
+
 def folder_kinds(schema: Schema) -> dict[str, tuple[str, ...]]:
     declared = {name: folder.kinds for name, folder in schema.folders.items() if folder.kinds}
     return declared or FOLDER_KINDS
@@ -209,7 +219,11 @@ class SharedBackend:
         actor = self.allowed()
         if key == SCHEMA_KEY and self.layout_editor(actor):
             return self.put_layout(data, expected_version)
-        self.rules.check_write(key, data, self.stored_schema())
+        schema = self.stored_schema()
+        self.rules.check_write(key, data, schema)
+        refused = content_refusal(key, data, schema) if recorded(key) else ""
+        if refused:
+            raise SharedRefusal(refused)
         before = self.previous(key) if recorded(key) else None
         version = self.inner.put_checked(key, data, expected_version)
         if recorded(key) and before != data:

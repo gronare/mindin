@@ -68,6 +68,9 @@ bundle:
   session:
     folders: [Areas, Guides, Decisions]
     limit: 5
+  guard:
+    secrets: true
+    personal_data: [card_number, personnummer]
 ```
 
 | Key | Meaning |
@@ -75,6 +78,18 @@ bundle:
 | `instructions` | When to write to this vault and how, in the agent's words. |
 | `session.folders` | The folders whose pages session start shows when their `repos` name the repo. |
 | `session.limit` | At most this many pages, 5 when left out. |
+| `guard.secrets` | `true` refuses a write that holds a secret. |
+| `guard.personal_data` | The personal data a write is refused for: `card_number`, `personnummer`. |
+
+### The content guard
+
+With the guard on, the server refuses a write that holds what it looks for, writes nothing, and answers with the line and kind of each find and the first characters of it, so the agent knows what to remove. In a shared vault, an organisation's vault among them, that is every write of a file whose path has no part starting with a dot, through any tool or WebDAV. In a personal vault it is `write_file` and `append_file`; a WebDAV write to a personal vault is not checked.
+
+- **Secrets**: AWS access keys, private key blocks, GitHub, GitLab, Slack, npm, SendGrid, Google, Anthropic and OpenAI tokens, `sk_live_` style API keys, JSON web tokens, and a `key`, `token`, `secret` or `password` assignment whose value looks random. These patterns are adapted from the default rules of [gitleaks](https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml) (MIT licence). Beside them, a `password:` or `password=` with a value that has a digit or a symbol, and a password in an address such as `https://app:s3cret@example.com`. A placeholder such as `<your password>` passes, and so does an AWS key ending in `EXAMPLE`.
+- **`card_number`**: 13 to 19 digits, spaced or not, that pass the Luhn check.
+- **`personnummer`**: a Swedish personal identity or coordination number, `YYMMDD-NNNN` or `YYYYMMDDNNNN`, with a valid date and check digit.
+
+The wiki layout turns all of them on.
 
 In a shared vault, the schema and its bundle are changed by the vault's owner or an organisation admin, over WebDAV like any file in the vault. The server refuses a schema that does not hold or that names a personal layout, and keeps the one it replaces as `.vault/schema.previous.yml`. Members' writes to it are refused.
 

@@ -11,6 +11,7 @@ from datetime import date
 from pathlib import Path
 
 from mindin.backends import MUST_NOT_EXIST, SCHEMA_KEY, NotFound, VersionConflict, delete_checked
+from mindin.bundle import bundle_of
 from mindin.frontmatter import (
     CLAIM_KEY,
     FRONTMATTER_RE,
@@ -20,6 +21,7 @@ from mindin.frontmatter import (
     parse,
     validate,
 )
+from mindin.guard import refusal
 from mindin.index import Note, expand_home, stem_of
 from mindin.schema import CLAIM_STALE_DAYS, broken_schema_lines
 from mindin.search import age_days, humanize_age
@@ -142,6 +144,13 @@ def _require_valid(vault: Vault, frontmatter: dict, key: str, verdict: str) -> N
         raise ValidationError("\n".join([f"{key} {verdict}:", *[f"- {p}" for p in problems]]))
 
 
+def _require_clean(vault: Vault, key: str, text: str) -> str:
+    refused = refusal(key, text, bundle_of(vault.schema).guard) if vault.rules is None else ""
+    if refused:
+        raise ValidationError(refused)
+    return text
+
+
 def _stored_claim(vault: Vault, key: str) -> dict[str, str] | None:
     try:
         text, _ = _read(vault, key)
@@ -173,7 +182,7 @@ def write(vault: Vault, path: str, content: str, expected_etag: str | None = Non
     def written(claim: dict[str, str] | None) -> str:
         stamped = _with_dates(_with_claim(frontmatter, claim))
         _require_valid(vault, stamped, key, "is not a valid note")
-        return dump(stamped, body)
+        return _require_clean(vault, key, dump(stamped, body))
 
     if expected_etag is None:
         stored = rewrite(vault, key, lambda existing: written(_claim_in(existing)))
@@ -196,7 +205,7 @@ def append(vault: Vault, path: str, content: str) -> str:
         stamped = _with_dates(frontmatter)
         _require_valid(vault, stamped, key, "would not be a valid note")
         body = f"{body.rstrip()}\n{content}\n" if body.strip() else f"{content}\n"
-        return dump(stamped, body)
+        return _require_clean(vault, key, dump(stamped, body))
 
     rewrite(vault, key, appended)
     return f"Appended to: {key}"

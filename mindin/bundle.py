@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from mindin.guard import GuardSettings, guard_problems, guard_settings
+
 if TYPE_CHECKING:
     from mindin.schema import Schema
 
 DEFAULT_SESSION_LIMIT = 5
-BUNDLE_KEYS = {"instructions", "session"}
+BUNDLE_KEYS = {"instructions", "session", "guard"}
 
 
 @dataclass(frozen=True)
@@ -23,10 +25,11 @@ class SessionRules:
 class Bundle:
     instructions: str
     session: SessionRules | None
+    guard: GuardSettings
 
     @property
     def empty(self) -> bool:
-        return not self.instructions and self.session is None
+        return not self.instructions and self.session is None and not self.guard.on
 
 
 def _section(data: dict[str, Any]) -> dict[str, Any]:
@@ -43,7 +46,7 @@ def bundle_of(schema: Schema) -> Bundle:
             tuple(str(folder).strip("/") for folder in session["folders"]),
             int(session.get("limit", DEFAULT_SESSION_LIMIT)),
         )
-    return Bundle(str(section.get("instructions") or "").strip(), rules)
+    return Bundle(str(section.get("instructions") or "").strip(), rules, guard_settings(section.get("guard")))
 
 
 def bundle_problems(data: dict[str, Any]) -> list[str]:
@@ -51,7 +54,7 @@ def bundle_problems(data: dict[str, Any]) -> list[str]:
         return []
     section = data["bundle"]
     if not isinstance(section, dict):
-        return ["bundle must be a mapping with instructions: and session:"]
+        return ["bundle must be a mapping with instructions:, session: and guard:"]
     problems: list[str] = []
     unknown = sorted(set(section) - BUNDLE_KEYS)
     if unknown:
@@ -61,6 +64,8 @@ def bundle_problems(data: dict[str, Any]) -> list[str]:
     session = section.get("session")
     if session is not None:
         problems += _session_problems(session, set((data.get("folders") or {}).keys()))
+    if section.get("guard") is not None:
+        problems += guard_problems(section["guard"])
     return problems
 
 
@@ -96,4 +101,6 @@ def bundle_text(schema: Schema) -> str:
             f"At session start, `context` shows at most {bundle.session.limit} pages from {folders} "
             "whose `repos` name the repo being worked in."
         )
+    if bundle.guard.on:
+        lines.append(f"The server refuses a write here that holds {bundle.guard.describe()}, and says what to remove.")
     return "\n".join(lines) + "\n"

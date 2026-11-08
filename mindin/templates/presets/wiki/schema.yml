@@ -53,3 +53,6 @@ bundle:
   session:
     folders: [Areas, Guides, Decisions]
     limit: 5
+  guard:
+    secrets: true
+    personal_data: [card_number, personnummer]

@@ -173,10 +173,10 @@ def test_the_wiki_bundle_says_when_to_write_and_what_session_start_shows():
     assert "explicit yes" in bundle.instructions and "Search this vault first" in bundle.instructions
     told = shared_instructions(schema, "Wiki")
     assert "3. Write here only as this vault's own rules, below, say." in told
-    assert told.endswith(
+    assert (
         "At session start, `context` shows at most 5 pages from Areas/, Guides/, Decisions/ whose `repos` name the "
         "repo being worked in.\n"
-    )
+    ) in told
     assert "own rules" not in shared_instructions(Schema(preset_data("shared")), "Club")
 
 
@@ -184,7 +184,7 @@ def test_a_bundle_that_does_not_hold_names_each_problem():
     data = preset_data("wiki")
     data["bundle"] = {"instructions": ["no"], "session": {"folders": ["Nowhere"], "limit": 0}, "extra": 1}
     assert schema_problems(data) == [
-        "bundle has unknown keys extra; it takes instructions, session",
+        "bundle has unknown keys extra; it takes guard, instructions, session",
         "bundle.instructions must be text",
         "bundle.session.folders names 'Nowhere', which is not one of the folders",
         "bundle.session.limit must be a whole number, 1 or more",

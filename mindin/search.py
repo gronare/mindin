@@ -425,9 +425,10 @@ def render_row(row: Row, now: float) -> str:
 def render_vaults(result: SearchResult) -> str:
     if not result.vaults:
         return ""
+    counted = f"{len(result.vaults)} vaults" if len(result.vaults) > 1 else "1 vault"
     return (
-        f"Searched {len(result.vaults)} vaults: {', '.join(result.vaults)}. Each row starts with its vault; "
-        "read a row from another vault than this session's with read_file(path, vault=<vault>)."
+        f"Searched {counted}: {', '.join(result.vaults)}. Each row starts with its vault; "
+        "read a row from another vault than the main one with read_file(path, vault=<vault>)."
     )
 
 

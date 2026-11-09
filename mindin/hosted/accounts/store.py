@@ -128,6 +128,7 @@ class KeyGrant:
     name: str
     scopes: list[str]
     purpose: str = "api"
+    spans_account: bool = False
 
     @property
     def role(self) -> str:
@@ -441,7 +442,13 @@ class HostedStore:
         return renamed
 
     def create_key(
-        self, account_id: str, name: str, scopes: list[str], purpose: str = "api", vault_id: str | None = None
+        self,
+        account_id: str,
+        name: str,
+        scopes: list[str],
+        purpose: str = "api",
+        vault_id: str | None = None,
+        spans_account: bool = False,
     ) -> str:
         vault = self.vault(vault_id) if vault_id else self.first_vault(account_id)
         if vault is None or not self.reaches(vault, account_id):
@@ -450,8 +457,8 @@ class HostedStore:
         key = f"{KEY_PREFIX}{key_id}{secrets.token_urlsafe(32)}"
         with self.connect() as connection:
             connection.execute(
-                "INSERT INTO api_keys(id, account_id, vault_id, name, key_hash, scopes, purpose, created_at)"
-                " VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO api_keys(id, account_id, vault_id, name, key_hash, scopes, purpose, created_at,"
+                " spans_account) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     key_id,
                     account_id,
@@ -461,6 +468,7 @@ class HostedStore:
                     " ".join(scopes),
                     purpose,
                     now(),
+                    1 if spans_account else 0,
                 ),
             )
         return key
@@ -489,6 +497,7 @@ class HostedStore:
             name=row["name"],
             scopes=row["scopes"].split(),
             purpose=row["purpose"],
+            spans_account=bool(row["spans_account"]),
         )
 
     def keys(self, account_id: str, vault_id: str | None = None) -> list[Row]:
@@ -647,7 +656,7 @@ class HostedStore:
         with self.connect() as connection:
             connection.execute(
                 "INSERT INTO tokens(token_hash, kind, grant_id, client_id, account_id, vault_id, scopes, resource,"
-                " issued_at, expires_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " issued_at, expires_at, spans_account) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     digest(token),
                     kind,
@@ -659,6 +668,7 @@ class HostedStore:
                     grant["resource"],
                     issued_at,
                     issued_at + ttl,
+                    1 if grant.get("spans_account") else 0,
                 ),
             )
             connection.execute(

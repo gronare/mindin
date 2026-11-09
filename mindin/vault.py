@@ -150,6 +150,8 @@ class Reachable:
     slug: str
     name: str
     organisation: str = ""
+    main: bool = False
+    searched: bool = True
 
 
 class Reach(Protocol):

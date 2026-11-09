@@ -18,7 +18,7 @@ Each personal vault's page has:
 
 ## Connections
 
-Every connection reaches one vault, the one it was made for, and asks for read or read and write.
+Every connection is made for one vault, its main vault, and asks for read or read and write. A connector, a machine signed in with `login` and a trusted proxy's identity also reach every other vault the account reaches when a tool names it with `vault`; see [Search across vaults](search.md#across-vaults). A key made on a vault's page reaches only that vault.
 
 | Client | How it connects |
 | --- | --- |

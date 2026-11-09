@@ -11,6 +11,7 @@ from starlette.datastructures import FormData
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from mindin.hosted.accounts.reach import ALSO_REACHES
 from mindin.hosted.accounts.store import Account, HostedStore
 from mindin.hosted.accounts.vaults import Vault
 from mindin.hosted.config import MACHINE_KEY_PURPOSE, READ_SCOPE, SCOPES, WRITE_SCOPE, AuthConfig
@@ -146,7 +147,9 @@ class DeviceFlow:
         if vault is None or not self.store.reaches(vault, account.id):
             return oauth_error("access_denied", "the vault is gone")
         scopes = row["granted"].split()
-        key = self.store.create_key(account.id, row["name"], scopes, purpose=MACHINE_KEY_PURPOSE, vault_id=vault.id)
+        key = self.store.create_key(
+            account.id, row["name"], scopes, purpose=MACHINE_KEY_PURPOSE, vault_id=vault.id, spans_account=True
+        )
         return JSONResponse(
             {
                 "access_token": key,
@@ -199,7 +202,7 @@ class DeviceFlow:
         if requested:
             vault = vaults[0]
             return (
-                f"<dt>Vault</dt><dd>{esc(vault.name)} <code>{esc(vault.slug)}</code></dd>",
+                f"<dt>Main vault</dt><dd>{esc(vault.name)} <code>{esc(vault.slug)}</code></dd>",
                 f'<input type="hidden" name="vault" value="{esc(vault.slug)}">',
             )
         radios = "".join(
@@ -207,7 +210,7 @@ class DeviceFlow:
             f" {esc(vault.name)} ({esc(vault.slug)})</label>"
             for index, vault in enumerate(vaults)
         )
-        return "", f"<fieldset><legend>The vault it reaches</legend>{radios}</fieldset>"
+        return "", f"<fieldset><legend>Main vault</legend>{radios}</fieldset>"
 
     def confirm(self, row: Row, account: Account, csrf: str) -> Response:
         requested, vaults = self.vault_choice(row, account)
@@ -229,6 +232,7 @@ class DeviceFlow:
 <dl><dt>Code</dt><dd><code>{esc(shown(row["user_code"]))}</code></dd>
 <dt>Asked by</dt><dd>{esc(row["client_name"])}</dd>
 <dt>The key will be named</dt><dd>{esc(row["name"])}</dd>{vault_fact}</dl>
+<p>{esc(ALSO_REACHES)}</p>
 <form method="post" action="{esc(self.browser.local("/device"))}">
 <input type="hidden" name="csrf" value="{esc(csrf)}">
 <input type="hidden" name="user_code" value="{esc(row["user_code"])}">
@@ -240,7 +244,7 @@ class DeviceFlow:
 <button type="submit" name="action" value="approve">Approve</button>
 <button type="submit" name="action" value="deny" class="secondary">Deny</button>
 </form>"""
-        return page("Connect a device", "A device asks for a key to one of your vaults.", body)
+        return page("Connect a device", "A device asks for a key to your vaults.", body)
 
     async def submit(self, request: Request) -> Response:
         form = await request.form()

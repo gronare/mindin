@@ -148,7 +148,8 @@ class VaultPages:
             else '<p class="muted">You have no vault yet. Make one to connect a client.</p>'
         )
         body = f"""<div class="head"><div><h1>Your vaults</h1><p class="lead">Each vault has its own address, keys
-and connections. A connection only ever reaches the vault it was made for.</p></div>
+and connections. A key reaches only its own vault; a connector or a signed-in computer opens the vault it was made for
+and reaches your other vaults when a tool names one.</p></div>
 <a class="btn" href="{esc(self.local("/account/vaults/new"))}">New vault</a></div>
 {notice}{listing}"""
         return self.browser.app("Your vaults", body, status_code=status_code)

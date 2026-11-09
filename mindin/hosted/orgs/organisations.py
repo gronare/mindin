@@ -16,8 +16,7 @@ from mindin.hosted.accounts.store import (
     drop_member,
     pass_vault,
 )
-from mindin.hosted.accounts.vaults import SHARED, Vault, clash, reaches, vault_of
-from mindin.hosted.config import MACHINE_KEY_PURPOSE
+from mindin.hosted.accounts.vaults import SHARED, Vault, clash, vault_of
 from mindin.hosted.orgs.rules import (
     DENIED,
     SHARING,
@@ -26,7 +25,6 @@ from mindin.hosted.orgs.rules import (
     matching,
 )
 from mindin.presets import SHARED_PRESET, WIKI_PRESET
-from mindin.vault import Reachable
 
 ORG_ID_PREFIX = "org_"
 ADMIN = "admin"
@@ -36,7 +34,6 @@ EXPORT_AND_DELETE = "export-and-delete"
 REMOVALS = (KEEP, EXPORT_AND_DELETE)
 DOMAIN_RE = re.compile(r"(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
 Removal = Literal["keep", "export-and-delete"]
-SPANNING_PURPOSES = (None, MACHINE_KEY_PURPOSE)
 ORG_LAYOUTS = (WIKI_PRESET, SHARED_PRESET)
 ORGANISATION_METHOD = "organisation"
 OPERATOR_METHOD = "operator"
@@ -797,41 +794,3 @@ class Organisations:
                 ).rowcount
                 > 0
             )
-
-
-class OrganisationReach:
-    def __init__(self, store: HostedStore) -> None:
-        self.store = store
-
-    def around(self, claims: dict[str, Any], subject: str) -> list[Reachable]:
-        account_id = claims.get("account")
-        if not account_id or claims.get("key_purpose") not in SPANNING_PURPOSES:
-            return []
-        with self.store.connect() as connection:
-            rows = connection.execute(
-                "SELECT vaults.*, organisations.name AS organisation_name FROM organisation_members"
-                " JOIN organisations ON organisations.id = organisation_members.organisation_id"
-                " JOIN organisation_vaults ON organisation_vaults.organisation_id = organisations.id"
-                " JOIN vaults ON vaults.id = organisation_vaults.vault_id WHERE organisation_members.account_id = ?"
-                " ORDER BY organisations.created_at, vaults.created_at, vaults.rowid",
-                (account_id,),
-            ).fetchall()
-            shared = {
-                vault.id: (vault, row["organisation_name"])
-                for row in rows
-                if (vault := vault_of(row)) is not None and reaches(connection, vault, account_id)
-            }
-            if not shared:
-                return []
-            session = vault_of(connection.execute("SELECT * FROM vaults WHERE id = ?", (subject,)).fetchone())
-            own = vault_of(
-                connection.execute(
-                    "SELECT * FROM vaults WHERE account_id = ? ORDER BY created_at, rowid LIMIT 1", (account_id,)
-                ).fetchone()
-            )
-        found: dict[str, Reachable] = {}
-        for vault in (session, own, *(vault for vault, _ in shared.values())):
-            if vault is not None and vault.id not in found:
-                organisation = shared[vault.id][1] if vault.id in shared else ""
-                found[vault.id] = Reachable(vault.id, vault.slug, vault.name, organisation)
-        return list(found.values()) if len(found) > 1 else []

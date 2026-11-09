@@ -5,6 +5,8 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+- One claude.ai connector or signed-in machine reaches all your vaults: your own, the shared vaults you belong to and your organisations' vaults, named with `vault`; connect again to get it.
+- `search`, `move_file` and `delete_file` take `vault`, and the server's instructions list the vaults a connection reaches.
 
 ### Fixed
 

@@ -52,10 +52,10 @@ from mindin.hosted.accounts.access import SupportAccess
 from mindin.hosted.accounts.index_snapshots import IndexSnapshots
 from mindin.hosted.accounts.keys import Keyring, SealedVaults, VaultKeys
 from mindin.hosted.accounts.limits import Quotas, limits_document
+from mindin.hosted.accounts.reach import ACCOUNT_REACH, AccountReach
 from mindin.hosted.accounts.store import Account, ApiKeyCredentials, HostedStore
 from mindin.hosted.accounts.vaults import Vault, vault_resource_url
 from mindin.hosted.config import READ_SCOPE, SCOPES, WRITE_SCOPE, AuthConfig, auth_dir
-from mindin.hosted.orgs.organisations import OrganisationReach
 from mindin.hosted.orgs.pages import OrganisationPages
 from mindin.hosted.pages.account import SelfDeletion, SupportDesk
 from mindin.hosted.pages.vaults import VaultPages
@@ -218,7 +218,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
             raise TokenError("invalid_grant", "authorization code has expired")
         account = self.require_active(record["account_id"])
         vault = self.require_vault(account, record.get("vault_id"))
-        return self.issue(client.client_id, account.id, vault.id, record["resource"], authorization_code.scopes)
+        return self.issue(client.client_id, account.id, vault.id, record["resource"], authorization_code.scopes, True)
 
     def require_active(self, account_id: str) -> Account:
         account = self.store.account(account_id)
@@ -253,9 +253,12 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
             raise TokenError("invalid_grant", "refresh token does not exist")
         account = self.require_active(refresh_token.subject or "")
         vault = self.require_vault(account, row["vault_id"])
-        return self.issue(client.client_id, account.id, vault.id, row["resource"], scopes or refresh_token.scopes)
+        scopes = scopes or refresh_token.scopes
+        return self.issue(client.client_id, account.id, vault.id, row["resource"], scopes, bool(row["spans_account"]))
 
-    def issue(self, client_id: str, account_id: str, vault_id: str, resource: str, scopes: list[str]) -> OAuthToken:
+    def issue(
+        self, client_id: str, account_id: str, vault_id: str, resource: str, scopes: list[str], spans_account: bool
+    ) -> OAuthToken:
         grant = {
             "grant_id": secrets.token_urlsafe(16),
             "client_id": client_id,
@@ -263,6 +266,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
             "vault_id": vault_id,
             "scopes": scopes,
             "resource": resource,
+            "spans_account": spans_account,
         }
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         self.store.save_token(access, "access", grant, ACCESS_TTL)
@@ -297,6 +301,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
                 grant.purpose,
                 self.config.resource_url if slug is None else vault_resource_url(self.config, slug),
                 client=grant.name,
+                spans_account=grant.spans_account,
             )
         row = self.store.load_token(token, "access")
         if row is None or row["expires_at"] <= time.time():
@@ -322,6 +327,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
             None,
             row["resource"],
             client=self.store.client_name(row["client_id"]),
+            spans_account=bool(row["spans_account"]),
         )
 
     def verdict(
@@ -335,6 +341,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
         key_purpose: str | None = None,
         resource: str | None = None,
         client: str = "",
+        spans_account: bool = False,
     ) -> Verdict:
         if not account.active or not account.sub:
             return Verdict(None, 403, "account_suspended", "the account is not active")
@@ -357,6 +364,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
                 "role": "owner" if vault.account_id == account.id else "member",
                 "client": client or client_id,
                 "key_purpose": key_purpose,
+                "reach": ACCOUNT_REACH if spans_account else "",
             },
         )
         return Verdict(access)
@@ -440,6 +448,7 @@ class HostedGuard:
             None,
             found.resource,
             client="company sign-in",
+            spans_account=True,
         )
 
     async def refuse(self, send: Send, verdict: Verdict, found: Target) -> None:
@@ -591,7 +600,7 @@ def build_hosted_app(
     if auth.index_snapshots:
         vaults.use_snapshots(IndexSnapshots(sealed), auth.snapshot_minutes * 60.0)
     vaults.use_sweep(sealed.live_identifiers)
-    vaults.use_reach(OrganisationReach(store))
+    vaults.use_reach(AccountReach(store))
     provider = HostedProvider(auth, store, ClientMetadataFetcher(metadata_transport, resolver), clock, extensions)
     limits = Limits(store)
     browser = Browser(auth, store, limits, clock)

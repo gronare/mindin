@@ -183,6 +183,21 @@ async def test_flow_14_a_locked_vault_refuses_a_members_write_and_takes_an_edito
 
 
 @pytest.mark.anyio
+async def test_a_locked_vault_refuses_a_member_who_names_it_from_their_own_vaults_connection(site: Hosted):
+    ada, bea = await company(site)
+    async with ada, bea, site.browser() as cy:
+        await site.sign_in(cy, "cy@acme.test")
+        await post_org(site, ada, "/vaults", name="Policies", slug="policies", layout="shared")
+        await post_org(site, ada, "/vaults/lock", vault="policies", locked="on")
+        await post_org(site, ada, "/vaults/editors", vault="policies", email="bea@acme.test")
+        arguments = {"path": "Resources/leave.md", "content": POLICY, "vault": "policies"}
+        refused = await call_tool(cy, cli_key(site, "cy@acme.test", spans=True), "write_file", arguments)
+        allowed = await call_tool(bea, cli_key(site, "bea@acme.test", spans=True), "write_file", arguments)
+    assert refused.get("isError") and "Policies is locked: only its editors (bea@acme.test)" in text_of(refused)
+    assert not allowed.get("isError"), text_of(allowed)
+
+
+@pytest.mark.anyio
 async def test_a_vault_box_lists_editors_only_while_the_vault_is_locked(site: Hosted):
     ada, bea = await company(site)
     async with ada, bea:
@@ -753,10 +768,11 @@ def note(title: str, body: str, day: str = "2026-11-01", kind: str = "howto", ar
     )
 
 
-def cli_key(site: Hosted, email: str, slug: str | None = None) -> str:
+def cli_key(site: Hosted, email: str, slug: str | None = None, spans: bool = False) -> str:
     account = site.store.account(email)
     vault = site.store.vault_at(account.id, slug) if slug else site.store.first_vault(account.id)
-    return site.store.create_key(account.id, "cli", ["vault:read", "vault:write"], purpose="device", vault_id=vault.id)
+    scopes = ["vault:read", "vault:write"]
+    return site.store.create_key(account.id, "cli", scopes, purpose="device", vault_id=vault.id, spans_account=spans)
 
 
 async def in_one_session(

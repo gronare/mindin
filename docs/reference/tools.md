@@ -2,7 +2,7 @@
 
 | Tool | Cost | What it does |
 | --- | --- | --- |
-| `search` | cheap | Full-text and, when on, meaning search over the index. Filters: `folder`, `status`, `tag`, `kind`, `area`, `path_prefix`, `since`, `include_archive`, `include_superseded`, `limit` (the schema's `search.default_limit` when left out). |
+| `search` | cheap | Full-text and, when on, meaning search over the index. Filters: `folder`, `status`, `tag`, `kind`, `area`, `path_prefix`, `since`, `include_archive`, `include_superseded`, `limit` (the schema's `search.default_limit` when left out). `vault` searches one vault alone. |
 | `context` | cheap | The session-start bundle for a `path` and `repo`, and the repo's origin `remote` for an organisation's pages; `query` also brings reference notes whose title or tags hold it, `limit` (10) caps each list, and `format: "json"` answers it as data. |
 | `backlog` | cheap | The backlog by priority then age, filtered by `area` and `priority`. |
 | `list_files` | cheap | Paths only; `prefix` keeps the paths that start with it. Takes `vault`, like `read_file`. |
@@ -16,12 +16,12 @@
 | `close` | write | Finishes a note and moves it into the archive, with status `complete` or the `status` it is given. `merged_into` names the note that took it over: status `superseded`, with `superseded_by` linking that note. |
 | `backlog_add` | write | Files a backlog note. |
 | `log_append` | write | One dated line in the repo log, with the commits and the branch. |
-| `move_file` | write | Moves or renames a note; it must satisfy the schema at the destination. |
-| `delete_file` | write | Deletes for good. Prefer `close`. |
+| `move_file` | write | Moves or renames a note; it must satisfy the schema at the destination. Takes `vault`, like `write_file`. |
+| `delete_file` | write | Deletes for good. Prefer `close`. Takes `vault`, like `write_file`. |
 | `init` | write | Sets up a vault without a schema: the schema of the `preset` it is given and the Bases views. On a vault with a schema it only writes the missing views. |
 | `obsidian_access` | write | Server only. Mints the WebDAV password for [Obsidian's Remotely Save](../how-to/obsidian.md) and shows it once. |
 
-Without `vault`, every tool works on the connection's own vault. On a server where the account belongs to an [organisation](../how-to/run-mindin-for-a-team.md), `search` also covers the account's own vault and the organisation's vaults, and `vault` reaches those; anywhere else, naming a vault other than the connection's is refused. See [Search across vaults](../explanation/search.md#across-vaults).
+Without `vault`, every tool works on the connection's main vault. On a server with accounts, a connector, a signed-in machine or a trusted proxy's identity also reaches every other vault the account reaches: `search` covers them, and `vault` names one. A key made on a vault's page, a server without accounts and a local vault refuse a vault other than their own. The server's instructions list the vaults a connection reaches. See [Search across vaults](../explanation/search.md#across-vaults).
 
 On S3, a conditional `write_file` sends its condition with the PUT; see [Storage](../install/storage.md#the-bucket).
 

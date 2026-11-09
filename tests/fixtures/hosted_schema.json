@@ -1,6 +1,6 @@
 {
  "fresh": {
-  "user_version": 6,
+  "user_version": 7,
   "objects": [
    [
     "index",
@@ -246,7 +246,7 @@
     "table",
     "api_keys",
     "api_keys",
-    "CREATE TABLE api_keys (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    key_hash TEXT NOT NULL,\n    scopes TEXT NOT NULL,\n    purpose TEXT NOT NULL DEFAULT 'api',\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    revoked_at INTEGER\n, vault_id TEXT REFERENCES vaults(id))"
+    "CREATE TABLE api_keys (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    key_hash TEXT NOT NULL,\n    scopes TEXT NOT NULL,\n    purpose TEXT NOT NULL DEFAULT 'api',\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    revoked_at INTEGER\n, vault_id TEXT REFERENCES vaults(id), spans_account INTEGER NOT NULL DEFAULT 0)"
    ],
    [
     "table",
@@ -354,7 +354,7 @@
     "table",
     "tokens",
     "tokens",
-    "CREATE TABLE tokens (\n    token_hash TEXT PRIMARY KEY,\n    kind TEXT NOT NULL,\n    grant_id TEXT NOT NULL,\n    client_id TEXT NOT NULL,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    scopes TEXT NOT NULL,\n    resource TEXT NOT NULL,\n    issued_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL,\n    revoked INTEGER NOT NULL DEFAULT 0\n, vault_id TEXT REFERENCES vaults(id))"
+    "CREATE TABLE tokens (\n    token_hash TEXT PRIMARY KEY,\n    kind TEXT NOT NULL,\n    grant_id TEXT NOT NULL,\n    client_id TEXT NOT NULL,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    scopes TEXT NOT NULL,\n    resource TEXT NOT NULL,\n    issued_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL,\n    revoked INTEGER NOT NULL DEFAULT 0\n, vault_id TEXT REFERENCES vaults(id), spans_account INTEGER NOT NULL DEFAULT 0)"
    ],
    [
     "table",
@@ -407,7 +407,7 @@
   ]
  },
  "migrated": {
-  "user_version": 6,
+  "user_version": 7,
   "objects": [
    [
     "index",
@@ -653,7 +653,7 @@
     "table",
     "api_keys",
     "api_keys",
-    "CREATE TABLE api_keys (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    key_hash TEXT NOT NULL,\n    scopes TEXT NOT NULL,\n    purpose TEXT NOT NULL DEFAULT 'api',\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    revoked_at INTEGER\n, vault_id TEXT REFERENCES vaults(id))"
+    "CREATE TABLE api_keys (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    key_hash TEXT NOT NULL,\n    scopes TEXT NOT NULL,\n    purpose TEXT NOT NULL DEFAULT 'api',\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    revoked_at INTEGER\n, vault_id TEXT REFERENCES vaults(id), spans_account INTEGER NOT NULL DEFAULT 0)"
    ],
    [
     "table",
@@ -761,7 +761,7 @@
     "table",
     "tokens",
     "tokens",
-    "CREATE TABLE tokens (\n    token_hash TEXT PRIMARY KEY,\n    kind TEXT NOT NULL,\n    grant_id TEXT NOT NULL,\n    client_id TEXT NOT NULL,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    scopes TEXT NOT NULL,\n    resource TEXT NOT NULL,\n    issued_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL,\n    revoked INTEGER NOT NULL DEFAULT 0\n, vault_id TEXT REFERENCES vaults(id))"
+    "CREATE TABLE tokens (\n    token_hash TEXT PRIMARY KEY,\n    kind TEXT NOT NULL,\n    grant_id TEXT NOT NULL,\n    client_id TEXT NOT NULL,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    scopes TEXT NOT NULL,\n    resource TEXT NOT NULL,\n    issued_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL,\n    revoked INTEGER NOT NULL DEFAULT 0\n, vault_id TEXT REFERENCES vaults(id), spans_account INTEGER NOT NULL DEFAULT 0)"
    ],
    [
     "table",

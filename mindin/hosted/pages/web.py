@@ -14,6 +14,7 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Re
 from starlette.routing import request_response
 from starlette.types import ASGIApp
 
+from mindin.hosted.accounts.reach import ALSO_REACHES
 from mindin.hosted.accounts.store import SESSION_TTL, Account, HostedStore, digest
 from mindin.hosted.accounts.vaults import Vault
 from mindin.hosted.config import READ_SCOPE, WRITE_SCOPE, AuthConfig
@@ -296,7 +297,7 @@ class Browser:
         if not vaults:
             return page("No vault yet", "Make a vault on your account page first, then connect again.", status_code=400)
         if bound:
-            vault_choice = f"<dt>Vault</dt><dd>{esc(bound.name)} <code>{esc(bound.slug)}</code></dd>"
+            vault_choice = f"<dt>Main vault</dt><dd>{esc(bound.name)} <code>{esc(bound.slug)}</code></dd>"
             vault_field = hidden_field("vault", bound.slug)
         else:
             vault_choice = ""
@@ -305,11 +306,12 @@ class Browser:
                 f" {esc(vault.name)} ({esc(vault.slug)})</label>"
                 for index, vault in enumerate(vaults)
             )
-            vault_field = f"<fieldset><legend>The vault it reaches</legend>{radios}</fieldset>"
+            vault_field = f"<fieldset><legend>Main vault</legend>{radios}</fieldset>"
         body = f"""{error_box(error)}{warning}
 <dl><dt>Signed in as</dt><dd>{esc(account.email)}</dd>
 <dt>Client</dt><dd>{origin}</dd>
 <dt>Returns to</dt><dd><code>{esc(redirect_host)}</code></dd>{vault_choice}</dl>
+<p>{esc(ALSO_REACHES)}</p>
 <form method="post" action="{esc(self.local("/login"))}">
 <input type="hidden" name="request" value="{esc(request_id)}">
 <input type="hidden" name="csrf" value="{esc(csrf)}">
@@ -321,7 +323,7 @@ class Browser:
 <button type="submit" name="decision" value="approve">Approve</button>
 <button type="submit" name="decision" value="deny" class="secondary">Deny</button>
 </form>"""
-        return page("Vault access", f"{pending['client_name']} is asking to reach one of your vaults.", body)
+        return page("Vault access", f"{pending['client_name']} is asking to reach your vaults.", body)
 
     async def consent_submit(
         self, request: Request, mint_code: Callable[[dict, list[str], Account, Vault], str]

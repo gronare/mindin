@@ -398,4 +398,17 @@ def to_support_requests(connection: sqlite3.Connection) -> None:
     run(connection, SUPPORT_REQUEST_TABLES)
 
 
-STEPS = (to_vaults, to_shared, to_account_slugs, to_opened_tables, to_organisations, to_support_requests)
+def to_account_reach(connection: sqlite3.Connection) -> None:
+    add_column(connection, "tokens", "spans_account", "INTEGER NOT NULL DEFAULT 0")
+    add_column(connection, "api_keys", "spans_account", "INTEGER NOT NULL DEFAULT 0")
+
+
+STEPS = (
+    to_vaults,
+    to_shared,
+    to_account_slugs,
+    to_opened_tables,
+    to_organisations,
+    to_support_requests,
+    to_account_reach,
+)

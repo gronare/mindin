@@ -48,13 +48,15 @@ SEARCH_DESCRIPTION = (
     "limit defaults to the vault schema's search.default_limit."
 )
 SPANNING_DESCRIPTION = (
-    " When the account belongs to an organisation, it searches this session's vault, the account's own vault and "
-    "the organisation's vaults together: the header names them, each row starts with its vault, and "
-    "read_file(path, vault=<vault>) reads a row from another vault without a new connection."
+    " When the connection reaches more than one vault, it searches this connection's main vault and every other vault "
+    "it reaches that is searched by default: the header names them, each row starts with its vault, and "
+    "read_file(path, vault=<vault>) reads a row from another vault without a new connection. vault searches that "
+    "one vault alone, also one not searched by default."
 )
 VAULT_ARGUMENT = (
-    " vault names another vault this connection reaches, as search rows name it; leave it out for this session's vault."
+    " vault names another vault this connection reaches, as search rows name it; leave it out for the main vault."
 )
+VAULT_TOOLS = "search, read_file, list_files, write_file, append_file, move_file, delete_file and rules"
 MEANING_DESCRIPTION = (
     " It also finds notes by meaning, across languages too, that share no word with the query: "
     "the header counts those rows as matched by meaning only, and a row that matched a section names it after §."
@@ -115,7 +117,12 @@ def build_server(
             return f"{exc}\n\n{general}"
         except VaultError:
             return general
-        return vault_rules(vault) if vault.rules is not None else general
+        rules = vault_rules(vault) if vault.rules is not None else general
+        try:
+            reached = resolver.around()
+        except VaultError:
+            return rules
+        return f"{rules}\n\n{reach_section(reached)}" if reached else rules
 
     answer_instructions_per_vault(server, instructions_now)
 
@@ -142,14 +149,22 @@ def build_server(
     description += SPANNING_DESCRIPTION if resolver.spans_vaults else ""
     vault_note = VAULT_ARGUMENT if resolver.spans_vaults else ""
 
-    def search_everywhere(query: str, limit: int | None, filters: dict[str, Any]) -> SearchResult:
+    def search_everywhere(
+        query: str, limit: int | None, filters: dict[str, Any], named: str | None = None
+    ) -> SearchResult:
         reached = resolver.around()
-        with resolver.using() as vault:
+        if named is None:
+            chosen = [item for item in reached if item.searched]
+        else:
+            chosen = [item for item in reached if item.slug == named][:1]
+        alone = not chosen or (len(chosen) == 1 and chosen[0].main)
+        main = named is None or (bool(chosen) and chosen[0].main)
+        with resolver.using() if main else resolver.using_named(named or "") as vault:
             vault.sync()
-            if not reached:
+            if alone:
                 return search(vault.index, vault.schema, query, limit=limit, **filters)
             wanted = vault.schema.default_limit if limit is None else limit
-        return across([searched_in(item, query, wanted, filters) for item in reached], wanted)
+        return across([searched_in(item, query, wanted, filters) for item in chosen], wanted)
 
     def searched_in(item: Reachable, query: str, limit: int, filters: dict[str, Any]) -> Searched:
         try:
@@ -179,6 +194,7 @@ def build_server(
         include_superseded: bool = False,
         path_prefix: str | None = None,
         since: str | None = None,
+        vault: str | None = None,
     ) -> str:
         filters = {
             "folder": folder,
@@ -191,7 +207,7 @@ def build_server(
             "path_prefix": path_prefix,
             "since": since,
         }
-        return answered(lambda: render(search_everywhere(query, limit, filters)))
+        return answered(lambda: render(search_everywhere(query, limit, filters, vault)))
 
     @server.tool(
         name="read_file",
@@ -232,15 +248,17 @@ def build_server(
         name="move_file",
         description=(
             "WRITE — moves or renames a note; the note must satisfy the schema at the destination. "
-            "Use `close` to archive finished work."
+            "Use `close` to archive finished work." + vault_note
         ),
     )
-    def move_file(source: str, dest: str) -> str:
-        return run(lambda vault: notes.move(vault, source, dest), write=True)
+    def move_file(source: str, dest: str, vault: str | None = None) -> str:
+        return run(lambda opened: notes.move(opened, source, dest), write=True, vault_slug=vault)
 
-    @server.tool(name="delete_file", description="WRITE — deletes a note for good. Prefer `close`, which keeps it.")
-    def delete_file(path: str) -> str:
-        return run(lambda vault: notes.delete(vault, path), write=True)
+    @server.tool(
+        name="delete_file", description="WRITE — deletes a note for good. Prefer `close`, which keeps it." + vault_note
+    )
+    def delete_file(path: str, vault: str | None = None) -> str:
+        return run(lambda opened: notes.delete(opened, path), write=True, vault_slug=vault)
 
     @server.tool(
         name="list_files",
@@ -491,7 +509,7 @@ def build_server(
         description=(
             "CHEAP — a vault's own rules for agents: its folders, the frontmatter contract, when and how to write "
             "there, and what session start shows from it. Read them before the first write to a vault reached "
-            "through `vault`; for this session's vault they are the server's instructions." + vault_note
+            "through `vault`; for the main vault they are the server's instructions." + vault_note
         ),
     )
     def rules_tool(vault: str | None = None) -> str:
@@ -555,6 +573,23 @@ def build_server(
             return run(lambda vault: _obsidian_access(personal_tokens, dav_url), write=True)
 
     return server
+
+
+def reach_section(reached: list[Reachable]) -> str:
+    main = next((item for item in reached if item.main), reached[0])
+    lines = [
+        "## Vaults this connection reaches",
+        f"The main vault is {main.name} (`{main.slug}`): every tool works there unless it is given `vault`. "
+        f"The connection also reaches these, named with `vault=<slug>` on {VAULT_TOOLS}; "
+        "search without `vault` covers the main vault and the ones searched by default:",
+    ]
+    for item in reached:
+        if item is main:
+            continue
+        where = f"{item.name}, {item.organisation}" if item.organisation else item.name
+        searched = "searched by default" if item.searched else "not searched by default"
+        lines.append(f"- `{item.slug}` ({where}): {searched}")
+    return "\n".join(lines)
 
 
 def vault_rules(vault: Vault) -> str:

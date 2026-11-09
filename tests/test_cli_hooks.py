@@ -96,13 +96,24 @@ def test_session_start_lists_commits_newer_than_the_note(
     assert "First commit" in out
 
 
-def test_stop_blocks_when_a_commit_is_not_logged(vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path, capsys):
+def test_stop_reminds_when_a_commit_is_not_logged(vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path, capsys):
     repo = make_repo(tmp_path / "repos", "frame")
     feed(monkeypatch, {"cwd": str(repo)})
     assert main(["hook", "stop"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["decision"] == "block"
-    assert head_sha(repo) in payload["reason"]
+    assert payload["hookSpecificOutput"]["hookEventName"] == "Stop"
+    assert head_sha(repo) in payload["hookSpecificOutput"]["additionalContext"]
+
+
+def test_stop_hands_its_reminder_as_feedback_not_as_a_block(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
+):
+    repo = make_repo(tmp_path / "repos", "frame")
+    feed(monkeypatch, {"cwd": str(repo)})
+    assert main(["hook", "stop"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert list(payload) == ["hookSpecificOutput"]
+    assert "decision" not in payload and "reason" not in payload
 
 
 def test_stop_is_silent_about_commits_on_a_layout_without_a_log(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys):
@@ -150,7 +161,7 @@ def test_stop_names_only_the_sessions_own_commit_after_a_fast_forward(
     mine = commit_in(repo, "My commit")
     feed(monkeypatch, {"cwd": str(repo)})
     assert main(["hook", "stop"]) == 0
-    reason = json.loads(capsys.readouterr().out)["reason"]
+    reason = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
     assert mine in reason
     assert theirs not in reason
 
@@ -235,8 +246,8 @@ def test_stop_blocks_on_a_stale_note_the_session_touched(
     feed(monkeypatch, {"cwd": str(repo), "transcript_path": str(transcript)})
     assert main(["hook", "stop"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["decision"] == "block"
-    assert "Projects/workshop-stale.md" in payload["reason"]
+    assert payload["hookSpecificOutput"]["hookEventName"] == "Stop"
+    assert "Projects/workshop-stale.md" in payload["hookSpecificOutput"]["additionalContext"]
     assert "systemMessage" not in payload
 
 
@@ -268,9 +279,9 @@ def test_stop_blocks_on_an_unlogged_commit_without_naming_untouched_notes(
     feed(monkeypatch, {"cwd": str(repo)})
     assert main(["hook", "stop"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["decision"] == "block"
-    assert head_sha(repo) in payload["reason"]
-    assert "Projects/workshop-stale.md" not in payload["reason"]
+    assert payload["hookSpecificOutput"]["hookEventName"] == "Stop"
+    assert head_sha(repo) in payload["hookSpecificOutput"]["additionalContext"]
+    assert "Projects/workshop-stale.md" not in payload["hookSpecificOutput"]["additionalContext"]
     assert "systemMessage" not in payload
 
 
@@ -350,7 +361,7 @@ def test_stop_in_a_worktree_names_the_main_repo_and_the_branch(
     mine = commit_in(worktree, "Fix the app")
     feed(monkeypatch, {"cwd": str(worktree)})
     assert main(["hook", "stop"]) == 0
-    reason = json.loads(capsys.readouterr().out)["reason"]
+    reason = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
     assert f"log_append(repo='frame', branch='fix-app', line='<what landed>', commits=['{mine}'])" in reason
     assert "wt1.frame" not in reason
 
@@ -569,13 +580,16 @@ def test_stop_waits_for_three_prompts_after_the_last_vault_write_and_asks_once(
     assert stop_payload(monkeypatch, capsys, payload) is None
     transcript_of(transcript, [prompt("p0"), vault_call("write_file"), *prompts("p1", "p2", "p3")])
     blocked = stop_payload(monkeypatch, capsys, payload)
-    assert blocked["decision"] == "block"
-    assert "the user wrote 3 messages since your last vault write" in blocked["reason"]
+    assert blocked["hookSpecificOutput"]["hookEventName"] == "Stop"
+    assert "the user wrote 3 messages since your last vault write" in blocked["hookSpecificOutput"]["additionalContext"]
     assert stop_payload(monkeypatch, capsys, payload) is None
     transcript_of(transcript, [vault_call("write_file"), *prompts("p1", "p2", "p3", "p4", "p5")])
     assert stop_payload(monkeypatch, capsys, payload) is None
     transcript_of(transcript, [vault_call("write_file"), *prompts("p1", "p2", "p3", "p4", "p5", "p6")])
-    assert "wrote 3 messages since" in stop_payload(monkeypatch, capsys, payload)["reason"]
+    assert (
+        "wrote 3 messages since"
+        in stop_payload(monkeypatch, capsys, payload)["hookSpecificOutput"]["additionalContext"]
+    )
 
 
 @pytest.mark.parametrize(("setting", "threshold"), [("1", 1), ("5", 5), ("0", 3), ("-2", 3), ("many", 3), ("", 3)])
@@ -588,8 +602,15 @@ def test_stop_asks_at_a_custom_number_of_prompts(cache: Path, monkeypatch: pytes
     transcript = transcript_of(tmp_path / "t.jsonl", [prompt("p1")])
     payload = {"cwd": str(tmp_path), "session_id": "s-orchard", "transcript_path": str(transcript)}
     monkeypatch.setenv("VAULT_STOP_HOOK_PROMPTS", "1")
-    assert "wrote 1 message since" in stop_payload(monkeypatch, capsys, payload)["reason"]
-    assert stop_payload(monkeypatch, capsys, {**payload, "session_id": "s-workshop"})["decision"] == "block"
+    assert (
+        "wrote 1 message since" in stop_payload(monkeypatch, capsys, payload)["hookSpecificOutput"]["additionalContext"]
+    )
+    assert (
+        stop_payload(monkeypatch, capsys, {**payload, "session_id": "s-workshop"})["hookSpecificOutput"][
+            "hookEventName"
+        ]
+        == "Stop"
+    )
 
 
 def test_stop_is_silent_when_the_last_prompts_came_before_a_vault_write(
@@ -619,10 +640,10 @@ def test_stop_names_prompts_and_unlogged_commits_in_one_block(
     transcript = transcript_of(tmp_path / "t.jsonl", prompts("p1", "p2", "p3"))
     payload = {"cwd": str(repo), "session_id": "s-workshop", "transcript_path": str(transcript)}
     blocked = stop_payload(monkeypatch, capsys, payload)
-    assert head_sha(repo) in blocked["reason"]
-    assert "the user wrote 3 messages since" in blocked["reason"]
+    assert head_sha(repo) in blocked["hookSpecificOutput"]["additionalContext"]
+    assert "the user wrote 3 messages since" in blocked["hookSpecificOutput"]["additionalContext"]
     monkeypatch.setenv("VAULT_STOP_HOOK_PROMPTS", "off")
-    assert "message" not in stop_payload(monkeypatch, capsys, payload)["reason"]
+    assert "message" not in stop_payload(monkeypatch, capsys, payload)["hookSpecificOutput"]["additionalContext"]
 
 
 def test_the_commit_check_switches_off_alone(vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
@@ -633,5 +654,5 @@ def test_the_commit_check_switches_off_alone(vault: Vault, monkeypatch: pytest.M
     assert stop_payload(monkeypatch, capsys, payload) is None
     transcript_of(transcript, prompts("p1", "p2", "p3"))
     blocked = stop_payload(monkeypatch, capsys, payload)
-    assert "the user wrote 3 messages since" in blocked["reason"]
-    assert head_sha(repo) not in blocked["reason"]
+    assert "the user wrote 3 messages since" in blocked["hookSpecificOutput"]["additionalContext"]
+    assert head_sha(repo) not in blocked["hookSpecificOutput"]["additionalContext"]

@@ -11,7 +11,7 @@ The vault is a folder of markdown notes (an Obsidian vault) reached through the 
 
 1. **Session start.** The `session-start` hook already printed a context bundle: the system notes for the code you are in, open task notes, reference notes, and the last log lines for the repo. If it did not (no hook, another cwd), call `context` with the path you work in. Read the system note before touching code. When the bundle lists commits newer than a system note, the note may be stale: trust the code, fix the note in the same pass.
 2. **Before the first edit.** The system note for the subsystem must exist and describe today's state. If it is missing, write it (folder of kind `system`, `kind: system`, a `path` list, a `summary`). Write a task note (folder of kind `task`) only when the work spans sessions or needs a decision record; it must carry `area: "[[<system note>]]"`.
-3. **Session end.** Update the system note with what changed, then call `log_append` with the repo, one line, the commit shas and the area. The `stop` hook blocks the stop when commits from the last day are missing from the log. Close finished task notes with `close` (optionally `merged_into` the system note).
+3. **Session end.** Update the system note with what changed, then call `log_append` with the repo, one line, the commit shas and the area. The `stop` hook reminds you when commits from the last day are missing from the log. Close finished task notes with `close` (optionally `merged_into` the system note).
 
 ## Where the notes are
 

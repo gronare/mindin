@@ -117,7 +117,7 @@ def test_stop_writes_the_month_pages_once_a_day(
     page = vault_dir / f"Log/orchard-{THIS_MONTH}.md"
     feed(monkeypatch, {"cwd": str(repo)})
     assert main(["hook", "stop"]) == 0
-    assert json.loads(capsys.readouterr().out)["decision"] == "block"
+    assert json.loads(capsys.readouterr().out)["hookSpecificOutput"]["hookEventName"] == "Stop"
     assert page.exists()
     page.unlink()
     feed(monkeypatch, {"cwd": str(repo)})

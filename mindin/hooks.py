@@ -348,4 +348,4 @@ def verdict(
         asked.remember(session, prompts[-1])
     branch = current_branch(target.root) if target.root is not None else None
     reason = _reason(commits, blocking, target.repo, branch, len(prompts))
-    return json.dumps({"decision": "block", "reason": reason})
+    return json.dumps({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": reason}})

@@ -11,6 +11,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - Session start also lists pages about the repo from shared vaults you belong to.
 
 ### Fixed
+- The stop hook's reminder shows in Claude Code as hook feedback, not as a hook error.
 
 ## 0.16.0
 

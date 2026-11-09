@@ -47,4 +47,4 @@ Then add the hooks to your Claude Code settings:
 }
 ```
 
-[Hooks](../reference/hooks.md) describes what each prints and when `stop` blocks.
+[Hooks](../reference/hooks.md) describes what each prints and when `stop` reminds the agent.

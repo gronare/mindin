@@ -8,14 +8,14 @@ Prints the [context bundle](../explanation/how-it-works.md#session-start) for th
 
 ## stop
 
-Blocks the end of a session that left work unrecorded:
+Keeps the agent going when a session left work unrecorded:
 
 - commits made in this checkout in the last 24 hours whose sha is not in the repo log;
 - open task notes older than `stale_after_days` that the session read or wrote through the vault tools.
 
-It answers `{"decision": "block", "reason": ...}` with the `log_append` call to make, or nothing when the vault is up to date. Stale notes the session did not touch are listed by `context` under `triage` at the next start instead.
+It answers `{"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": ...}}` with the `log_append` call to make, or nothing when the vault is up to date. Claude Code shows it as `Stop hook feedback`, not as a hook error, and asks once: a stop that a hook already continued passes. Stale notes the session did not touch are listed by `context` under `triage` at the next start instead.
 
-It also blocks, in any directory, once you have written three messages since the session's last write through the vault tools, asking the agent to save the decisions, deferrals and ideas in them. It asks once per message, so an agent with nothing to save stops on its next try and is asked again after three more.
+It also reminds the agent, in any directory, once you have written three messages since the session's last write through the vault tools, asking the agent to save the decisions, deferrals and ideas in them. It asks once per message, so an agent with nothing to save stops on its next try and is asked again after three more.
 
 Once a day it writes the [period pages](command-line.md#changelog) for every repo the session-start hook has seen, as `changelog --all` does.
 

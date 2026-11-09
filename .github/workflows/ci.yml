@@ -43,3 +43,26 @@ jobs:
           --fail-on="GPL"
           --allow-only="MIT;BSD;Apache;ISC;PSF;Python Software Foundation;Zlib;Unlicense;CC0"
           --ignore-packages certifi py_rust_stemmers
+
+  docs-site:
+    needs: [test, audit, licenses]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Rebuild mindin.dev, whose /docs are built from this repo's docs, when this push changed them
+        env:
+          GH_TOKEN: ${{ secrets.MINDIN_SITE_DISPATCH_TOKEN }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null && [ -z "$(git diff --name-only "$BEFORE" "$GITHUB_SHA" -- docs README.md)" ]; then
+            echo "This push leaves docs/ and README.md as they were"
+            exit 0
+          fi
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::MINDIN_SITE_DISPATCH_TOKEN is not set, so mindin.dev shows main's docs from its next deploy"
+            exit 0
+          fi
+          gh workflow run deploy.yml --repo gronare/mindin-site --ref main || echo "::warning::mindin.dev's deploy did not start; run it from gronare/mindin-site's Actions tab"

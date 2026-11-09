@@ -228,3 +228,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber ./*.cdx.json
+
+  site:
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rebuild mindin.dev, whose /docs are built from this repo's docs
+        env:
+          GH_TOKEN: ${{ secrets.MINDIN_SITE_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::MINDIN_SITE_DISPATCH_TOKEN is not set, so mindin.dev shows these docs from its next deploy"
+            exit 0
+          fi
+          gh workflow run deploy.yml --repo gronare/mindin-site --ref main || echo "::warning::mindin.dev's deploy did not start; run it from gronare/mindin-site's Actions tab"

@@ -152,6 +152,7 @@ class Reachable:
     organisation: str = ""
     main: bool = False
     searched: bool = True
+    shared: bool = False
 
 
 class Reach(Protocol):

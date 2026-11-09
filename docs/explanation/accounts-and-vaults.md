@@ -12,6 +12,7 @@ Each personal vault's page has:
 
 - **Connect.** The vault's MCP address, the `login` line for a computer, and the WebDAV address.
 - **Connections and keys.** Every connector, signed-in computer and key that reaches this vault, with when it was last used; disconnect, sign out or revoke each one, and make a key.
+- **Search.** Whether your connections made for other vaults search this one by default; see [Search across vaults](search.md#across-vaults). Shared vaults have it too.
 - **Layout.** The vault's [layout](notes-and-layouts.md#switching-layouts), and switching to another.
 - **Your data.** The vault downloads as a zip at any time; a zip imports into it, replacing files with the same path.
 - **Delete this vault.** Typing its name, after a sign-in within the last ten minutes, destroys the vault's key, files, index, keys and connections. The account's other vaults stay as they are.

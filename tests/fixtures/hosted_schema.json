@@ -1,6 +1,6 @@
 {
  "fresh": {
-  "user_version": 7,
+  "user_version": 8,
   "objects": [
    [
     "index",
@@ -186,6 +186,12 @@
     "index",
     "sqlite_autoindex_vault_members_1",
     "vault_members",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vault_search_off_1",
+    "vault_search_off",
     null
    ],
    [
@@ -388,6 +394,12 @@
    ],
    [
     "table",
+    "vault_search_off",
+    "vault_search_off",
+    "CREATE TABLE vault_search_off (\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    set_at INTEGER NOT NULL,\n    PRIMARY KEY (account_id, vault_id)\n)"
+   ],
+   [
+    "table",
     "vault_support_grants",
     "vault_support_grants",
     "CREATE TABLE vault_support_grants (\n    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    granted_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL\n)"
@@ -407,7 +419,7 @@
   ]
  },
  "migrated": {
-  "user_version": 7,
+  "user_version": 8,
   "objects": [
    [
     "index",
@@ -593,6 +605,12 @@
     "index",
     "sqlite_autoindex_vault_members_1",
     "vault_members",
+    null
+   ],
+   [
+    "index",
+    "sqlite_autoindex_vault_search_off_1",
+    "vault_search_off",
     null
    ],
    [
@@ -792,6 +810,12 @@
     "vault_members",
     "vault_members",
     "CREATE TABLE vault_members (\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    joined_at INTEGER NOT NULL,\n    PRIMARY KEY (vault_id, account_id)\n)"
+   ],
+   [
+    "table",
+    "vault_search_off",
+    "vault_search_off",
+    "CREATE TABLE vault_search_off (\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    set_at INTEGER NOT NULL,\n    PRIMARY KEY (account_id, vault_id)\n)"
    ],
    [
     "table",

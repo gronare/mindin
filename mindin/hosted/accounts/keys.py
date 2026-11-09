@@ -288,6 +288,7 @@ class SealedVaults:
 
 
 VAULT_ROWS = (
+    "vault_search_off",
     "api_keys",
     "tokens",
     "devices",

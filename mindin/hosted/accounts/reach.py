@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mindin.hosted.accounts.store import HostedStore
+from mindin.hosted.accounts.store import HostedStore, not_searched
 from mindin.hosted.accounts.vaults import Vault, reached, vault_of
 from mindin.hosted.config import MACHINE_KEY_PURPOSE
 from mindin.hosted.database import Connection
@@ -29,6 +29,7 @@ class AccountReach:
             if main is None:
                 return []
             organisations = organisation_names(connection, account_id)
+            off = not_searched(connection, account_id)
             everything = reached(connection, [account_id])
             if claims.get("reach") == ACCOUNT_REACH:
                 others = [vault for vault in everything if vault.account_id == account_id]
@@ -38,12 +39,12 @@ class AccountReach:
                 others += [vault for vault in everything if vault.id in organisations]
         found: dict[str, Reachable] = {main.id: reachable(main, organisations, main=True)}
         for vault in others:
-            found.setdefault(vault.id, reachable(vault, organisations))
+            found.setdefault(vault.id, reachable(vault, organisations, searched=vault.id not in off))
         return list(found.values()) if len(found) > 1 else []
 
 
-def reachable(vault: Vault, organisations: dict[str, str], main: bool = False) -> Reachable:
-    return Reachable(vault.id, vault.slug, vault.name, organisations.get(vault.id, ""), main=main)
+def reachable(vault: Vault, organisations: dict[str, str], main: bool = False, searched: bool = True) -> Reachable:
+    return Reachable(vault.id, vault.slug, vault.name, organisations.get(vault.id, ""), main, searched, vault.shared)
 
 
 def organisation_names(connection: Connection, account_id: str) -> dict[str, str]:

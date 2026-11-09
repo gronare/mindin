@@ -349,8 +349,8 @@ def build_server(
             "CHEAP — the session-start call. Returns the system notes covering the code at `path`, the "
             "open tasks for it, the reference notes and the tail of the repo log, in one answer. Use it "
             'before searching blind. format "json" adds the system notes\' paths and dates and the triage '
-            "keys, for hooks that read it. remote is the repo's origin URL; for a member of an organisation the "
-            "bundle adds the organisation's pages that name the repo or its area."
+            "keys, for hooks that read it. remote is the repo's origin URL; the bundle adds the pages "
+            "that name the repo or its area from the organisation and shared vaults the connection searches."
         ),
     )
     def context_tool(
@@ -375,9 +375,10 @@ def build_server(
             return []
         areas = {note.stem for note, _ in bundle.system} | {note.stem for note in bundle.system_rows}
         found = []
-        for item in resolver.around():
-            if not item.organisation:
-                continue
+        reached = [item for item in resolver.around() if item.shared and item.searched]
+        for item in [item for item in reached if item.organisation] + [
+            item for item in reached if not item.organisation
+        ]:
             try:
                 with resolver.using_reached(item) as vault:
                     if vault is current:

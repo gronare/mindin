@@ -398,9 +398,23 @@ def to_support_requests(connection: sqlite3.Connection) -> None:
     run(connection, SUPPORT_REQUEST_TABLES)
 
 
+SEARCH_TABLES = (
+    """CREATE TABLE IF NOT EXISTS vault_search_off (
+    account_id TEXT NOT NULL REFERENCES accounts(id),
+    vault_id TEXT NOT NULL REFERENCES vaults(id),
+    set_at INTEGER NOT NULL,
+    PRIMARY KEY (account_id, vault_id)
+)""",
+)
+
+
 def to_account_reach(connection: sqlite3.Connection) -> None:
     add_column(connection, "tokens", "spans_account", "INTEGER NOT NULL DEFAULT 0")
     add_column(connection, "api_keys", "spans_account", "INTEGER NOT NULL DEFAULT 0")
+
+
+def to_search_defaults(connection: sqlite3.Connection) -> None:
+    run(connection, SEARCH_TABLES)
 
 
 STEPS = (
@@ -411,4 +425,5 @@ STEPS = (
     to_organisations,
     to_support_requests,
     to_account_reach,
+    to_search_defaults,
 )

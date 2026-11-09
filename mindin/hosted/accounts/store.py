@@ -52,6 +52,11 @@ UNUSED_CLIENT_TTL = 24 * 3600
 WEBDAV_KEY_NAME = "Obsidian (WebDAV)"
 
 
+def not_searched(connection: Any, account_id: str) -> set[str]:
+    rows = connection.execute("SELECT vault_id FROM vault_search_off WHERE account_id = ?", (account_id,)).fetchall()
+    return {row["vault_id"] for row in rows}
+
+
 def digest(secret: str) -> str:
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
@@ -303,6 +308,26 @@ class HostedStore:
                 (account_id, account_id),
             ).fetchall()
         return [vault for vault in map(vault_of, rows) if vault is not None]
+
+    def searched_by_default(self, account_id: str, vault_id: str) -> bool:
+        return vault_id not in self.not_searched(account_id)
+
+    def not_searched(self, account_id: str) -> set[str]:
+        with self.connect() as connection:
+            return not_searched(connection, account_id)
+
+    def set_searched_by_default(self, account_id: str, vault_id: str, searched: bool) -> None:
+        with self.connect() as connection:
+            if searched:
+                connection.execute(
+                    "DELETE FROM vault_search_off WHERE account_id = ? AND vault_id = ?", (account_id, vault_id)
+                )
+            else:
+                connection.execute(
+                    "INSERT INTO vault_search_off(account_id, vault_id, set_at) VALUES(?, ?, ?)"
+                    " ON CONFLICT (account_id, vault_id) DO NOTHING",
+                    (account_id, vault_id, now()),
+                )
 
     def reachable_vaults(self, account_id: str) -> list[Vault]:
         return self.vaults(account_id) + self.shared_with(account_id)

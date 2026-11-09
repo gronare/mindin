@@ -4,7 +4,7 @@ from pathlib import Path
 
 import httpx2
 import pytest
-from hosted_support import BASE, INITIALIZE, Hosted, call_tool, hosted, post_mcp, sse_payload, text_of
+from hosted_support import BASE, INITIALIZE, Hosted, call_tool, csrf_of, hosted, post_mcp, sse_payload, text_of
 from test_hosted_app import authorize, consent, register
 from test_organisations import in_one_session
 from test_signin_device import decide, poll, start
@@ -199,3 +199,74 @@ async def test_a_claude_ai_connection_reaches_every_vault_and_keeps_it_through_a
     assert "The main vault is Personal (`notes`)" in instructions
     assert "- `private` (Private): searched by default" in instructions
     assert "- `club` (Orchard club): searched by default" in instructions
+
+
+@pytest.mark.anyio
+async def test_search_skips_a_vault_marked_off_and_searches_it_when_named(site: Hosted):
+    ann = await ann_with_three_vaults(site)
+    async with ann:
+        key = await device_key(site, ann)
+        pruning = {"path": "Resources/pruning.md", "content": note("Pruning", "Prune in March."), "vault": "private"}
+        assert not (await call_tool(ann, key, "write_file", pruning)).get("isError")
+        page = await ann.get("/account/vaults/private")
+        turned = await ann.post("/account/vaults/private/search", data={"csrf": csrf_of(page.text)})
+        listed = await ann.get("/account")
+        everywhere, named, written = await in_one_session(
+            ann,
+            key,
+            [
+                ("search", {"query": "pruning"}),
+                ("search", {"query": "pruning", "vault": "private"}),
+                ("append_file", {"path": "Resources/pruning.md", "content": "Also in June.", "vault": "private"}),
+            ],
+        )
+        started_session = await post_mcp(ann, key, INITIALIZE)
+        after = await ann.get("/account/vaults/private")
+    assert 'name="searched" value="on" checked' in page.text
+    assert "Search this vault by default from my other connections" in page.text
+    assert turned.status_code == 303
+    assert 'name="searched" value="on">' in after.text, "the box shows the preference unchecked once it is off"
+    assert "not searched by default" in listed.text.split("Private", 1)[1].split("</a>", 1)[0]
+    assert "No notes matched." in text_of(everywhere) and "private (Private)" not in text_of(everywhere)
+    lines = text_of(named).splitlines()
+    assert lines[1].startswith("Searched 1 vault: private (Private)") and lines[2].startswith("private | "), lines
+    assert not written.get("isError"), text_of(written)
+    instructions = sse_payload(started_session.text)["result"]["instructions"]
+    assert "- `private` (Private): not searched by default" in instructions
+
+
+@pytest.mark.anyio
+async def test_a_vault_marked_off_is_still_searched_from_a_connection_made_for_it(site: Hosted):
+    ann = await ann_with_three_vaults(site)
+    async with ann:
+        site.store.set_searched_by_default(
+            site.store.account("ann@example.com").id, site.vault_of("ann@example.com", "private"), False
+        )
+        key = await device_key(site, ann, vault="private")
+        found = await call_tool(ann, key, "search", {"query": "welcome"})
+    assert "Searched 3 vaults: private (Private)" in text_of(found)
+
+
+@pytest.mark.anyio
+async def test_session_start_lists_pages_about_the_repo_from_shared_vaults_and_not_from_other_personal_vaults(
+    site: Hosted,
+):
+    ann = await ann_with_three_vaults(site)
+    async with ann:
+        key = await device_key(site, ann)
+        for slug, title in (("club", "Cider press"), ("private", "Private press")):
+            page = note(title, "How the press works.").replace("tags: [orchard]", "tags: [orchard]\nrepos: [press]")
+            written = await call_tool(
+                ann, key, "write_file", {"path": "Resources/press.md", "content": page, "vault": slug}
+            )
+            assert not written.get("isError"), text_of(written)
+        bundle = await call_tool(ann, key, "context", {"path": "/src/press", "repo": "press"})
+        site.store.set_searched_by_default(
+            site.store.account("ann@example.com").id,
+            site.store.vault_at(site.store.account("ann@example.com").id, "club").id,
+            False,
+        )
+        skipped = await call_tool(ann, key, "context", {"path": "/src/press", "repo": "press"})
+    assert "club | Resources/press.md | Cider press" in text_of(bundle), text_of(bundle)
+    assert "Private press" not in text_of(bundle)
+    assert "Cider press" not in text_of(skipped)

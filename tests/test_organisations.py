@@ -894,6 +894,24 @@ async def test_flow_2_session_start_lists_the_wikis_pages_for_the_repo_capped(si
     assert text.index("## system notes") < text.index("## organisation pages")
 
 
+@pytest.mark.anyio
+async def test_session_start_skips_an_organisation_vault_the_member_does_not_search_by_default(site: Hosted):
+    ada, bea = await company(site)
+    async with ada, bea:
+        page = wiki_page("Klarna", "acme/payments")
+        assert not (await write(ada, key(site, "ada@acme.test"), "Resources/klarna.md", page)).get("isError")
+        own = cli_key(site, "bea@acme.test", spans=True)
+        arguments = {"path": "/src/payments", "repo": "payments", "remote": "git@github.com:acme/payments.git"}
+        before = await call_tool(bea, own, "context", arguments)
+        account = site.store.account("bea@acme.test")
+        site.store.set_searched_by_default(account.id, site.store.vault_at(account.id, "wiki").id, False)
+        after = await call_tool(bea, own, "context", arguments)
+        named = await call_tool(bea, own, "search", {"query": "klarna", "vault": "wiki"})
+    assert "wiki | Resources/klarna.md | Klarna" in text_of(before)
+    assert "organisation pages" not in text_of(after) and "klarna" not in text_of(after).lower()
+    assert "wiki | Resources/klarna.md | Klarna" in text_of(named)
+
+
 async def invite_to(http: httpx2.AsyncClient, slug: str, email: str) -> httpx2.Response:
     page = await http.get(f"/account/vaults/{slug}")
     return await http.post(f"/account/vaults/{slug}/members/invite", data={"csrf": csrf_of(page.text), "email": email})

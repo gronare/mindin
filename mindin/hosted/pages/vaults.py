@@ -115,7 +115,7 @@ class VaultPages:
         parts.append(f"{counted(len(keys) - computers, 'key')}, {counted(links, 'connection')}")
         return " · ".join(parts)
 
-    def vault_row(self, account: Account, vault: Vault) -> str:
+    def vault_row(self, account: Account, vault: Vault, off: set[str]) -> str:
         if vault.shared:
             role = "Owner" if vault.account_id == account.id else "Member"
             item = self.shared.org_vault(vault)
@@ -124,6 +124,8 @@ class VaultPages:
             facts = self.shared.summary_line(account, vault, self.facts(vault))
         else:
             chips, facts = '<span class="chip">Personal</span>', self.summary_line(vault, self.facts(vault))
+        if vault.id in off:
+            facts += " · not searched by default"
         return (
             f'<a class="vault" href="{esc(self.vault_url(vault))}">'
             f'<div class="name">{esc(vault.name)} {chips}</div>'
@@ -134,8 +136,9 @@ class VaultPages:
 
     def render_list(self, account: Account, notice: str = "", status_code: int = 200) -> Response:
         reachable = self.store.reachable_vaults(account.id)
+        off = self.store.not_searched(account.id)
         groups = [
-            (label, "".join(self.vault_row(account, vault) for vault in reachable if vault.shared == shared))
+            (label, "".join(self.vault_row(account, vault, off) for vault in reachable if vault.shared == shared))
             for label, shared in (("Personal", False), ("Shared", True))
         ]
         listing = (
@@ -192,6 +195,7 @@ and reaches your other vaults when a tool names one.</p></div>
 <span class="chip">Personal</span></div></div>
 {notice}{broken_box(schema)}{self.layout_box(vault, csrf, schema)}
 {self.connect_section(account, vault, csrf)}
+{self.search_box(account, vault, csrf)}
 {self.added(account, vault, csrf)}<div class="box"><h2>Your data</h2>
 <p class="small muted">Download every file in this vault as a zip, or bring files in from one; a file with the same
 path is replaced.</p>
@@ -235,6 +239,24 @@ decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url
 <label class="field narrow">Access<select name="access">
 <option value="write">read and write</option><option value="read">read</option></select></label>
 <button class="btn" type="submit">Make a key</button></form></div>"""
+
+    def search_box(self, account: Account, vault: Vault, csrf: str) -> str:
+        checked = " checked" if self.store.searched_by_default(account.id, vault.id) else ""
+        return f"""<div class="box"><h2>Search</h2>
+{form_head(csrf, self.vault_url(vault, "/search"), ' class="stack"')}
+<label class="option"><input type="checkbox" name="searched" value="on"{checked}>
+<b>Search this vault by default from my other connections</b>
+<span>When off, search and session start from a connection made for another vault skip it, unless Claude names it.
+Reading and writing it by name still work.</span></label>
+<div>{button("Save", "btn secondary small")}</div></form></div>"""
+
+    async def set_search(self, request: Request) -> Response:
+        found = await self.submitted(request)
+        if isinstance(found, Response):
+            return found
+        account, _, vault, form = found
+        self.store.set_searched_by_default(account.id, vault.id, form.get("searched") == "on")
+        return RedirectResponse(self.vault_url(vault), status_code=303)
 
     def layout_box(self, vault: Vault, csrf: str, schema: str | None) -> str:
         current = provision.named_preset(schema)
@@ -490,6 +512,7 @@ references. Every change is kept with who made it.</span></label>
             Route(base, endpoint=self.vault_page, methods=["GET"]),
             Route(base + "/layout", endpoint=limited(self.pick_layout), methods=["POST"]),
             Route(base + "/keys", endpoint=limited(self.make_key), methods=["POST"]),
+            Route(base + "/search", endpoint=limited(self.set_search), methods=["POST"]),
             Route(base + "/keys/revoke", endpoint=limited(self.revoke_key), methods=["POST"]),
             Route(base + "/connections/disconnect", endpoint=limited(self.disconnect), methods=["POST"]),
             Route(base + "/export", endpoint=self.export, methods=["GET"]),

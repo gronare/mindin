@@ -215,6 +215,7 @@ ends the moment you remove them.</p></div>"""
 {self.change_list(account, vault, changes)}</div>
 {people}
 {self.pages.connect_section(account, vault, csrf, "Your connections and keys")}
+{self.pages.search_box(account, vault, csrf)}
 {self.pages.added(account, vault, csrf)}
 {ending}"""
         return self.browser.app(vault.name, body, status_code=status_code)

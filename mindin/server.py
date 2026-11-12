@@ -48,13 +48,15 @@ SEARCH_DESCRIPTION = (
     "limit defaults to the vault schema's search.default_limit."
 )
 SPANNING_DESCRIPTION = (
-    " When the connection reaches more than one vault, it searches this connection's main vault and every other vault "
-    "it reaches that is searched by default: the header names them, each row starts with its vault, and "
+    " When the connection reaches more than one vault, it searches this connection's main vault and every "
+    "organisation vault it reaches: the header names them, each row starts with its vault, and "
     "read_file(path, vault=<vault>) reads a row from another vault without a new connection. vault searches that "
-    "one vault alone, also one not searched by default."
+    "one vault alone; the user's other personal vaults and the shared vaults they belong to are searched only "
+    "when named."
 )
 VAULT_ARGUMENT = (
-    " vault names another vault this connection reaches, as search rows name it; leave it out for the main vault."
+    " vault names another vault this connection reaches, as search rows and the session instructions name it; "
+    "leave it out for the main vault."
 )
 VAULT_TOOLS = "search, read_file, list_files, write_file, append_file, move_file, delete_file and rules"
 MEANING_DESCRIPTION = (
@@ -350,7 +352,7 @@ def build_server(
             "open tasks for it, the reference notes and the tail of the repo log, in one answer. Use it "
             'before searching blind. format "json" adds the system notes\' paths and dates and the triage '
             "keys, for hooks that read it. remote is the repo's origin URL; the bundle adds the pages "
-            "that name the repo or its area from the organisation and shared vaults the connection searches."
+            "that name the repo or its area from the organisation vaults the connection reaches."
         ),
     )
     def context_tool(
@@ -375,10 +377,7 @@ def build_server(
             return []
         areas = {note.stem for note, _ in bundle.system} | {note.stem for note in bundle.system_rows}
         found = []
-        reached = [item for item in resolver.around() if item.shared and item.searched]
-        for item in [item for item in reached if item.organisation] + [
-            item for item in reached if not item.organisation
-        ]:
+        for item in (item for item in resolver.around() if item.organisation):
             try:
                 with resolver.using_reached(item) as vault:
                     if vault is current:
@@ -582,14 +581,16 @@ def reach_section(reached: list[Reachable]) -> str:
         "## Vaults this connection reaches",
         f"The main vault is {main.name} (`{main.slug}`): every tool works there unless it is given `vault`. "
         f"The connection also reaches these, named with `vault=<slug>` on {VAULT_TOOLS}; "
-        "search without `vault` covers the main vault and the ones searched by default:",
+        "search without `vault` covers the main vault and the organisation vaults, and the others only when named:",
     ]
     for item in reached:
         if item is main:
             continue
         where = f"{item.name}, {item.organisation}" if item.organisation else item.name
-        searched = "searched by default" if item.searched else "not searched by default"
+        searched = "searched with the main vault" if item.searched else "searched only when named"
         lines.append(f"- `{item.slug}` ({where}): {searched}")
+    if any(item.organisation for item in reached):
+        lines.append(notes.ORGANISATION_PAGE_RULE)
     return "\n".join(lines)
 
 

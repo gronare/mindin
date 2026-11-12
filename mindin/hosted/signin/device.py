@@ -17,7 +17,7 @@ from mindin.hosted.accounts.vaults import Vault
 from mindin.hosted.config import MACHINE_KEY_PURPOSE, READ_SCOPE, SCOPES, WRITE_SCOPE, AuthConfig
 from mindin.hosted.database import Row
 from mindin.hosted.pages.html import error_box, esc
-from mindin.hosted.pages.web import NO_STORE, Browser, Limits, client_address, oauth_error, page
+from mindin.hosted.pages.web import NO_STORE, Browser, Limits, client_address, main_vault_choice, oauth_error, page
 
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 CLI_CLIENT_ID = "cli"
@@ -198,19 +198,14 @@ class DeviceFlow:
             return (requested, [vault]) if vault is not None and vault.slug == requested else (requested, [])
         return "", self.store.reachable_vaults(account.id)
 
-    def vault_field(self, requested: str, vaults: list[Vault]) -> tuple[str, str]:
+    def vault_field(self, account: Account, requested: str, vaults: list[Vault]) -> tuple[str, str]:
         if requested:
             vault = vaults[0]
             return (
                 f"<dt>Main vault</dt><dd>{esc(vault.name)} <code>{esc(vault.slug)}</code></dd>",
                 f'<input type="hidden" name="vault" value="{esc(vault.slug)}">',
             )
-        radios = "".join(
-            f'<label><input type="radio" name="vault" value="{esc(vault.slug)}"{" checked" if index == 0 else ""}>'
-            f" {esc(vault.name)} ({esc(vault.slug)})</label>"
-            for index, vault in enumerate(vaults)
-        )
-        return "", f"<fieldset><legend>Main vault</legend>{radios}</fieldset>"
+        return "", main_vault_choice(vaults, self.store.default_vault(account.id))
 
     def confirm(self, row: Row, account: Account, csrf: str) -> Response:
         requested, vaults = self.vault_choice(row, account)
@@ -227,7 +222,7 @@ class DeviceFlow:
             else ""
         )
         read_checked = "" if write_choice else " checked"
-        vault_fact, vault_field = self.vault_field(requested, vaults)
+        vault_fact, vault_field = self.vault_field(account, requested, vaults)
         body = f"""<p class="warning">Approve only if you started this yourself, just now, on a machine you use.</p>
 <dl><dt>Code</dt><dd><code>{esc(shown(row["user_code"]))}</code></dd>
 <dt>Asked by</dt><dd>{esc(row["client_name"])}</dd>

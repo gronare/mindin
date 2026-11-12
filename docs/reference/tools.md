@@ -21,7 +21,7 @@
 | `init` | write | Sets up a vault without a schema: the schema of the `preset` it is given and the Bases views. On a vault with a schema it only writes the missing views. |
 | `obsidian_access` | write | Server only. Mints the WebDAV password for [Obsidian's Remotely Save](../how-to/obsidian.md) and shows it once. |
 
-Without `vault`, every tool works on the connection's main vault. On a server with accounts, a connector, a signed-in machine or a trusted proxy's identity also reaches every other vault the account reaches: `search` covers those [searched by default](../explanation/search.md#across-vaults), and `vault` names one. A key made on a vault's page, a server without accounts and a local vault refuse a vault other than their own. The server's instructions list the vaults a connection reaches. See [Search across vaults](../explanation/search.md#across-vaults).
+Without `vault`, every tool works on the connection's main vault. On a server with accounts, a connector, a signed-in machine or a trusted proxy's identity also reaches every other vault the account reaches: `search` without `vault` covers the main vault and the organisation vaults, and `vault` names any one of them. A key made on a vault's page, a server without accounts and a local vault refuse a vault other than their own. The server's instructions list the vaults a connection reaches. See [Search across vaults](../explanation/search.md#across-vaults).
 
 On S3, a conditional `write_file` sends its condition with the PUT; see [Storage](../install/storage.md#the-bucket).
 

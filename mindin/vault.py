@@ -151,8 +151,11 @@ class Reachable:
     name: str
     organisation: str = ""
     main: bool = False
-    searched: bool = True
     shared: bool = False
+
+    @property
+    def searched(self) -> bool:
+        return self.main or bool(self.organisation)
 
 
 class Reach(Protocol):

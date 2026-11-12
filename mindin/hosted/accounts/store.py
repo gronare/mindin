@@ -52,11 +52,6 @@ UNUSED_CLIENT_TTL = 24 * 3600
 WEBDAV_KEY_NAME = "Obsidian (WebDAV)"
 
 
-def not_searched(connection: Any, account_id: str) -> set[str]:
-    rows = connection.execute("SELECT vault_id FROM vault_search_off WHERE account_id = ?", (account_id,)).fetchall()
-    return {row["vault_id"] for row in rows}
-
-
 def digest(secret: str) -> str:
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
@@ -309,25 +304,18 @@ class HostedStore:
             ).fetchall()
         return [vault for vault in map(vault_of, rows) if vault is not None]
 
-    def searched_by_default(self, account_id: str, vault_id: str) -> bool:
-        return vault_id not in self.not_searched(account_id)
-
-    def not_searched(self, account_id: str) -> set[str]:
+    def default_vault(self, account_id: str) -> Vault | None:
+        own = self.vaults(account_id)
         with self.connect() as connection:
-            return not_searched(connection, account_id)
+            row = connection.execute("SELECT default_vault_id FROM accounts WHERE id = ?", (account_id,)).fetchone()
+        chosen = row["default_vault_id"] if row else None
+        return next((vault for vault in own if vault.id == chosen), own[0] if own else None)
 
-    def set_searched_by_default(self, account_id: str, vault_id: str, searched: bool) -> None:
+    def set_default_vault(self, account_id: str, vault: Vault) -> None:
+        if vault.account_id != account_id:
+            raise MembershipError("Only a vault you own can be your default.")
         with self.connect() as connection:
-            if searched:
-                connection.execute(
-                    "DELETE FROM vault_search_off WHERE account_id = ? AND vault_id = ?", (account_id, vault_id)
-                )
-            else:
-                connection.execute(
-                    "INSERT INTO vault_search_off(account_id, vault_id, set_at) VALUES(?, ?, ?)"
-                    " ON CONFLICT (account_id, vault_id) DO NOTHING",
-                    (account_id, vault_id, now()),
-                )
+            connection.execute("UPDATE accounts SET default_vault_id = ? WHERE id = ?", (vault.id, account_id))
 
     def reachable_vaults(self, account_id: str) -> list[Vault]:
         return self.vaults(account_id) + self.shared_with(account_id)

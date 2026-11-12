@@ -12,14 +12,14 @@ Each personal vault's page has:
 
 - **Connect.** The vault's MCP address, the `login` line for a computer, and the WebDAV address.
 - **Connections and keys.** Every connector, signed-in computer and key that reaches this vault, with when it was last used; disconnect, sign out or revoke each one, and make a key.
-- **Search.** Whether your connections made for other vaults search this one by default; see [Search across vaults](search.md#across-vaults). Shared vaults have it too.
+- **Default vault.** Make default sets the vault a new connection preselects as its main vault; see [Connections](#connections). A shared vault you own has it too.
 - **Layout.** The vault's [layout](notes-and-layouts.md#switching-layouts), and switching to another.
 - **Your data.** The vault downloads as a zip at any time; a zip imports into it, replacing files with the same path.
 - **Delete this vault.** Typing its name, after a sign-in within the last ten minutes, destroys the vault's key, files, index, keys and connections. The account's other vaults stay as they are.
 
 ## Connections
 
-Every connection is made for one vault, its main vault, and asks for read or read and write. A connector, a machine signed in with `login` and a trusted proxy's identity also reach every other vault the account reaches when a tool names it with `vault`; see [Search across vaults](search.md#across-vaults). A key made on a vault's page reaches only that vault.
+Every connection is made for one vault, its main vault, and asks for read or read and write. When the client does not name a vault, the approval page preselects the account's default vault, and you can pick another there. A new account's default is Personal; the Vaults page marks the default, and Make default on a vault you own changes it. Changing the default leaves existing connections on their vault. A connector, a machine signed in with `login` and a trusted proxy's identity also reach every other vault the account reaches when a tool names it with `vault`; search without `vault` covers the main vault and the organisation's vaults, see [Search across vaults](search.md#across-vaults). A key made on a vault's page reaches only that vault.
 
 | Client | How it connects |
 | --- | --- |

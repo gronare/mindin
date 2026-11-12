@@ -9,7 +9,7 @@ uvx mindin login https://vault.example.com --vault notes
 ```
 
 1. It prints a link and a code. Open the link on any device and sign in.
-2. Check that the code matches, and approve read and write. Without `--vault` the approval page asks which vault the machine gets.
+2. Check that the code matches, and approve read and write. Without `--vault` the approval page asks which vault the machine gets, with your default vault preselected.
 3. Set `VAULT_SERVER_URL=https://vault.example.com` where your clients run.
 
 To bring a vault you keep in a folder onto the server, see [Move a vault](move-a-vault.md).

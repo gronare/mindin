@@ -23,6 +23,7 @@ from mindin.hosted.accounts.store import HostedStore, MembershipError
 from mindin.hosted.orgs import organisations as hosted_orgs
 from mindin.hosted.orgs.organisations import OrganisationError, Organisations, OrgDomain, clean_domain
 from mindin.hosted.signin.identities import Identities, Proof
+from mindin.notes import ORGANISATION_PAGE_RULE
 from mindin.shared import Actor, SharedBackend, SharedRefusal, SharedRules, acting_as
 from mindin.vault import SubjectVaults
 
@@ -895,21 +896,39 @@ async def test_flow_2_session_start_lists_the_wikis_pages_for_the_repo_capped(si
 
 
 @pytest.mark.anyio
-async def test_session_start_skips_an_organisation_vault_the_member_does_not_search_by_default(site: Hosted):
+async def test_a_connection_searches_and_lists_the_organisation_vault_and_not_a_shared_vault_without_naming(
+    site: Hosted,
+):
     ada, bea = await company(site)
     async with ada, bea:
         page = wiki_page("Klarna", "acme/payments")
         assert not (await write(ada, key(site, "ada@acme.test"), "Resources/klarna.md", page)).get("isError")
+        bea_id = site.store.account("bea@acme.test").id
+        site.store.create_vault(bea_id, "Side", "side", kind="shared")
+        side = wiki_page("Klarna on the side", "acme/payments")
+        assert not (await write(bea, key(site, "bea@acme.test", "side"), "Resources/klarna.md", side, "side")).get(
+            "isError"
+        )
         own = cli_key(site, "bea@acme.test", spans=True)
         arguments = {"path": "/src/payments", "repo": "payments", "remote": "git@github.com:acme/payments.git"}
-        before = await call_tool(bea, own, "context", arguments)
-        account = site.store.account("bea@acme.test")
-        site.store.set_searched_by_default(account.id, site.store.vault_at(account.id, "wiki").id, False)
-        after = await call_tool(bea, own, "context", arguments)
-        named = await call_tool(bea, own, "search", {"query": "klarna", "vault": "wiki"})
-    assert "wiki | Resources/klarna.md | Klarna" in text_of(before)
-    assert "organisation pages" not in text_of(after) and "klarna" not in text_of(after).lower()
-    assert "wiki | Resources/klarna.md | Klarna" in text_of(named)
+        bundle = await call_tool(bea, own, "context", arguments)
+        found = await call_tool(bea, own, "search", {"query": "klarna"})
+        named = await call_tool(bea, own, "search", {"query": "klarna", "vault": "side"})
+    assert "wiki | Resources/klarna.md | Klarna" in text_of(bundle), text_of(bundle)
+    assert "Klarna on the side" not in text_of(bundle)
+    assert ORGANISATION_PAGE_RULE in text_of(bundle)
+    assert "wiki | Resources/klarna.md | Klarna" in text_of(found) and "side |" not in text_of(found), text_of(found)
+    assert "side | Resources/klarna.md | Klarna on the side" in text_of(named), text_of(named)
+
+
+@pytest.mark.anyio
+async def test_the_session_instructions_weigh_an_organisation_page_below_the_users_decision(site: Hosted):
+    ada, bea = await company(site)
+    async with ada, bea:
+        started = await post_mcp(bea, cli_key(site, "bea@acme.test", spans=True), INITIALIZE)
+    instructions = sse_payload(started.text)["result"]["instructions"]
+    assert "- `wiki` (Wiki, Acme): searched with the main vault" in instructions
+    assert ORGANISATION_PAGE_RULE in instructions
 
 
 async def invite_to(http: httpx2.AsyncClient, slug: str, email: str) -> httpx2.Response:

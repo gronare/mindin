@@ -417,6 +417,11 @@ def to_search_defaults(connection: sqlite3.Connection) -> None:
     run(connection, SEARCH_TABLES)
 
 
+def to_default_vaults(connection: sqlite3.Connection) -> None:
+    add_column(connection, "accounts", "default_vault_id", "TEXT")
+    connection.execute("DROP TABLE IF EXISTS vault_search_off")
+
+
 STEPS = (
     to_vaults,
     to_shared,
@@ -426,4 +431,5 @@ STEPS = (
     to_support_requests,
     to_account_reach,
     to_search_defaults,
+    to_default_vaults,
 )

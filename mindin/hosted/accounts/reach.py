@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mindin.hosted.accounts.store import HostedStore, not_searched
+from mindin.hosted.accounts.store import HostedStore
 from mindin.hosted.accounts.vaults import Vault, reached, vault_of
 from mindin.hosted.config import MACHINE_KEY_PURPOSE
 from mindin.hosted.database import Connection
@@ -12,7 +12,8 @@ ACCOUNT_REACH = "account"
 SPANNING_PURPOSES = (None, MACHINE_KEY_PURPOSE)
 ALSO_REACHES = (
     "It also reaches every other vault of yours: your own, the shared vaults you belong to and your organisations' "
-    "vaults, when a tool names one. Without a name it reads and writes the main vault."
+    "vaults, when a tool names one. Without a name it reads and writes the main vault, and searches the main vault "
+    "and your organisations' vaults."
 )
 
 
@@ -29,7 +30,6 @@ class AccountReach:
             if main is None:
                 return []
             organisations = organisation_names(connection, account_id)
-            off = not_searched(connection, account_id)
             everything = reached(connection, [account_id])
             if claims.get("reach") == ACCOUNT_REACH:
                 others = [vault for vault in everything if vault.account_id == account_id]
@@ -39,12 +39,12 @@ class AccountReach:
                 others += [vault for vault in everything if vault.id in organisations]
         found: dict[str, Reachable] = {main.id: reachable(main, organisations, main=True)}
         for vault in others:
-            found.setdefault(vault.id, reachable(vault, organisations, searched=vault.id not in off))
+            found.setdefault(vault.id, reachable(vault, organisations))
         return list(found.values()) if len(found) > 1 else []
 
 
-def reachable(vault: Vault, organisations: dict[str, str], main: bool = False, searched: bool = True) -> Reachable:
-    return Reachable(vault.id, vault.slug, vault.name, organisations.get(vault.id, ""), main, searched, vault.shared)
+def reachable(vault: Vault, organisations: dict[str, str], main: bool = False) -> Reachable:
+    return Reachable(vault.id, vault.slug, vault.name, organisations.get(vault.id, ""), main, vault.shared)
 
 
 def organisation_names(connection: Connection, account_id: str) -> dict[str, str]:

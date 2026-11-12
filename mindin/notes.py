@@ -36,6 +36,10 @@ TRIAGE_HINT = (
     "Settle each before new work: close(path) when it is done, append_file(path, a dated line saying what "
     'is still open) when it is still moving, set_status(path, "backlog", priority) to park it.'
 )
+ORGANISATION_PAGE_RULE = (
+    "An organisation page is a lead, weighed below the code and the user's latest decision: when one contradicts a "
+    "new decision, point that out and propose an updated page, and write it only on the user's explicit yes."
+)
 PRIORITY_ORDER = ("urgent", "high", "medium", "low")
 SLUG_MAX = 60
 REWRITE_RETRIES = 3
@@ -564,7 +568,7 @@ class ContextBundle:
             rows = [f"{page.vault} | {page.key} | {page.title} | {page.line}" for page in self.organisation_pages]
             blocks.append(
                 "## organisation pages\n" + "\n".join(rows) + "\nEach row starts with its vault: "
-                "read one with read_file(path, vault=<vault>)."
+                f"read one with read_file(path, vault=<vault>). {ORGANISATION_PAGE_RULE}"
             )
         if self.tasks:
             rows = [_task_row(note, now) for note in self.tasks]

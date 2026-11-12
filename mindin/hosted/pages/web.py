@@ -75,6 +75,16 @@ async def app_script(_: Request) -> Response:
     return Response(APP_SCRIPT, media_type="text/javascript", headers={"Cache-Control": "public, max-age=3600"})
 
 
+def main_vault_choice(vaults: list[Vault], default: Vault | None) -> str:
+    chosen = default if default is not None and default in vaults else vaults[0]
+    radios = "".join(
+        f'<label><input type="radio" name="vault" value="{esc(vault.slug)}"{" checked" if vault == chosen else ""}>'
+        f" {esc(vault.name)} ({esc(vault.slug)})</label>"
+        for vault in vaults
+    )
+    return f"<fieldset><legend>Main vault</legend>{radios}</fieldset>"
+
+
 def oauth_error(error: str, description: str, status_code: int = 400) -> JSONResponse:
     return JSONResponse({"error": error, "error_description": description}, status_code=status_code, headers=NO_STORE)
 
@@ -303,12 +313,7 @@ class Browser:
             vault_field = hidden_field("vault", bound.slug)
         else:
             vault_choice = ""
-            radios = "".join(
-                f'<label><input type="radio" name="vault" value="{esc(vault.slug)}"{" checked" if index == 0 else ""}>'
-                f" {esc(vault.name)} ({esc(vault.slug)})</label>"
-                for index, vault in enumerate(vaults)
-            )
-            vault_field = f"<fieldset><legend>Main vault</legend>{radios}</fieldset>"
+            vault_field = main_vault_choice(vaults, self.store.default_vault(account.id))
         body = f"""{error_box(error)}{warning}
 <dl><dt>Signed in as</dt><dd>{esc(account.email)}</dd>
 <dt>Client</dt><dd>{origin}</dd>

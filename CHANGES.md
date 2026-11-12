@@ -5,6 +5,8 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+- Search and session start cover a connection's main vault and your organisations' vaults; name any other vault with `vault`.
+- Make default on a vault's page picks the vault the approval page preselects for a new connection.
 
 ### Fixed
 

@@ -47,11 +47,11 @@ From here on admins can do the rest on the Account page: under Organisation, Man
 mindin org vault create Example "Wiki" --slug wiki
 ```
 
-Or use New vault under Vaults on the organisation's page. Every member reaches it at once, at `VAULT_PUBLIC_URL/mcp?vault=wiki`, and reads and writes it. An organisation's vault is a [shared vault](../explanation/shared-vaults.md): it holds how things are now, and every change is kept with who made it and can be restored from the vault's page.
+Or use New vault under Vaults on the organisation's page. Every member reaches it at once, at `VAULT_PUBLIC_URL/mcp?vault=wiki`, and reads and writes it. A member's connector or signed-in machine searches it along with their own main vault without naming it. An organisation's vault is a [shared vault](../explanation/shared-vaults.md): it holds how things are now, and every change is kept with who made it and can be restored from the vault's page.
 
 It is laid out as a wiki: Areas, Teams, Guides, Decisions, finished Projects, closed Incidents and Archive. The layout is chosen when the vault is made, with Layout on the New vault form or `--layout shared` on the command line, for Areas, Resources and Archive instead; it stays as chosen. See [What a shared vault holds](../explanation/shared-vaults.md#what-a-shared-vault-holds).
 
-A page that names the repositories it is about reaches people at work in them: when a member starts Claude Code in a matching repo, the session start lists the page's title and one line. In a wiki these are pages in Areas, Guides and Decisions, five at most, as its [bundle](../reference/schema.md#bundle) says. Name the repositories in the page's frontmatter:
+A page that names the repositories it is about reaches people at work in them: when a member starts Claude Code in a matching repo, the session start lists the page's title and one line. The agent weighs the page below the code and the member's latest decision, and proposes an update when they disagree. In a wiki these are pages in Areas, Guides and Decisions, five at most, as its [bundle](../reference/schema.md#bundle) says. Name the repositories in the page's frontmatter:
 
 ```yaml
 repos: [acme/payments, payments-web]

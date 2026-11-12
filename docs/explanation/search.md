@@ -15,7 +15,7 @@ The index folds diacritics, stems every word in the vault's languages with Snowb
 
 ## Across vaults
 
-On a server with accounts, one `search` covers every vault the account reaches: the connection's main vault, the account's other vaults, the shared vaults it belongs to and its organisations' vaults. The header names them, and each row starts with the vault it comes from:
+On a server with accounts, `search` without `vault` covers the connection's main vault and the organisation vaults the account belongs to. The header names them, and each row starts with the vault it comes from:
 
 ```text
 5 of 5 (archive: 0 hidden, superseded: 0 hidden)
@@ -26,13 +26,13 @@ notes | Resources/klarna-0.md | Klarna notes | 2y | active | [[payments]] | …
 
 `read_file(path, vault="wiki")` reads a row from another vault on the same connection, and `search(query, vault="wiki")` searches that vault alone. Writes go to the main vault unless the tool is given `vault`. A vault's name is its slug, which is unique among the vaults one account reaches; were two ever the same, the main vault and then the account's own vault answer it.
 
-Every vault is searched by default. Untick "Search this vault by default from my other connections" on a vault's page to leave it out: search and session start from a connection made for another vault then skip it, the Vaults page marks it not searched by default, and `search(query, vault="<slug>")`, reads and writes that name it still reach it. The setting is per person, and a connection made for the vault always searches it.
+The account's other personal vaults and the shared vaults it belongs to are searched, read and written only when a tool names them: `search(query, vault="<slug>")` searches one of them alone. The server's instructions list every vault the connection reaches and say which ones search covers without a name.
 
-Session start lists up to five pages about the repo from the organisation and shared vaults searched by default, never from the account's other personal vaults; at equal relevance and date an organisation's page comes first.
+Session start lists up to five pages about the repo from the organisation vaults, never from the account's other personal vaults or its shared vaults. The agent treats such a page as a lead, below the code and the user's latest decision: when one contradicts a new decision, it says so and proposes an updated page, written only on the user's yes.
 
 Each vault ranks its own rows as above. The scores of two vaults are not comparable, since each index weighs words by how often its own notes use them, so the rows are interleaved by rank: every vault's first row comes before any vault's second row, and at the same rank the organisation's row comes first. Ten old personal notes on a subject therefore never push the team's guide below the second place. When one vault has rows matching every term, rows from vaults matching only some terms are left out.
 
-The search spans vaults for claude.ai connectors, a trusted proxy's identity and machines signed in with `mindin login`. A key made on a vault's page keeps to that vault, and so does a server without accounts and a local vault. A connector or machine approved before the consent page said it reaches all the account's vaults reaches its own vault, the account's first vault and the organisation's vaults until it connects again.
+The search spans vaults for claude.ai connectors, a trusted proxy's identity and machines signed in with `mindin login`. A key made on a vault's page keeps to that vault, and so does a server without accounts and a local vault. A connector or machine approved before the consent page said it reaches all the account's vaults reaches its own vault, the account's first vault and the organisation's vaults until it connects again; its search covers its own vault and the organisation's vaults.
 
 ## By meaning
 

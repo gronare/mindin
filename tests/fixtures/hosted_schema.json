@@ -1,6 +1,6 @@
 {
  "fresh": {
-  "user_version": 8,
+  "user_version": 9,
   "objects": [
    [
     "index",
@@ -190,12 +190,6 @@
    ],
    [
     "index",
-    "sqlite_autoindex_vault_search_off_1",
-    "vault_search_off",
-    null
-   ],
-   [
-    "index",
     "sqlite_autoindex_vault_support_grants_1",
     "vault_support_grants",
     null
@@ -246,7 +240,7 @@
     "table",
     "accounts",
     "accounts",
-    "CREATE TABLE accounts (\n    id TEXT PRIMARY KEY,\n    email TEXT NOT NULL UNIQUE COLLATE NOCASE,\n    sub TEXT UNIQUE,\n    name TEXT NOT NULL DEFAULT '',\n    status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'suspended')),\n    status_source TEXT NOT NULL DEFAULT 'operator',\n    status_changed_at INTEGER NOT NULL,\n    created_at INTEGER NOT NULL,\n    last_login_at INTEGER\n)"
+    "CREATE TABLE accounts (\n    id TEXT PRIMARY KEY,\n    email TEXT NOT NULL UNIQUE COLLATE NOCASE,\n    sub TEXT UNIQUE,\n    name TEXT NOT NULL DEFAULT '',\n    status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'suspended')),\n    status_source TEXT NOT NULL DEFAULT 'operator',\n    status_changed_at INTEGER NOT NULL,\n    created_at INTEGER NOT NULL,\n    last_login_at INTEGER\n, default_vault_id TEXT)"
    ],
    [
     "table",
@@ -394,12 +388,6 @@
    ],
    [
     "table",
-    "vault_search_off",
-    "vault_search_off",
-    "CREATE TABLE vault_search_off (\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    set_at INTEGER NOT NULL,\n    PRIMARY KEY (account_id, vault_id)\n)"
-   ],
-   [
-    "table",
     "vault_support_grants",
     "vault_support_grants",
     "CREATE TABLE vault_support_grants (\n    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    granted_at INTEGER NOT NULL,\n    expires_at INTEGER NOT NULL\n)"
@@ -419,7 +407,7 @@
   ]
  },
  "migrated": {
-  "user_version": 8,
+  "user_version": 9,
   "objects": [
    [
     "index",
@@ -609,12 +597,6 @@
    ],
    [
     "index",
-    "sqlite_autoindex_vault_search_off_1",
-    "vault_search_off",
-    null
-   ],
-   [
-    "index",
     "sqlite_autoindex_vault_support_grants_1",
     "vault_support_grants",
     null
@@ -665,7 +647,7 @@
     "table",
     "accounts",
     "accounts",
-    "CREATE TABLE accounts (\n    id TEXT PRIMARY KEY,\n    email TEXT NOT NULL UNIQUE COLLATE NOCASE,\n    sub TEXT UNIQUE,\n    name TEXT NOT NULL DEFAULT '',\n    status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'suspended')),\n    status_source TEXT NOT NULL DEFAULT 'operator',\n    status_changed_at INTEGER NOT NULL,\n    created_at INTEGER NOT NULL,\n    last_login_at INTEGER\n)"
+    "CREATE TABLE accounts (\n    id TEXT PRIMARY KEY,\n    email TEXT NOT NULL UNIQUE COLLATE NOCASE,\n    sub TEXT UNIQUE,\n    name TEXT NOT NULL DEFAULT '',\n    status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'suspended')),\n    status_source TEXT NOT NULL DEFAULT 'operator',\n    status_changed_at INTEGER NOT NULL,\n    created_at INTEGER NOT NULL,\n    last_login_at INTEGER\n, default_vault_id TEXT)"
    ],
    [
     "table",
@@ -810,12 +792,6 @@
     "vault_members",
     "vault_members",
     "CREATE TABLE vault_members (\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    joined_at INTEGER NOT NULL,\n    PRIMARY KEY (vault_id, account_id)\n)"
-   ],
-   [
-    "table",
-    "vault_search_off",
-    "vault_search_off",
-    "CREATE TABLE vault_search_off (\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    vault_id TEXT NOT NULL REFERENCES vaults(id),\n    set_at INTEGER NOT NULL,\n    PRIMARY KEY (account_id, vault_id)\n)"
    ],
    [
     "table",

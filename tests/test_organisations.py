@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx2
 import pytest
 from hosted_support import INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_session, post_mcp, sse_payload, text_of
+from template_support import filled
 
 from mindin import provision
 from mindin.backends import SCHEMA_KEY
@@ -24,6 +25,8 @@ from mindin.hosted.orgs import organisations as hosted_orgs
 from mindin.hosted.orgs.organisations import OrganisationError, Organisations, OrgDomain, clean_domain
 from mindin.hosted.signin.identities import Identities, Proof
 from mindin.notes import ORGANISATION_PAGE_RULE
+from mindin.presets import preset_data
+from mindin.schema import Schema
 from mindin.shared import Actor, SharedBackend, SharedRefusal, SharedRules, acting_as
 from mindin.vault import SubjectVaults
 
@@ -875,7 +878,7 @@ async def test_flow_2_session_start_lists_the_wikis_pages_for_the_repo_capped(si
         for path, text in pages.items():
             assert not (await write(ada, wiki, path, text)).get("isError"), path
         own = cli_key(site, "bea@acme.test")
-        hub = note("Payments", "Our payments service.", kind="system")
+        hub = note("Payments", filled(Schema(preset_data("default")), "system", "Our payments service."), kind="system")
         assert not (await write(bea, own, "Areas/payments.md", hub, slug="notes")).get("isError")
         arguments = {"path": "/src/payments", "repo": "payments", "remote": "git@github.com:acme/payments.git"}
         bundle = await call_tool(bea, own, "context", arguments | {"format": "json"})

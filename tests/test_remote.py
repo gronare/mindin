@@ -278,7 +278,7 @@ def test_task_open_check_and_close_through_the_server(remote: Served, tmp_path: 
     frontmatter, _ = note_on_server(remote, opened["path"])
     assert frontmatter["area"] == "[[orchard]]" and frontmatter["status"] == "active"
     missing = run_json(capsys, "task", "check", opened["path"])
-    assert missing == {"missing": ["problem", "solution", "decisions"]}
+    assert missing == {"missing": ["background", "goal", "source"]}
     again = run_json(capsys, "task", "open", "--name", "Prune the grove", "--cwd", str(repo))
     assert again["path"] == "Projects/orchard-prune-the-grove-2.md"
     parked = run_json(capsys, "task", "backlog", again["path"], "--priority", "low")

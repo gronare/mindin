@@ -24,6 +24,34 @@ class NoHome(Exception):
 
 
 @dataclass(frozen=True)
+class Section:
+    key: str
+    headings: dict[str, str]
+    required: bool = False
+
+    def heading(self, language: str) -> str:
+        return self.headings.get(language) or self.headings.get("en") or next(iter(self.headings.values()), self.key)
+
+
+@dataclass(frozen=True)
+class Template:
+    kind: str
+    sections: tuple[Section, ...]
+    questions: str | None = None
+
+    @property
+    def keys(self) -> list[str]:
+        return [section.key for section in self.sections]
+
+    @property
+    def required_keys(self) -> list[str]:
+        return [section.key for section in self.sections if section.required]
+
+    def section(self, key: str) -> Section | None:
+        return next((section for section in self.sections if section.key == key), None)
+
+
+@dataclass(frozen=True)
 class Folder:
     name: str
     kind: str
@@ -217,11 +245,18 @@ class Schema:
     def languages(self) -> tuple[str, ...]:
         return tuple(dict.fromkeys([self.language, *self.other_languages]))
 
-    @property
-    def task_sections(self) -> dict[str, str]:
-        by_language = (self.data.get("task") or {}).get("sections") or {}
-        chosen = by_language.get(self.language) or by_language.get("en") or {}
-        return {str(key): str(heading) for key, heading in chosen.items() if heading}
+    @cached_property
+    def templates(self) -> dict[str, Template]:
+        declared = self.data.get("templates") or {}
+        kinds = self.kind_values
+        return {
+            str(kind): _template(str(kind), spec)
+            for kind, spec in declared.items()
+            if isinstance(spec, dict) and str(kind) in kinds
+        }
+
+    def template(self, kind: str | None) -> Template | None:
+        return self.templates.get(str(kind)) if kind is not None else None
 
     @property
     def stale_after_days(self) -> int:
@@ -260,6 +295,65 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
         else:
             merged[key] = value
     return merged
+
+
+def _template(kind: str, spec: dict[str, Any]) -> Template:
+    sections = []
+    for item in spec.get("sections") or []:
+        heading = item.get("heading")
+        headings = {str(code): str(text) for code, text in heading.items()} if isinstance(heading, dict) else {}
+        sections.append(Section(str(item["key"]), headings or {"en": str(heading)}, bool(item.get("required", False))))
+    questions = spec.get("questions")
+    return Template(kind, tuple(sections), str(questions) if questions else None)
+
+
+LEGACY_REQUIRED = ("problem", "solution", "decisions")
+LEGACY_SECTIONS = {
+    "en": {
+        "problem": "Problem",
+        "solution": "Solution",
+        "decisions": "Decisions",
+        "tests": "Test decisions",
+        "scope": "Out of scope",
+    },
+    "sv": {
+        "problem": "Problem",
+        "solution": "Lösning",
+        "decisions": "Beslut",
+        "tests": "Testbeslut",
+        "scope": "Utanför ramen",
+    },
+}
+
+
+def legacy_task_template(by_language: dict[str, Any]) -> dict[str, Any]:
+    keys: list[str] = []
+    for headings in by_language.values():
+        keys += [str(key) for key in headings or {} if str(key) not in keys]
+    sections = [
+        {
+            "key": key,
+            "heading": {
+                str(code): str(headings[key]) for code, headings in by_language.items() if (headings or {}).get(key)
+            },
+            "required": key in LEGACY_REQUIRED,
+        }
+        for key in keys
+    ]
+    return {"sections": sections, "questions": None}
+
+
+def settled_templates(merged: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(merged.get("templates") or {}, dict):
+        return merged
+    named = override.get("templates") or {}
+    templates = {**(merged.get("templates") or {}), **named}
+    task = override.get("task") if isinstance(override.get("task"), dict) else {}
+    legacy = task.get("sections")
+    readable = isinstance(legacy, dict) and all(isinstance(headings, dict) for headings in legacy.values())
+    if readable and legacy and "task" not in named:
+        templates = {**templates, "task": legacy_task_template(deep_merge(LEGACY_SECTIONS, legacy))}
+    return {**merged, "templates": templates}
 
 
 def default_schema_data() -> dict[str, Any]:
@@ -374,11 +468,68 @@ def schema_problems(data: Any) -> list[str]:
             if problem:
                 problems.append(problem)
     _mapping(data.get("backlog"), ["backlog"], problems)
-    _mapping(data.get("task"), ["task"], problems)
+    task = _mapping(data.get("task"), ["task"], problems)
+    for code, headings in _mapping(task.get("sections"), ["task", "sections"], problems).items():
+        if not (isinstance(headings, dict) and all(isinstance(h, str) for h in headings.values())):
+            problems.append(f"task.sections.{code} must map section keys to headings, like {{ goal: Goal }}")
+        elif not all(_heading_holds(h) for h in headings.values() if h):
+            problems.append(f"task.sections.{code} has a heading on more than one line or ending in #")
+    for kind, spec in _mapping(data.get("templates"), ["templates"], problems).items():
+        _template_problems(f"templates.{kind}", spec, problems)
     problems += bundle_problems(data)
     if problems:
         return problems
     return _contract_problems(Schema(data))
+
+
+TEMPLATE_SHAPE = "{ sections: [{ key: goal, heading: { en: Goal }, required: true }], questions: null }"
+SECTION_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _heading_holds(text: str) -> bool:
+    return len(text.splitlines()) == 1 and not text.rstrip().endswith("#")
+
+
+def _template_problems(where: str, spec: Any, problems: list[str]) -> None:
+    if spec is None:
+        return
+    if not isinstance(spec, dict):
+        problems.append(f"{where} must be a mapping like {TEMPLATE_SHAPE}, or null to drop it")
+        return
+    unknown = [str(key) for key in spec if key not in ("sections", "questions")]
+    if unknown:
+        problems.append(f"{where} has {', '.join(unknown)}; a template takes sections and questions")
+    sections = spec.get("sections")
+    if not isinstance(sections, list) or not sections:
+        problems.append(f"{where}.sections must be a list of sections, like {TEMPLATE_SHAPE}")
+        return
+    keys: list[str] = []
+    for position, section in enumerate(sections):
+        at = f"{where}.sections[{position}]"
+        if not isinstance(section, dict):
+            problems.append(f"{at} must be a mapping with key, heading and required")
+            continue
+        key = section.get("key")
+        if not isinstance(key, str) or not SECTION_KEY.match(key):
+            problems.append(f"{at}.key must be a lowercase word, like goal or out_of_scope")
+        elif key in keys:
+            problems.append(f"{at}.key {key} is already a section of {where}")
+        else:
+            keys.append(key)
+        heading = section.get("heading")
+        by_language = heading.values() if isinstance(heading, dict) else [heading]
+        if not by_language or not all(isinstance(text, str) and text.strip() for text in by_language):
+            problems.append(f"{at}.heading must be a heading per language, like {{ en: Goal, sv: Mål }}")
+        elif not all(_heading_holds(text) for text in by_language):
+            problems.append(f"{at}.heading must be one line that does not end in #, or no note could carry it")
+        if "required" in section and not isinstance(section["required"], bool):
+            problems.append(f"{at}.required must be true or false")
+        extra = [str(name) for name in section if name not in ("key", "heading", "required")]
+        if extra:
+            problems.append(f"{at} has {', '.join(extra)}; a section takes key, heading and required")
+    questions = spec.get("questions")
+    if questions is not None and questions not in keys:
+        problems.append(f"{where}.questions must name one of its sections ({', '.join(keys)}), or be null")
 
 
 def _contract_problems(schema: Schema) -> list[str]:
@@ -435,7 +586,7 @@ def schema_from_text(text: str) -> Schema:
     notices = () if named is None or named in PRESETS else (unknown_preset(str(named)),)
     if problems:
         return Schema(base, tuple(problems), notices)
-    merged = deep_merge(base, override)
+    merged = settled_templates(deep_merge(base, override), override)
     found = schema_problems(merged)
     return Schema(base, tuple(found), notices) if found else Schema(merged, (), notices)
 
@@ -517,6 +668,31 @@ def _kind_lines(schema: Schema) -> str:
     return "".join(f"\n  - {kind}: {rules[kind]}" if kind in rules else f"\n  - {kind}" for kind in schema.kind_values)
 
 
+def template_line(template: Template, language: str) -> str:
+    headings = [f"## {section.heading(language)}{'*' if section.required else ''}" for section in template.sections]
+    line = f"- {template.kind}: {', '.join(headings)}"
+    questions = template.section(template.questions) if template.questions else None
+    if questions is not None:
+        line += (
+            f". Under ## {questions.heading(language)}, `- [ ]` marks a question that blocks the start "
+            "and `- ` one the work settles"
+        )
+    return line
+
+
+def _template_block(schema: Schema) -> str:
+    if not schema.templates:
+        return ""
+    lines = [template_line(template, schema.language) for template in schema.templates.values()]
+    return (
+        "\nNote templates, by kind (* is required). write_file refuses a new note, or a rewrite of one that follows "
+        "its template, that lacks one of its kind's headings or leaves a required one empty; a backlog or draft note "
+        "is a draft, held to nothing, and a note of only the headings is one just opened. An older note is brought to "
+        "its template when it is next rewritten; lint lists those that are not. `template` gives the headings and a "
+        "skeleton:\n" + "\n".join(lines)
+    )
+
+
 def _language_line(schema: Schema) -> str:
     others = ", ".join(schema.languages[1:])
     if not others:
@@ -567,7 +743,8 @@ def instructions(schema: Schema) -> str:
     backlog_step = (
         "6. The moment something is deferred, in so many words or in passing, `backlog_add` it in the same\n"
         "   turn: a task note with status backlog, its area, one line and a priority. `backlog` lists them by\n"
-        "   priority; picking one up is setting its status to active."
+        "   priority; picking one up is setting its status to active"
+        + (" and writing it out to the task template." if schema.template("task") else ".")
         if schema.task_folders
         else "6. This layout keeps no task folder: `backlog_add` and the backlog are off until the schema names one."
     )
@@ -583,7 +760,7 @@ Frontmatter contract for every note:
 - optional: {optional}
 - status is one of: {statuses}
 - kind is one of:{kinds}{priority_line}{area_line}{claim_line}
-{vocabulary}{strictness}
+{vocabulary}{strictness}{_template_block(schema)}
 
 Workflow:
 1. Start a session with `context` (path, repo) — it returns the system notes for the code you are
@@ -635,7 +812,7 @@ Frontmatter contract for every note:
 - optional: {", ".join(schema.optional_fields)}
 - status is one of: {", ".join(schema.status_values)}
 - kind is one of:{_kind_lines(schema)}{area_line}
-{vocabulary}
+{vocabulary}{_template_block(schema)}
 
 Workflow:
 1. Search with `search` before writing, and read the note you are about to change: other people keep

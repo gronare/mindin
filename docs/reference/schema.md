@@ -97,7 +97,7 @@ In a shared vault, the schema and its bundle are changed by the vault's owner or
 
 | Key | Built-in default | Meaning |
 | --- | --- | --- |
-| `language` | `en` | The vault's language, as an ISO code. Picks the stemmer and the task headings. |
+| `language` | `en` | The vault's language, as an ISO code. Picks the stemmer and the headings of the note templates. |
 | `other_languages` | `[]` | More languages to stem, such as `[sv]`. Changing either rebuilds the index. |
 | `tags.vocabulary` | `[]` | The vault's tags, named in the server's instructions. |
 | `tags.strict` | `false` | `true` refuses a write with a tag outside the vocabulary, and `lint` reports such tags. |
@@ -120,16 +120,52 @@ log:
 
 The default `-log` suffix keeps `Log/myapp-log.md` from colliding with the hub note `Areas/myapp.md`, which Obsidian could not tell apart as `[[myapp]]`. Every place that builds the log path reads `file_format`, so changing it moves all of them at once; rename the existing files to match.
 
-## Task sections
+## Note templates
 
-The headings `task check` looks for, picked by the vault's `language`:
+`templates` gives a kind of note the headings its body is written to. The built-in layout's:
 
 ```yaml
-task:
-  sections:
-    en: { problem: Problem, solution: Solution, decisions: Decisions, tests: Test decisions, scope: Out of scope }
-    sv: { problem: Problem, solution: Lösning, decisions: Beslut, tests: Testbeslut, scope: Utanför ramen }
+templates:
+  task:
+    questions: questions
+    sections:
+      - { key: background, heading: { en: Background, sv: Bakgrund }, required: true }
+      - { key: goal, heading: { en: Goal, sv: Mål }, required: true }
+      - { key: known, heading: { en: What we know, sv: Det vi vet } }
+      - { key: questions, heading: { en: Open questions, sv: Öppna frågor } }
+      - { key: scope, heading: { en: Out of scope, sv: Utanför ramen } }
+      - { key: source, heading: { en: Source, sv: Källa }, required: true }
+  system:
+    questions: null
+    sections:
+      - { key: what, heading: { en: What it does, sv: Vad det gör }, required: true }
+      - { key: objects, heading: { en: The objects that hold the truth, sv: Objekten som bär sanningen } }
+      - { key: flows, heading: { en: Flows, sv: Flödena } }
+      - { key: limits, heading: { en: Limits, sv: Gränser } }
+      - { key: exceptions, heading: { en: Exceptions, sv: Undantag } }
+      - { key: traps, heading: { en: Traps, sv: Fällor } }
+      - { key: left, heading: { en: Left, sv: Kvar } }
+      - { key: history, heading: { en: History, sv: Historik } }
 ```
+
+| Key | Meaning |
+| --- | --- |
+| `sections` | The headings in order. `key` is a lowercase word that `backlog_add`, `task check` and `template` name the section by. `heading` is the heading per language, one line that does not end in `#`; the vault's `language` picks the one the tools write, falling back to `en`. `required: true` means the section needs text. |
+| `questions` | The section that holds open questions, or `null`. A line `- [ ]` under it is a question that blocks the start of the work, a line `- ` one the work settles. |
+
+`write_file` holds a note to its kind's template when it creates the note, as `backlog_add` and `task open` do, when it rewrites a note whose stored body already follows the template, so a note that follows it stays that way, when the stored note was a `backlog` or `draft` note or still carries the mark `backlog_add` puts in a draft, and when the rewrite changes the note's kind. A rewrite that leaves `kind` out is held to the stored kind's template. It refuses such a write, naming the headings that are missing and the required sections left empty, unless:
+
+- its status is `backlog` or `draft`: it is a draft, such as a one-line idea filed with `backlog_add`;
+- its status is `complete` or `superseded`;
+- its body is the headings alone, as `task open` writes it.
+
+A note of the same kind written before its template, or one whose stored frontmatter does not parse, keeps taking rewrites that do not follow it yet, and `append_file` never checks the body. `lint` lists each open note that does not follow its kind's template under `off_template`, with what it lacks, so those notes can be rewritten over time.
+
+A heading counts in any of its languages, so a vault that writes `## Vad det gör` passes under `language: en`. A template restated in the schema replaces the layout's whole template for that kind; `templates: { system: null }` drops one. The para, simple and journal layouts carry a task template, and the custom, shared and wiki layouts carry none.
+
+The server lists each template in its instructions and in the `rules` tool, one line per kind with the required sections marked. The `template` tool and `mindin template --json` answer it as JSON; see [Agent commands](agent-commands.md#template).
+
+A schema that still sets the earlier `task.sections` (headings by language, such as `sv: { problem: Varför }`) keeps working: its keys `problem`, `solution`, `decisions`, `tests` and `scope` become the task template, with `problem`, `solution` and `decisions` required, unless the schema also sets `templates.task`.
 
 ## When the schema does not hold
 

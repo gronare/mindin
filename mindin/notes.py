@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 
+from mindin import note_templates
 from mindin.backends import MUST_NOT_EXIST, SCHEMA_KEY, NotFound, VersionConflict, delete_checked
 from mindin.bundle import bundle_of
 from mindin.frontmatter import (
@@ -148,6 +149,26 @@ def _require_valid(vault: Vault, frontmatter: dict, key: str, verdict: str) -> N
         raise ValidationError("\n".join([f"{key} {verdict}:", *[f"- {p}" for p in problems]]))
 
 
+def _off_template_before(vault: Vault, frontmatter: dict, stored: str) -> bool:
+    try:
+        before, body = parse(stored)
+    except FrontmatterError:
+        return True
+    if not note_templates.binds(before) or before.get("kind") != frontmatter.get("kind"):
+        return False
+    return note_templates.DRAFT_MARKER not in body and bool(note_templates.problems(vault.schema, before, body))
+
+
+def _require_template(vault: Vault, key: str, frontmatter: dict, body: str, stored: str | None = None) -> None:
+    kept_kind = None if stored is None or frontmatter.get("kind") else _kind_in(stored)
+    checked = {**frontmatter, "kind": kept_kind} if kept_kind else frontmatter
+    if stored is not None and _off_template_before(vault, checked, stored):
+        return
+    refused = note_templates.refusal(vault.schema, key, checked, body)
+    if refused:
+        raise ValidationError(refused)
+
+
 def _require_clean(vault: Vault, key: str, text: str) -> str:
     refused = refusal(key, text, bundle_of(vault.schema).guard) if vault.rules is None else ""
     if refused:
@@ -155,12 +176,19 @@ def _require_clean(vault: Vault, key: str, text: str) -> str:
     return text
 
 
-def _stored_claim(vault: Vault, key: str) -> dict[str, str] | None:
+def _stored_text(vault: Vault, key: str) -> str | None:
     try:
-        text, _ = _read(vault, key)
+        return _read(vault, key)[0]
     except NotFound:
         return None
-    return _claim_in(text)
+
+
+def _kind_in(text: str) -> str | None:
+    try:
+        kind = parse(text)[0].get("kind")
+    except FrontmatterError:
+        return None
+    return str(kind) if kind else None
 
 
 def _claim_in(text: str | None) -> dict[str, str] | None:
@@ -183,17 +211,18 @@ def write(vault: Vault, path: str, content: str, expected_etag: str | None = Non
     key = note_key(path)
     frontmatter, body = parse(content)
 
-    def written(claim: dict[str, str] | None) -> str:
-        stamped = _with_dates(_with_claim(frontmatter, claim))
+    def written(existing: str | None) -> str:
+        stamped = _with_dates(_with_claim(frontmatter, _claim_in(existing)))
         _require_valid(vault, stamped, key, "is not a valid note")
+        _require_template(vault, key, stamped, body, existing)
         return _require_clean(vault, key, dump(stamped, body))
 
     if expected_etag is None:
-        stored = rewrite(vault, key, lambda existing: written(_claim_in(existing)))
+        stored = rewrite(vault, key, written)
         assert stored is not None
         version = stored[1]
     else:
-        text = written(_stored_claim(vault, key))
+        text = written(_stored_text(vault, key))
         version = vault.backend.put(key, text, expected_version=expected_etag)
         _reindex(vault, key, text, version)
     return f"Written: {key}\netag: {version}"
@@ -417,17 +446,57 @@ def _area_stem(area: str) -> str:
     return stem_of(area.strip().strip("[]").split("|")[0].strip())
 
 
+def _draft_body(vault: Vault, line: str, source: str | None) -> str:
+    template = vault.schema.template("task")
+    if template is None:
+        return f"{line}\n"
+    first = template.sections[0].key
+    home = "source" if template.section("source") else first
+    origin = "\n".join(part for part in (line, source) if part)
+    texts = {first: note_templates.DRAFT_MARKER}
+    texts[home] = f"{texts[home]}\n\n{origin}" if home == first else origin
+    return note_templates.written_body(template, vault.schema.language, texts)
+
+
+def _sections_body(vault: Vault, sections: dict[str, str]) -> str:
+    template = vault.schema.template("task")
+    if template is None:
+        raise ValueError("this vault's task notes have no template: file the idea with line instead of sections")
+    unknown = [key for key in sections if key not in template.keys]
+    if unknown:
+        raise ValueError(f"unknown section {', '.join(unknown)}; the task template has {', '.join(template.keys)}")
+    language = vault.schema.language
+    empty = [
+        f"{section.key} (## {section.heading(language)})"
+        for section in template.sections
+        if section.required and not str(sections.get(section.key) or "").strip()
+    ]
+    if empty:
+        raise ValueError(f"the task template needs text in {', '.join(empty)}")
+    return note_templates.written_body(template, language, {key: str(text) for key, text in sections.items()})
+
+
+def _first_line(text: str) -> str:
+    return next((line.strip() for line in text.splitlines() if line.strip()), "")
+
+
 def backlog_add(
     vault: Vault,
     title: str,
     area: str,
-    line: str,
+    line: str | None = None,
     priority: str | None = None,
     source: str | None = None,
+    sections: dict[str, str] | None = None,
 ) -> str:
     area_stem = _area_stem(area)
     if not area_stem:
         raise ValueError("area is required: the stem of the system note, or [[stem]]")
+    if not (line or "").strip() and not sections:
+        raise ValueError(
+            "backlog_add needs line, one line saying what and why, or sections, the task template filled in"
+        )
+    body = _sections_body(vault, sections) if sections else _draft_body(vault, str(line).strip(), source)
     family = area_stem.split("-")[0]
     slug = _title_slug(title)
     stem = slug if slug == family or slug.startswith(f"{family}-") else f"{family}-{slug}"
@@ -439,19 +508,21 @@ def backlog_add(
         "status": BACKLOG_STATUS,
         "kind": "task",
         "area": f"[[{area_stem}]]",
-        "summary": line,
+        "summary": (line or "").strip() or _first_line(sections.get("goal", "") if sections else "") or title,
     }
     if priority:
         frontmatter["priority"] = priority
     if source:
         frontmatter["source"] = source
-    text = dump(frontmatter, f"{line}\n")
+    text = dump(frontmatter, body)
     lost: frozenset[str] = frozenset()
     for _ in range(REWRITE_RETRIES + 1):
         key = note_key(_free_key(vault, vault.schema.backlog_folder, stem, lost))
-        problems = validate(frontmatter, key, vault.schema)
-        if problems:
-            raise ValueError("; ".join(problems))
+        try:
+            _require_valid(vault, frontmatter, key, "is not a valid note")
+        except ValidationError as exc:
+            raise ValueError(str(exc)) from exc
+        _require_clean(vault, key, text)
         try:
             version = vault.backend.put(key, text, expected_version=MUST_NOT_EXIST)
         except VersionConflict:
@@ -795,10 +866,15 @@ def _lint_frontmatter(vault: Vault, note: Note, findings: Findings) -> None:
         return
     try:
         text, _ = _read(vault, note.key)
-        frontmatter, _ = parse(text)
+        frontmatter, body = parse(text)
     except Exception as exc:
         findings.add("broken_frontmatter", f"{note.key}: {exc}")
         return
+    archive = [vault.schema.archive_folder] if vault.schema.archive_folder else []
+    off = [] if vault.schema.under(note.key, archive) else note_templates.problems(vault.schema, frontmatter, body)
+    if off:
+        kind = frontmatter.get("kind")
+        findings.add("off_template", f"{note.key}: does not follow the {kind} template: {'; '.join(off)}")
     for problem in validate(frontmatter, note.key, vault.schema):
         if problem.startswith("missing required field: "):
             findings.add("missing_required", f"{note.key}: {problem.removeprefix('missing required field: ')}")

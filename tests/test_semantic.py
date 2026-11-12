@@ -151,7 +151,7 @@ def test_a_model_change_recomputes_every_note(vault: Vault, root: Path, tmp_path
 def test_a_note_written_through_the_server_is_embedded_on_the_next_call(vault: Vault, fake: FakeEmbedder):
     fake.embedded.clear()
     text = NOTES["Areas/board.md"].replace("title: Board", "title: Inloggningen").replace("tags: []", "tags: [mcp]")
-    notes.write(vault, "Areas/login.md", text)
+    notes.write(vault, "Areas/login.md", text.replace("status: active", "status: draft"))
     vault.index.sync()
     assert any(entry.startswith("Inloggningen") for entry in fake.embedded)
     assert "Areas/login.md" in chunk_keys(vault)

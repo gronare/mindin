@@ -7,8 +7,8 @@ mindin task open --name "Fix login" --cwd ~/wt/wt1.myapp [--branch fix-login]
 # {"path": "Projects/myapp-fix-login.md", "created": true, "repo": "myapp", "area": "myapp"}
 mindin task open --note Projects/myapp-idea.md --cwd ~/wt/wt1.myapp
 # {"path": "Projects/myapp-idea.md", "created": false, "repo": "myapp", "area": "myapp"}
-mindin task check Projects/myapp-fix-login.md --need problem,solution,decisions
-# {"missing": ["solution", "decisions"]}
+mindin task check Projects/myapp-fix-login.md [--need background,goal,source]
+# {"missing": ["goal", "source"]}
 mindin task close Projects/myapp-fix-login.md        # {"path": "Archive/myapp-fix-login.md"}
 mindin task backlog Projects/myapp-fix-login.md --priority medium   # {"path": "Projects/…"}
 mindin task claim Projects/myapp-idea.md --machine mac --task fix-login --repo myapp [--force]
@@ -23,23 +23,29 @@ mindin log path --repo myapp                         # {"path": "Log/myapp-log.m
 mindin log path --repo myapp --repo docs            # {"myapp": "Log/myapp-log.md", "docs": "Log/docs-log.md"}
 mindin snapshot --json [--since ETAG]               # the board's notes and logs in one answer
 mindin read Projects/myapp-idea.md [--body]          # the note as stored in a pipe, or only its text after the frontmatter
+mindin template --json --kind task
+# {"kind": "task", "language": "en", "sections": [{"key": "background", "heading": "Background", "required": true}, …], "questions": "questions", "skeleton": "## Background\n\n## Goal\n…"}
 mindin status
 # {"configured": true, "version": "0.17.0", "backend": "s3", "source": "config", "writable": null, "signals": "on", "signals_source": "config", "signals_change": "mindin setup --signals yes|no"}
 mindin status --probe
 # {"configured": true, "version": "0.17.0", "backend": "s3", "source": "config", "writable": true, "signals": "on", "signals_source": "config", "signals_change": "mindin setup --signals yes|no"}
 mindin about --json
-# {"name": "mindin", "version": "0.17.0", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "read"], "former_names": ["notes-vault-mcp"]}
+# {"name": "mindin", "version": "0.17.0", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "read", "templates"], "former_names": ["notes-vault-mcp"]}
 ```
 
 ## task open
 
 The repo is the main checkout's name, also from a worktree, and the area is the system note the session-start hook would load for that directory, falling back to the repo name (`"area": null` when no note matched).
 
-`task open` writes a task note with the task name as a placeholder title, status `active`, `path` set to the main checkout, `source: branch <name>`, and the section headings with empty bodies; the stem is the repo plus the task name, made unique across the whole vault. `--note` claims an existing task note instead: status `active`, nothing else changed. `--branch` defaults to the branch checked out in `--cwd`.
+`task open` writes a task note with the task name as a placeholder title, status `active`, `path` set to the main checkout, `source: branch <name>`, and the headings of the task template with empty bodies; the stem is the repo plus the task name, made unique across the whole vault. `--note` claims an existing task note instead: status `active`, nothing else changed. `--branch` defaults to the branch checked out in `--cwd`.
 
 ## task check
 
-`task check` takes the keys `problem`, `solution`, `decisions`, `tests` and `scope`. A section is filled when it has any text under its heading, before the next heading of the same or a higher level. The headings are a [schema setting](schema.md#task-sections), per language.
+`task check` takes the keys of the task template's sections, and checks its required ones when `--need` is left out; in the built-in layout those are `background`, `goal` and `source`. A section is filled when it has any text under its heading, before the next heading of the same or a higher level. The headings are a [schema setting](schema.md#note-templates), per language.
+
+## template
+
+`template --json` answers the [note templates](schema.md#note-templates) of the vault's schema, the same JSON as the `template` tool: with `--kind`, one kind's `sections` (`key`, `heading` in the vault's language, `required`), its `questions` section and a `skeleton` to fill; without it, `{"language": …, "templates": {"task": {…}, "system": {…}}}`. A kind without a template answers `"sections": []`, and a kind the schema does not name fails. Without `--json` it prints one line per kind.
 
 ## task claim and release
 
@@ -71,5 +77,5 @@ Every answer carries an `etag`; with `--since <etag>` the answer is only `{"unch
 
 - `name` is always `mindin`, also when run as `notes-vault-mcp`.
 - `contract` is the version of these commands' JSON; it changes only when an answer changes shape.
-- `capabilities` lists the commands this install has: `tasks` (`task`), `claims` (`task claim`), `log`, `snapshot` and `read`.
+- `capabilities` lists the commands this install has: `tasks` (`task`), `claims` (`task claim`), `log`, `snapshot`, `read` and `templates` (`template`).
 - `former_names` lists the names the package and command had before.

@@ -193,8 +193,7 @@ class LocalClient:
         return tasks.open_task(self.synced(), args.name or "", args.cwd, branch=args.branch)
 
     def task_check(self, args: Any) -> dict:
-        need = [key.strip() for key in args.need.split(",") if key.strip()]
-        return {"missing": tasks.missing_sections(self.synced(), args.path, need)}
+        return {"missing": tasks.missing_sections(self.synced(), args.path, tasks.needed(args.need))}
 
     def task_close(self, args: Any) -> dict:
         return {"path": notes.close(self.synced(), args.path)}
@@ -396,8 +395,7 @@ class RemoteClient:
 
     def task_check(self, args: Any) -> dict:
         schema = self.schema()
-        need = [key.strip() for key in args.need.split(",") if key.strip()]
-        tasks.known_sections(schema, need)
+        need = tasks.known_sections(schema, tasks.needed(args.need))
         return {"missing": tasks.missing_in(schema, self.read(notes.note_key(args.path)), need)}
 
     def task_close(self, args: Any) -> dict:

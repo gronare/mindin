@@ -26,6 +26,7 @@ TOOL_NAMES = {
     "init",
     "whoami",
     "rules",
+    "template",
 }
 
 

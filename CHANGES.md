@@ -7,6 +7,11 @@ What each mindin release brings, one line per change, as you would tell someone 
 ### What's new
 - Search and session start cover a connection's main vault and your organisations' vaults; name any other vault with `vault`.
 - Make default on a vault's page picks the vault the approval page preselects for a new connection.
+- New task and system notes follow a template, and `write_file` names what a note lacks.
+- `lint` lists the notes that do not follow their kind's template yet.
+- The `template` tool and `mindin template --json` give a kind's headings, required sections and a skeleton.
+- `backlog_add` takes the task template's `sections`, or one line that files a draft to write out.
+- `task open` writes the task template's headings, and `task check` checks its required sections by default.
 
 ### Fixed
 

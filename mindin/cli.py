@@ -15,10 +15,10 @@ from mindin import (
     hooks,
     human,
     install_signal,
+    note_templates,
     notes,
     provision,
     setup,
-    tasks,
 )
 from mindin.backends import NotFound
 from mindin.client import open_client
@@ -30,7 +30,7 @@ from mindin.hosted import cli as hosted_cli
 from mindin.hosted.config import auth_config
 from mindin.places import adopt_config
 from mindin.presets import CUSTOM_PRESET, PERSONAL_LAYOUTS, PRESETS, STARTING_POINTS
-from mindin.schema import CLAIM_KEY, Schema, capabilities, schema_from_text
+from mindin.schema import CLAIM_KEY, Schema, capabilities, schema_from_text, template_line
 from mindin.server import run_stdio
 from mindin.terminal import Terminal, terminal
 from mindin.vault import SubjectVaults, Unconfigured, Vault, open_vault
@@ -213,6 +213,27 @@ def command_schema_check(args: argparse.Namespace) -> int:
     report = schema_report(schema)
     print(json.dumps(report, ensure_ascii=False) if args.json else schema_report_text(report))
     return 1 if report["problems"] else 0
+
+
+def command_template(args: argparse.Namespace) -> int:
+    try:
+        adopt_config()
+        with open_client() as client:
+            schema = client.schema()
+        found = note_templates.template_answer(schema, args.kind)
+    except Exception as exc:
+        print(one_line(exc), file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(found, ensure_ascii=False))
+        return 0
+    chosen = [found] if args.kind else list(found["templates"].values())
+    for entry in chosen:
+        template = schema.template(entry["kind"])
+        print(template_line(template, schema.language)[2:] if template else f"{entry['kind']}: no template")
+    if not chosen:
+        print("This vault's notes have no templates.")
+    return 0
 
 
 def command_embed_worker(args: argparse.Namespace) -> int:
@@ -497,6 +518,7 @@ CAPABILITIES = {
     "log": ("log",),
     "snapshot": ("snapshot",),
     "read": ("read",),
+    "templates": ("template",),
 }
 
 
@@ -664,8 +686,8 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("path")
     check.add_argument(
         "--need",
-        default=",".join(tasks.DEFAULT_NEED),
-        help="comma-separated keys among problem, solution, decisions, tests, scope",
+        help="comma-separated keys of the task template's sections (mindin template --kind task); its required ones "
+        "when omitted",
     )
     check.set_defaults(func=json_command("task_check"))
     closing = task_sub.add_parser("close", help="set status complete and move the note to the archive")
@@ -707,6 +729,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--repo", required=True, action="append", help='repeat for several; then the answer is {"<repo>": "<path>"}'
     )
     locating.set_defaults(func=json_command("log_path"))
+
+    shaping = sub.add_parser(
+        "template", help="the headings each kind of note is written to, from the vault's schema (JSON with --json)"
+    )
+    shaping.add_argument("--kind", help="one kind, such as task or system; every kind with a template when omitted")
+    shaping.add_argument("--json", action="store_true", help="answer JSON, for tools that read it")
+    shaping.set_defaults(func=command_template)
 
     board = sub.add_parser(
         "snapshot",

@@ -24,7 +24,8 @@ The vault is a folder of markdown notes (an Obsidian vault) reached through the 
 ## Writing rules
 
 - Frontmatter is validated: required fields, allowed `status` and `kind` values, `area` outside system folders. The server sets `updated` itself.
-- A note describes the current state. History belongs in the log folder and in `## Historik` lines with a date and a sha, not in prose about what used to be.
+- A kind with a template (the server's instructions list them; `template` gives the headings and a skeleton) is written to it: `write_file` refuses a new note, or a rewrite of one that follows it, that lacks one of its headings or leaves a required section empty, and names what is missing. A `backlog` or `draft` note is held to nothing until it is written out as an open note. When you rewrite an older note that `lint` lists under `off_template`, bring it to its template.
+- A note describes the current state. History belongs in the log folder and in the system note's history lines with a date and a sha, not in prose about what used to be.
 - A superseded note gets `superseded_by: "[[stem]]"` through `close(..., merged_into=...)`; do not delete history.
 - Tags come from the vocabulary in the schema; the folder name is never a tag.
 
@@ -35,9 +36,9 @@ The vault is a folder of markdown notes (an Obsidian vault) reached through the 
 
 ## Backlog
 
-- The moment something is deferred, in so many words or in passing ("later", "not now", "put it in the backlog"), call `backlog_add` in the same turn: title, area, one line, a priority (`urgent`, `high`, `medium`, `low`) and the source (who said it and when, or a sha). Confirm it in one line.
+- The moment something is deferred, in so many words or in passing ("later", "not now", "put it in the backlog"), call `backlog_add` in the same turn: title, area, one line, a priority (`urgent`, `high`, `medium`, `low`) and the source (who said it and when, or a sha). One line files a draft of the task template; when the idea is already understood, pass `sections` (the template's keys) instead, its required ones filled. Confirm it in one line.
 - A backlog note is a decision to build something later; the system note's remaining-work section describes what is missing today. Do not duplicate one into the other.
-- `backlog` lists the queue by priority then age, filtered by area or family; `context` shows the relevant ones at session start. Picking an item up is setting its status to `active`; finishing it is `close`.
+- `backlog` lists the queue by priority then age, filtered by area or family; `context` shows the relevant ones at session start. Picking an item up is setting its status to `active` and writing the note out to the task template; finishing it is `close`.
 
 ## Lint
 

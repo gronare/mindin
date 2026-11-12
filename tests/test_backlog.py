@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from mindin import notes
+from mindin import note_templates, notes
 from mindin.cli import main
 from mindin.frontmatter import parse
 from mindin.vault import Vault
@@ -27,7 +27,9 @@ def test_backlog_add_files_a_note_under_the_area_family(vault: Vault, vault_dir:
     assert frontmatter["priority"] == "high"
     assert frontmatter["source"] == "triage 2026-09-06"
     assert frontmatter["tags"] == ["orchard"]
-    assert body.strip() == "Gästen väljer rum efter datum."
+    assert frontmatter["summary"] == "Gästen väljer rum efter datum."
+    assert body.startswith(f"\n## Bakgrund\n{note_templates.DRAFT_MARKER}\n\n## Mål\n\n")
+    assert body.endswith("## Källa\nGästen väljer rum efter datum.\ntriage 2026-09-06\n")
 
 
 def test_backlog_add_keeps_a_title_that_already_names_the_family(vault: Vault):

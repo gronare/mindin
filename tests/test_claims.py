@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from template_support import filled
 
 from mindin import notes, tasks
 from mindin.backends import VersionConflict
@@ -140,7 +141,7 @@ def test_write_file_keeps_the_stored_claim_whatever_the_content_says(vault: Vaul
     notes.write(vault, NOTE, notes.dump(frontmatter, body))
     assert parse(vault.backend.get(NOTE)[0])[0][CLAIM_KEY] == stored, "a hand edit of the key does not take"
     new = "Projects/orchard-new.md"
-    notes.write(vault, new, notes.dump(frontmatter, body))
+    notes.write(vault, new, notes.dump(frontmatter, filled(vault.schema, "task", body.strip())))
     assert CLAIM_KEY not in parse(vault.backend.get(new)[0])[0], "a new note starts unclaimed"
 
 

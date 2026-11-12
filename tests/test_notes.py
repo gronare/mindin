@@ -4,6 +4,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from template_support import filled
 
 from mindin import notes
 from mindin.backends import NotFound, VersionConflict
@@ -22,7 +23,20 @@ kind: task
 area: "[[orchard]]"
 ---
 
+## Bakgrund
 Kroppen.
+
+## Mål
+Ett mål.
+
+## Det vi vet
+
+## Öppna frågor
+
+## Utanför ramen
+
+## Källa
+Ett samtal.
 """
 
 
@@ -278,13 +292,13 @@ def test_context_reads_a_deeper_system_note_in_full_and_lists_root_level_ones_as
         vault,
         "Areas/orchard-bokning.md",
         "---\ntitle: Bokning\ndate: 2026-07-01\nupdated: 2026-07-01\ntags: [orchard]\nstatus: active\n"
-        "kind: system\npath: ~/projects/orchard/app/models/bookings\n---\n\nBokningsdomänen.\n",
+        "kind: system\npath: ~/projects/orchard/app/models/bookings\n---\n\n" + filled(vault.schema, "system"),
     )
     notes.write(
         vault,
         "Areas/orchard-personuppgifter.md",
         "---\ntitle: Personuppgifter\ndate: 2026-07-01\nupdated: 2026-07-01\ntags: [orchard]\nstatus: active\n"
-        "kind: system\npath: ~/projects/orchard\n---\n\nInventering.\n",
+        "kind: system\npath: ~/projects/orchard\n---\n\n" + filled(vault.schema, "system"),
     )
     at_root = notes.context(vault, path=ORCHARD, repo="orchard")
     assert [note.key for note, _ in at_root.system] == ["Areas/orchard.md"]

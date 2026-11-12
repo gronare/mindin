@@ -69,19 +69,7 @@ def test_task_open_names_the_main_checkout_from_a_worktree(configured: Path, wor
     assert frontmatter["tags"] == ["orchard"]
     assert frontmatter["path"].endswith("repos/orchard")
     assert frontmatter["source"] == "branch task-1"
-    assert body.split() == [
-        "##",
-        "Problem",
-        "##",
-        "Lösning",
-        "##",
-        "Beslut",
-        "##",
-        "Testbeslut",
-        "##",
-        "Utanför",
-        "ramen",
-    ]
+    assert body == "\n## Bakgrund\n\n## Mål\n\n## Det vi vet\n\n## Öppna frågor\n\n## Utanför ramen\n\n## Källa\n"
 
 
 def test_task_open_is_in_the_index_after_the_write(configured: Path, worktree: Path, capsys):
@@ -135,9 +123,10 @@ def test_task_check_reports_empty_sections_in_a_swedish_vault(configured: Path, 
     path = run(capsys, "task", "open", "--name", "Prune", "--cwd", str(worktree))["path"]
     target = configured / path
     text = target.read_text(encoding="utf-8")
-    target.write_text(text.replace("## Problem\n", "## Problem\nGrenarna växer in i staketet.\n"), encoding="utf-8")
-    checked = run(capsys, "task", "check", path, "--need", "problem,solution,decisions")
-    assert checked == {"missing": ["solution", "decisions"]}
+    target.write_text(text.replace("## Bakgrund\n", "## Bakgrund\nGrenarna växer in i staketet.\n"), encoding="utf-8")
+    checked = run(capsys, "task", "check", path, "--need", "background,goal,source")
+    assert checked == {"missing": ["goal", "source"]}
+    assert run(capsys, "task", "check", path) == {"missing": ["goal", "source"]}
 
 
 def test_task_check_reads_the_english_headings(configured: Path, worktree: Path, capsys):
@@ -145,11 +134,11 @@ def test_task_check_reads_the_english_headings(configured: Path, worktree: Path,
     path = run(capsys, "task", "open", "--name", "Prune", "--cwd", str(worktree))["path"]
     target = configured / path
     text = target.read_text(encoding="utf-8")
-    assert "## Solution" in text and "## Out of scope" in text and "Lösning" not in text
-    filled = text.replace("## Solution\n", "## Solution\n\n- cut the low branches\n")
-    target.write_text(filled.replace("## Decisions\n", "## Decisions\n   \n"), encoding="utf-8")
-    assert run(capsys, "task", "check", path, "--need", "problem,solution,decisions") == {
-        "missing": ["problem", "decisions"]
+    assert "## Goal" in text and "## Out of scope" in text and "Mål" not in text
+    filled = text.replace("## Goal\n", "## Goal\n\n- cut the low branches\n")
+    target.write_text(filled.replace("## Source\n", "## Source\n   \n"), encoding="utf-8")
+    assert run(capsys, "task", "check", path, "--need", "background,goal,source") == {
+        "missing": ["background", "source"]
     }
 
 
@@ -161,10 +150,10 @@ def test_task_check_takes_headings_the_vault_overrides(configured: Path, worktre
 
 
 def test_task_check_counts_subheadings_but_not_a_heading_in_a_code_fence(configured: Path, capsys):
-    body = "## Problem\n### Detalj\n\n## Lösning\n```\n## Beslut\n```\n## Beslut\n\n"
+    body = "## Bakgrund\n### Detalj\n\n## Mål\n```\n## Källa\n```\n## Källa\n\n"
     frontmatter = "---\ntitle: x\ndate: 2026-01-01\nupdated: 2026-01-01\ntags: [orchard]\nstatus: active\n"
     (configured / "Projects" / "orchard-x.md").write_text(frontmatter + 'area: "[[orchard]]"\n---\n\n' + body)
-    assert run(capsys, "task", "check", "Projects/orchard-x.md") == {"missing": ["decisions"]}
+    assert run(capsys, "task", "check", "Projects/orchard-x.md") == {"missing": ["source"]}
 
 
 def test_task_close_moves_the_note_to_the_archive(configured: Path, worktree: Path, capsys):

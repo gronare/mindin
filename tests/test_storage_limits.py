@@ -77,7 +77,7 @@ async def test_a_shared_vault_counts_toward_its_owner(site: Hosted):
     async with http:
         shared = await write(http, team, "Areas/plan.md", 9_000)
         await write(http, team, "Areas/more.md", 9_000)
-        filled = await write(http, personal, "Areas/a.md", 9_000)
+        filled = await write(http, personal, "Areas/a.md", 8_000)
         refused = await write(http, personal, "Areas/b.md", 9_000)
     assert not shared.get("isError") and not filled.get("isError"), text_of(shared) + text_of(filled)
     assert refused.get("isError") and "is full" in text_of(refused)

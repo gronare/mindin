@@ -10,7 +10,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import Tool as MCPTool
 
-from mindin import changelog, notes, provision, repo_pages, tasks, views
+from mindin import changelog, note_templates, notes, provision, repo_pages, tasks, views
 from mindin.backends import VaultError
 from mindin.dav import DavCredentials
 from mindin.frontmatter import FrontmatterError
@@ -58,7 +58,7 @@ VAULT_ARGUMENT = (
     " vault names another vault this connection reaches, as search rows and the session instructions name it; "
     "leave it out for the main vault."
 )
-VAULT_TOOLS = "search, read_file, list_files, write_file, append_file, move_file, delete_file and rules"
+VAULT_TOOLS = "search, read_file, list_files, write_file, append_file, move_file, delete_file, template and rules"
 MEANING_DESCRIPTION = (
     " It also finds notes by meaning, across languages too, that share no word with the query: "
     "the header counts those rows as matched by meaning only, and a row that matched a section names it after §."
@@ -225,8 +225,10 @@ def build_server(
     @server.tool(
         name="write_file",
         description=(
-            "WRITE — validates the frontmatter against the vault schema and refuses the write if it "
-            "does not hold. Stamps `updated` with today and fills `date` when missing. Pass "
+            "WRITE — validates the frontmatter against the vault schema, and the body of a new note, or of one that "
+            "already follows it, against the template of its kind (see `template`), and refuses the write if either "
+            "does not hold. Stamps `updated` "
+            "with today and fills `date` when missing. Pass "
             'expected_etag from read_file to make the write conditional, or "*" to create a note '
             "that must not exist yet." + vault_note
         ),
@@ -302,15 +304,28 @@ def build_server(
         name="backlog_add",
         description=(
             "WRITE — files an idea as a backlog note in the task folder: title, area (stem or [[stem]]), "
-            "one line saying what and why, optional priority (urgent, high, medium, low) and source (who "
-            "said it and when, or a sha). Call it the moment something is deferred, in so many words or in "
+            "optional priority (urgent, high, medium, low) and source (who said it and when, or a sha), and "
+            "either line, one line saying what and why, which files a draft of the task template to write out "
+            "later, or sections, the task template's sections by key (see `template`), its required ones filled, "
+            "with line then as the summary. Call it the moment something is deferred, in so many words or in "
             "passing; picking the idea up later is setting its status to active."
         ),
     )
-    def backlog_add(title: str, area: str, line: str, priority: str | None = None, source: str | None = None) -> str:
+    def backlog_add(
+        title: str,
+        area: str,
+        line: str | None = None,
+        priority: str | None = None,
+        source: str | None = None,
+        sections: dict[str, str] | None = None,
+    ) -> str:
         return run(
-            lambda vault: f"Filed: {notes.backlog_add(vault, title, area, line, priority=priority, source=source)}",
+            lambda vault: (
+                "Filed: "
+                + notes.backlog_add(vault, title, area, line, priority=priority, source=source, sections=sections)
+            ),
             write=True,
+            expected=(*EXPECTED_FAILURES, ValueError),
             shared_refuses="backlog_add",
         )
 
@@ -503,6 +518,22 @@ def build_server(
                 expected=(*EXPECTED_FAILURES, ValueError),
                 shared_refuses="changelog" if write else None,
             )
+
+    @server.tool(
+        name="template",
+        description=(
+            "CHEAP — the headings a note of a kind is written to, from the vault's schema: each section's key, "
+            "heading in the vault's language and whether it is required, the section that holds open questions, "
+            "and a skeleton to fill. Without kind, every kind that has a template. write_file holds a new note to "
+            "it, and a note that already follows it, unless its status is backlog or draft. Answers JSON." + vault_note
+        ),
+    )
+    def template_tool(kind: str | None = None, vault: str | None = None) -> str:
+        return run(
+            lambda opened: json.dumps(note_templates.template_answer(opened.schema, kind), ensure_ascii=False),
+            expected=(*EXPECTED_FAILURES, ValueError),
+            vault_slug=vault,
+        )
 
     @server.tool(
         name="rules",

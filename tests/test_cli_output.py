@@ -48,7 +48,7 @@ BACKLOG = (
     "- Projects/workshop-sharpen-the-lathe-chisels.md | Sharpen the lathe chisels | low | [[workshop]] | 0d\n"
 )
 
-LINT = """14 findings
+LINT = """18 findings
 
 ## archive_status_mismatch (1)
 - Archive/wrong-status.md: status active
@@ -68,6 +68,16 @@ LINT = """14 findings
 - Resources/no-frontmatter.md: tags
 - Resources/no-frontmatter.md: title
 - Resources/no-frontmatter.md: updated
+
+## off_template (4)
+- Areas/orchard.md: does not follow the system template: missing headings: ## Vad det gör, ## Objekten som bär \
+sanningen, ## Flödena, ## Gränser, ## Undantag, ## Fällor, ## Kvar, ## Historik
+- Areas/workshop.md: does not follow the system template: missing headings: ## Vad det gör, ## Objekten som bär \
+sanningen, ## Flödena, ## Gränser, ## Undantag, ## Fällor, ## Kvar, ## Historik
+- Projects/orchard-fresh.md: does not follow the task template: missing headings: ## Bakgrund, ## Mål, ## Det vi vet, \
+## Öppna frågor, ## Utanför ramen, ## Källa
+- Projects/workshop-stale.md: does not follow the task template: missing headings: ## Bakgrund, ## Mål, ## Det vi vet, \
+## Öppna frågor, ## Utanför ramen, ## Källa
 
 ## orphans (1)
 - Resources/no-frontmatter.md
@@ -256,7 +266,7 @@ def test_read_in_a_terminal_turns_the_frontmatter_into_two_lines(vault: Vault, v
 def test_lint_in_a_terminal_counts_each_kind_in_plain_english(vault: Vault, monkeypatch, capsys):
     in_a_terminal(monkeypatch)
     lines = run(capsys, "lint").splitlines()
-    assert lines[0] == "14 findings in 9 kinds"
+    assert lines[0] == "18 findings in 10 kinds"
     assert lines[2] == "  5  missing fields       a field every note needs is absent"
     assert "  1  stale open tasks     open and untouched for more than 30 days" in lines
     assert lines[-1] == "lint --kind missing-fields lists one kind · --park-stale moves stale tasks to the backlog"

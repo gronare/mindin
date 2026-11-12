@@ -7,14 +7,15 @@
 | `backlog` | cheap | The backlog by priority then age, filtered by `area` and `priority`. |
 | `list_files` | cheap | Paths only; `prefix` keeps the paths that start with it. Takes `vault`, like `read_file`. |
 | `whoami` | cheap | The account a connection signs in as and whether it may write. |
-| `rules` | cheap | A vault's rules for agents: its folders, the frontmatter contract and its [bundle](schema.md#bundle). Takes `vault`, like `read_file`. |
+| `rules` | cheap | A vault's rules for agents: its folders, the frontmatter contract, its [note templates](schema.md#note-templates) and its [bundle](schema.md#bundle). Takes `vault`, like `read_file`. |
+| `template` | cheap | The [template](schema.md#note-templates) a `kind` of note is written to, as JSON: each section's `key`, `heading` in the vault's language and whether it is `required`, the `questions` section and a `skeleton`. Without `kind`, every kind that has one. Takes `vault`, like `read_file`. |
 | `read_file` | moderate | One note, prefixed with `etag: <version>`. A superseded note carries a warning callout. `vault` reads from another vault the connection reaches, named as search rows name it. |
-| `lint` | moderate | Reads every note and reports drift. |
-| `write_file` | write | Validates against the schema and refuses the write if it does not hold. Stamps `updated`, fills `date`. `expected_etag` makes the write conditional; `"*"` creates a note that must not exist yet. Only `.md` notes outside dot-folders are written. `vault` writes to another vault the connection reaches. |
+| `lint` | moderate | Reads every note and reports drift, also notes that do not follow their kind's template. |
+| `write_file` | write | Validates the frontmatter against the schema, and the body of a new note or of one that already follows its kind's [template](schema.md#note-templates) against that template, and refuses the write if either does not hold. Stamps `updated`, fills `date`. `expected_etag` makes the write conditional; `"*"` creates a note that must not exist yet. Only `.md` notes outside dot-folders are written. `vault` writes to another vault the connection reaches. |
 | `append_file` | write | Appends and bumps `updated`; the note must exist and still satisfy the schema. Takes `vault`, like `write_file`. |
 | `set_status` | write | Changes a note's status, with `priority` and `source` for the backlog. |
 | `close` | write | Finishes a note and moves it into the archive, with status `complete` or the `status` it is given. `merged_into` names the note that took it over: status `superseded`, with `superseded_by` linking that note. |
-| `backlog_add` | write | Files a backlog note. |
+| `backlog_add` | write | Files a backlog note: `title`, `area`, `priority`, `source`, and either `line`, which files a draft of the task template, or `sections`, the template's sections by key with the required ones filled. |
 | `log_append` | write | One dated line in the repo log, with the commits and the branch. |
 | `move_file` | write | Moves or renames a note; it must satisfy the schema at the destination. Takes `vault`, like `write_file`. |
 | `delete_file` | write | Deletes for good. Prefer `close`. Takes `vault`, like `write_file`. |

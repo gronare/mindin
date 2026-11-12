@@ -31,7 +31,14 @@ log:
   file_format: "{repo}-log.md"
   period_format: "{repo}-{period}.md"
   entry_format: "- [{date}] {line} | branch: {branch} | commits: {commits} | {area}"
-task:
-  sections:
-    en: { problem: Outcome, solution: Plan, decisions: Decisions, tests: Done when, scope: Out of scope }
+templates:
+  task:
+    questions: questions
+    sections:
+      - { key: background, heading: { en: Background }, required: true }
+      - { key: goal, heading: { en: Outcome }, required: true }
+      - { key: known, heading: { en: What we know } }
+      - { key: questions, heading: { en: Open questions } }
+      - { key: scope, heading: { en: Out of scope } }
+      - { key: source, heading: { en: Source }, required: true }
 stale_after_days: 30

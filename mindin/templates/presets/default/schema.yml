@@ -31,10 +31,27 @@ log:
   file_format: "{repo}-log.md"
   period_format: "{repo}-{period}.md"
   entry_format: "- [{date}] {line} | branch: {branch} | commits: {commits} | {area}"
-task:
-  sections:
-    en: { problem: Problem, solution: Solution, decisions: Decisions, tests: Test decisions, scope: Out of scope }
-    sv: { problem: Problem, solution: Lösning, decisions: Beslut, tests: Testbeslut, scope: Utanför ramen }
+templates:
+  task:
+    questions: questions
+    sections:
+      - { key: background, heading: { en: Background, sv: Bakgrund }, required: true }
+      - { key: goal, heading: { en: Goal, sv: Mål }, required: true }
+      - { key: known, heading: { en: What we know, sv: Det vi vet } }
+      - { key: questions, heading: { en: Open questions, sv: Öppna frågor } }
+      - { key: scope, heading: { en: Out of scope, sv: Utanför ramen } }
+      - { key: source, heading: { en: Source, sv: Källa }, required: true }
+  system:
+    questions: null
+    sections:
+      - { key: what, heading: { en: What it does, sv: Vad det gör }, required: true }
+      - { key: objects, heading: { en: The objects that hold the truth, sv: Objekten som bär sanningen } }
+      - { key: flows, heading: { en: Flows, sv: Flödena } }
+      - { key: limits, heading: { en: Limits, sv: Gränser } }
+      - { key: exceptions, heading: { en: Exceptions, sv: Undantag } }
+      - { key: traps, heading: { en: Traps, sv: Fällor } }
+      - { key: left, heading: { en: Left, sv: Kvar } }
+      - { key: history, heading: { en: History, sv: Historik } }
 stale_after_days: 30
 search:
   default_limit: 15

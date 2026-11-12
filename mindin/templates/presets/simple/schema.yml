@@ -23,7 +23,14 @@ tags:
   strict: false
   vocabulary: [categories, daily]
 synonyms: []
-task:
-  sections:
-    en: { problem: Problem, solution: Solution, decisions: Decisions, tests: Test decisions, scope: Out of scope }
+templates:
+  task:
+    questions: questions
+    sections:
+      - { key: background, heading: { en: Background }, required: true }
+      - { key: goal, heading: { en: Goal }, required: true }
+      - { key: known, heading: { en: What we know } }
+      - { key: questions, heading: { en: Open questions } }
+      - { key: scope, heading: { en: Out of scope } }
+      - { key: source, heading: { en: Source }, required: true }
 stale_after_days: 30

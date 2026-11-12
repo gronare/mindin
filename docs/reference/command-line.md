@@ -108,7 +108,7 @@ In a pipe, a script or a hook, and with `--plain`, every command prints plain li
 
 ## lint
 
-`lint` reads every note and reports `broken_frontmatter`, `missing_required` (per field), `invalid_field`, `missing_area`, `unknown_tags` (only with a strict vocabulary), `unresolved_links`, `orphans` (no inbound wikilink; log and archive ignored), `stale_active`, `done_not_closed`, `archive_status_mismatch`, `duplicate_stems` and `superseded_target_missing`.
+`lint` reads every note and reports `broken_frontmatter`, `missing_required` (per field), `invalid_field`, `missing_area`, `unknown_tags` (only with a strict vocabulary), `unresolved_links`, `orphans` (no inbound wikilink; log and archive ignored), `stale_active`, `done_not_closed`, `archive_status_mismatch`, `duplicate_stems`, `superseded_target_missing` and `off_template` (an open note that does not follow its kind's [template](schema.md#note-templates), with what it lacks).
 
 `--write <path>` also keeps the report as a note. `--park-stale` parks stale task notes; see [Run lint every week](../how-to/weekly-lint.md).
 

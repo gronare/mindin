@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mindin import notes
+from mindin import note_templates, notes
 from mindin.backends import MUST_NOT_EXIST, VersionConflict
 from mindin.frontmatter import CLAIM_KEY, claim_fields, dump, parse
 from mindin.git import current_branch, in_main_checkout, main_checkout, repo_name
@@ -14,9 +13,6 @@ from mindin.index import stem_of
 from mindin.schema import Schema
 from mindin.vault import Vault
 
-HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t#]*$")
-FENCE_RE = re.compile(r"^[ \t]*(```|~~~)")
-DEFAULT_NEED = ("problem", "solution", "decisions")
 CLAIM_ATTEMPTS = 3
 
 
@@ -80,7 +76,7 @@ def task_tags(schema: Schema, repo: str, area_tags: tuple[str, ...]) -> list[str
 
 
 def section_skeleton(schema: Schema) -> str:
-    return "\n\n".join(f"## {heading}" for heading in schema.task_sections.values()) + "\n"
+    return note_templates.skeleton(schema.template("task"), schema.language)
 
 
 def require_name(name: str) -> None:
@@ -201,42 +197,36 @@ def release_claims_of(vault: Vault, machine: str, task: str) -> dict:
     return {"paths": held, "released": True}
 
 
-def filled_headings(body: str) -> dict[str, bool]:
-    headings: list[tuple[int, str, int]] = []
-    lines = body.splitlines()
-    fenced = False
-    for number, line in enumerate(lines):
-        if FENCE_RE.match(line):
-            fenced = not fenced
-            continue
-        match = None if fenced else HEADING_RE.match(line)
-        if match:
-            headings.append((len(match.group(1)), match.group(2).strip().casefold(), number))
-    filled: dict[str, bool] = {}
-    for position, (level, title, start) in enumerate(headings):
-        end = next((line for lvl, _, line in headings[position + 1 :] if lvl <= level), len(lines))
-        has_text = any(line.strip() for line in lines[start + 1 : end])
-        filled[title] = filled.get(title, False) or has_text
-    return filled
-
-
-def missing_sections(vault: Vault, path: str, need: list[str]) -> list[str]:
-    known_sections(vault.schema, need)
+def missing_sections(vault: Vault, path: str, need: list[str] | None) -> list[str]:
+    need = known_sections(vault.schema, need)
     text, _ = vault.backend.get(notes.note_key(path))
     return missing_in(vault.schema, text, need)
 
 
-def known_sections(schema: Schema, need: list[str]) -> None:
-    unknown = [key for key in need if key not in schema.task_sections]
+def needed(raw: str | None) -> list[str] | None:
+    keys = [key.strip() for key in (raw or "").split(",") if key.strip()]
+    return keys or None
+
+
+def known_sections(schema: Schema, need: list[str] | None) -> list[str]:
+    template = schema.template("task")
+    keys = template.keys if template else []
+    if need is None:
+        return template.required_keys if template else []
+    unknown = [key for key in need if key not in keys]
     if unknown:
-        raise ValueError(f"unknown section {', '.join(unknown)}; the schema names {', '.join(schema.task_sections)}")
+        named = f"the task template has {', '.join(keys)}" if keys else "this vault's task notes have no template"
+        raise ValueError(f"unknown section {', '.join(unknown)}; {named}")
+    return need
 
 
 def missing_in(schema: Schema, text: str, need: list[str]) -> list[str]:
-    sections = schema.task_sections
+    template = schema.template("task")
+    if template is None:
+        return []
     _, body = parse(text)
-    filled = filled_headings(body)
-    return [key for key in need if not filled.get(sections[key].strip().casefold(), False)]
+    filled = note_templates.filled_headings(body)
+    return [key for key in need if not note_templates.section_state(template.section(key), filled)]
 
 
 def append_log(vault: Vault, cwd: str, line: str, commits: tuple[str, ...] = (), branch: str | None = None) -> dict:

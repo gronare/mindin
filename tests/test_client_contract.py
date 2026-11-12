@@ -251,7 +251,7 @@ def test_the_terminal_renders_what_the_vault_holds(
     ]
     assert printed == [text + "\n" for text in expected]
     assert printed[0].startswith("4 notes · ")
-    assert printed[2].startswith("15 findings in 9 kinds")
+    assert printed[2].startswith("20 findings in 10 kinds")
     assert "1 commit since the note" in printed[3]
 
 

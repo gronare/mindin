@@ -4,7 +4,7 @@ A vault stays useful when finished work leaves the active set, deferred work is 
 
 - `close` sets a note's status to `complete` (or `superseded`, with `superseded_by`, when `merged_into` is given) and moves it into the archive.
 - `set_status` changes the status without rewriting the note: `backlog` with a priority parks it, `active` picks it up again.
-- `backlog_add` files a task note with `status: backlog`, an area, a one-line summary, an optional priority and an optional source (who said it and when, or a sha). `backlog` lists them by priority then age. Lint leaves backlog notes alone however old they get.
+- `backlog_add` files a task note with `status: backlog`, an area, an optional priority and an optional source (who said it and when, or a sha). Given one `line`, it files a draft: the task template's headings, a mark under the first saying the note is to be written out, and the line under Source. Given `sections`, it files the template written out, refused while a required section is empty. The note passes the same checks as `write_file`, the content guard among them. `backlog` lists them by priority then age. Lint leaves backlog notes alone however old they get.
 - `log_append` writes one dated line to the repo log with the commits the session produced, and creates the log when it is missing. The [stop hook](../reference/hooks.md#stop) checks these shas.
 
 ## Stale notes

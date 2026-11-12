@@ -53,6 +53,7 @@ LINT_KINDS = {
     "archive_status_mismatch": ("open in the archive", "archived but not marked complete or superseded"),
     "superseded_target_missing": ("missing successors", "superseded by a note that does not exist"),
     "duplicate_stems": ("duplicate names", "two notes share a file name"),
+    "off_template": ("off template", "an open note lacks its kind's template headings, rewrite it to them"),
     "parked": ("parked", "moved to the backlog by --park-stale"),
 }
 ENTRY_RE = re.compile(r"^(?P<head>.+?)(?P<sep>: | -> )(?P<rest>.*)$")

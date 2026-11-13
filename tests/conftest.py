@@ -27,6 +27,7 @@ STORAGE_VARS = (
     "S3_REGION",
     "VAULT_SERVER_URL",
 )
+AMBIENT_PREFIXES = ("VAULT_", "CLAUDE_PLUGIN_OPTION_")
 
 
 def _substitute(text: str) -> str:
@@ -39,6 +40,9 @@ def _substitute(text: str) -> str:
 
 @pytest.fixture(autouse=True)
 def away_from_the_users_own_config(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in list(os.environ):
+        if name.startswith(AMBIENT_PREFIXES):
+            monkeypatch.delenv(name)
     home = tmp_path_factory.mktemp("home")
     (home / ".claude").mkdir()
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / ".claude"))
@@ -46,8 +50,7 @@ def away_from_the_users_own_config(tmp_path_factory: pytest.TempPathFactory, mon
     monkeypatch.setenv("VAULT_CACHE_DIR", str(home / ".cache"))
     monkeypatch.setenv("XDG_STATE_HOME", str(home / ".local" / "state"))
     monkeypatch.setenv("VAULT_SIGNALS", "off")
-    for name in ("VAULT_SERVER_URL", "CLAUDE_PLUGIN_OPTION_VAULT_SIGNALS", "CLAUDE_PLUGIN_ROOT"):
-        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_ROOT", raising=False)
 
 
 @pytest.fixture(autouse=True)

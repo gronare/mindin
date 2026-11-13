@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mindin import note_templates, notes
+from mindin import backlog, context, note_templates, notes
 from mindin.backends import MUST_NOT_EXIST, VersionConflict
 from mindin.frontmatter import CLAIM_KEY, claim_fields, dump, parse
 from mindin.git import current_branch, in_main_checkout, main_checkout, repo_name
@@ -35,7 +35,7 @@ def located(cwd: str, system: list[dict]) -> Place:
 
 
 def system_notes(vault: Vault, cwd: str) -> list[dict]:
-    return notes.context(vault, path=str(in_main_checkout(cwd)), repo=repo_name(cwd)).as_dict()["system"]
+    return context.context(vault, path=str(in_main_checkout(cwd)), repo=repo_name(cwd)).as_dict()["system"]
 
 
 def place(vault: Vault, cwd: str) -> Place:
@@ -51,11 +51,11 @@ def home_relative(path: Path) -> str:
 
 
 def task_stem(repo: str, name: str) -> str:
-    family = notes.slugify(repo)
-    slug = notes.slugify(name)
+    family = backlog.slugify(repo)
+    slug = backlog.slugify(name)
     if not slug:
         return family
-    return slug if slug == family or slug.startswith(f"{family}-") else notes.slugify(f"{repo} {name}")
+    return slug if slug == family or slug.startswith(f"{family}-") else backlog.slugify(f"{repo} {name}")
 
 
 def free_key(taken_keys: list[str], folder: str, stem: str) -> str:
@@ -125,7 +125,7 @@ def task_key(schema: Schema, path: str) -> str:
 
 def picked_up(key: str, text: str, cwd: str) -> dict:
     frontmatter, _ = parse(text)
-    area = notes._area_stem(str(frontmatter.get("area") or "")) or None
+    area = backlog.area_stem(str(frontmatter.get("area") or "")) or None
     return {"path": key, "created": False, "repo": repo_name(cwd), "area": area}
 
 

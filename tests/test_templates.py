@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from mcp.client import Client
 
-from mindin import note_templates, notes, provision, tasks
+from mindin import backlog, lint, note_templates, notes, provision, tasks
 from mindin.backends.local import LocalBackend
 from mindin.cli import main
 from mindin.client import written
@@ -207,7 +207,7 @@ def test_a_stored_note_with_broken_frontmatter_can_be_rewritten(vault: Vault, tm
 
 
 def test_a_draft_picked_up_is_held_to_its_template(vault: Vault, tmp_path: Path):
-    key = notes.backlog_add(vault, "Prune", "orchard", "The beds need light.")
+    key = backlog.backlog_add(vault, "Prune", "orchard", "The beds need light.")
     notes.set_status(vault, key, "active")
     with pytest.raises(notes.ValidationError, match="missing headings: ## Background"):
         notes.write(vault, key, TASK.format(status="active", body="Cut the branches.\n"))
@@ -237,7 +237,7 @@ def test_lint_lists_open_notes_that_do_not_follow_their_template(vault: Vault, t
     notes.write(vault, "Projects/a.md", TASK.format(status="active", body=WRITTEN_TASK))
     notes.write(vault, "Projects/later.md", TASK.format(status="backlog", body="One line.\n"))
     vault.index.sync(force=True)
-    assert notes.lint(vault).as_dict()["off_template"] == [
+    assert lint.lint(vault).as_dict()["off_template"] == [
         "Areas/old.md: does not follow the system template: missing headings: ## What it does, "
         "## The objects that hold the truth, ## Flows, ## Limits, ## Exceptions, ## Traps, ## Left, ## History"
     ]
@@ -256,14 +256,14 @@ def test_a_kindless_note_in_a_templated_folder_is_written_with_a_warning_and_lin
     assert written(answer)["etag"] == lines[1].removeprefix("etag: ")
     assert notes.write(vault, "pears.md", kindless).count("\n") == 1
     vault.index.sync(force=True)
-    assert notes.lint(vault).as_dict()["off_template"] == [
+    assert lint.lint(vault).as_dict()["off_template"] == [
         "Areas/orchard.md: does not follow the system template: missing headings: ## What it does, "
         "## The objects that hold the truth, ## Flows, ## Limits, ## Exceptions, ## Traps, ## Left, ## History"
     ]
 
 
 def test_backlog_add_with_a_line_files_a_draft_of_the_template(vault: Vault, tmp_path: Path):
-    key = notes.backlog_add(vault, "Prune", "orchard", "The beds need light.", priority="low", source="a walk")
+    key = backlog.backlog_add(vault, "Prune", "orchard", "The beds need light.", priority="low", source="a walk")
     frontmatter, body = stored(tmp_path, key)
     assert frontmatter["status"] == "backlog" and frontmatter["summary"] == "The beds need light."
     assert body == (
@@ -274,7 +274,7 @@ def test_backlog_add_with_a_line_files_a_draft_of_the_template(vault: Vault, tmp
 
 def test_backlog_add_with_sections_writes_them_in_template_order(vault: Vault, tmp_path: Path):
     sections = {"source": "A walk.", "goal": "Light on the beds.\nBy May.", "background": "Shade.", "scope": "Pears."}
-    key = notes.backlog_add(vault, "Prune", "orchard", sections=sections)
+    key = backlog.backlog_add(vault, "Prune", "orchard", sections=sections)
     frontmatter, body = stored(tmp_path, key)
     assert frontmatter["status"] == "backlog" and frontmatter["summary"] == "Light on the beds."
     assert body == (
@@ -285,18 +285,18 @@ def test_backlog_add_with_sections_writes_them_in_template_order(vault: Vault, t
 
 def test_backlog_add_refuses_sections_that_miss_the_template(vault: Vault):
     with pytest.raises(ValueError, match=r"needs text in goal \(## Goal\), source \(## Source\)"):
-        notes.backlog_add(vault, "Prune", "orchard", sections={"background": "Shade."})
+        backlog.backlog_add(vault, "Prune", "orchard", sections={"background": "Shade."})
     with pytest.raises(ValueError, match="unknown section why; the task template has background, goal"):
-        notes.backlog_add(vault, "Prune", "orchard", sections={"why": "Shade."})
+        backlog.backlog_add(vault, "Prune", "orchard", sections={"why": "Shade."})
     with pytest.raises(ValueError, match="needs line"):
-        notes.backlog_add(vault, "Prune", "orchard")
+        backlog.backlog_add(vault, "Prune", "orchard")
 
 
 def test_backlog_add_runs_the_guard_write_file_runs(tmp_path: Path):
     guarded = opened(tmp_path, "bundle:\n  guard:\n    secrets: true\n")
     try:
         with pytest.raises(notes.ValidationError, match="an AWS access key"):
-            notes.backlog_add(guarded, "Rotate", "orchard", f"The key {AWS_KEY} leaked.")
+            backlog.backlog_add(guarded, "Rotate", "orchard", f"The key {AWS_KEY} leaked.")
         assert not list((tmp_path / "vault" / "Projects").glob("*.md"))
     finally:
         guarded.close()
@@ -381,6 +381,6 @@ def test_a_vault_holding_its_layouts_shipped_task_sections_takes_the_task_templa
 
 
 def test_task_check_counts_the_backlog_draft_mark_as_empty(vault: Vault, tmp_path: Path):
-    key = notes.backlog_add(vault, "Prune", "orchard", "The beds need light.", priority="low", source="a walk")
+    key = backlog.backlog_add(vault, "Prune", "orchard", "The beds need light.", priority="low", source="a walk")
     text = (tmp_path / "vault" / key).read_text(encoding="utf-8")
     assert tasks.missing_in(vault.schema, text, ["background", "goal", "source"]) == ["background", "goal"]

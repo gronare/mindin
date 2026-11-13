@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 
 from mindin.bundle import bundle_of
+from mindin.context import RepoPage, path_overlap
 from mindin.index import Note
-from mindin.notes import RepoPage, path_overlap
 from mindin.vault import Vault
 
 PAGES_SHOWN = 5

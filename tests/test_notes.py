@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from template_support import filled
 
-from mindin import notes
+from mindin import changelog, context, notes
 from mindin.backends import NotFound, VersionConflict
 from mindin.frontmatter import FrontmatterError, parse
 from mindin.vault import Vault
@@ -195,13 +195,13 @@ def test_log_append_wraps_a_bare_area_stem_in_a_wikilink(vault: Vault):
 
 
 def test_context_returns_the_system_note_in_full(vault: Vault):
-    bundle = notes.context(vault, path=ORCHARD, repo="orchard")
+    bundle = context.context(vault, path=ORCHARD, repo="orchard")
     assert [note.key for note, _ in bundle.system] == ["Areas/orchard.md"]
     assert "Kontrollplanet som styr kärnan" in bundle.system[0][1]
 
 
 def test_context_lists_only_open_tasks_for_the_repo(vault: Vault):
-    bundle = notes.context(vault, path=ORCHARD, repo="orchard")
+    bundle = context.context(vault, path=ORCHARD, repo="orchard")
     assert {note.key for note in bundle.tasks} == {
         "Projects/orchard-fresh.md",
         "Projects/orchard-draft.md",
@@ -209,7 +209,7 @@ def test_context_lists_only_open_tasks_for_the_repo(vault: Vault):
 
 
 def test_context_lists_a_stale_task_under_triage_with_the_three_ways_to_settle_it(vault: Vault):
-    text = notes.context(vault, path=str(Path("~/workshop").expanduser()), repo="workshop").render()
+    text = context.context(vault, path=str(Path("~/workshop").expanduser()), repo="workshop").render()
     assert "## triage — 1 open notes older than 30 days" in text
     assert "Projects/workshop-stale.md" in text.split("## triage")[1]
     assert "Projects/workshop-stale.md" not in text.split("## triage")[0]
@@ -223,7 +223,7 @@ def test_set_status_parks_and_revives_a_note(vault: Vault, vault_dir: Path):
     frontmatter, _ = parse((vault_dir / "Projects/workshop-stale.md").read_text(encoding="utf-8"))
     assert frontmatter["status"] == "backlog" and frontmatter["priority"] == "low" and frontmatter["source"] == "triage"
     assert str(frontmatter["updated"]) == notes.today()
-    assert notes.context(vault, repo="workshop").render().count("Projects/workshop-stale.md") == 1
+    assert context.context(vault, repo="workshop").render().count("Projects/workshop-stale.md") == 1
     notes.set_status(vault, "Projects/workshop-stale.md", "active")
     assert vault.index.note("Projects/workshop-stale.md").status == "active"
 
@@ -243,23 +243,23 @@ def test_park_stale_moves_only_the_old_open_notes_to_the_backlog(vault: Vault):
 
 
 def test_context_includes_the_reference_notes(vault: Vault):
-    bundle = notes.context(vault, path=ORCHARD, repo="orchard")
+    bundle = context.context(vault, path=ORCHARD, repo="orchard")
     assert "Resources/booking-trap.md" in {note.key for note in bundle.references}
 
 
 def test_context_ends_with_the_log_tail(vault: Vault):
-    text = notes.context(vault, path=ORCHARD, repo="orchard").render()
+    text = context.context(vault, path=ORCHARD, repo="orchard").render()
     assert "## log — orchard" in text
     assert "Release-grinden mäter A/B" in text
 
 
 def test_the_log_tail_holds_log_lines_only(vault: Vault):
-    tail = notes.context(vault, path=ORCHARD, repo="orchard").log_tail
+    tail = context.context(vault, path=ORCHARD, repo="orchard").log_tail
     assert tail and all(line.startswith("- [") for line in tail), tail
 
 
 def test_context_says_so_when_nothing_matches(vault: Vault):
-    assert notes.context(vault, path="/opt/annat", repo="annat").render() == "No vault context for this path or repo."
+    assert context.context(vault, path="/opt/annat", repo="annat").render() == "No vault context for this path or repo."
 
 
 def test_the_log_never_shares_a_stem_with_the_hub_note(vault: Vault):
@@ -273,7 +273,7 @@ def test_the_log_filename_follows_the_schema_setting(vault: Vault):
     vault.schema.data["log"] = {**vault.schema.data["log"], "file_format": "logg-{repo}.md"}
     notes.log_append(vault, "frame", "rad")
     assert vault.backend.get("Log/logg-frame.md")[0].startswith("---")
-    assert notes.log_lines(vault, "frame", date.today().isoformat()[:7])
+    assert changelog.log_lines(vault, "frame", date.today().isoformat()[:7])
 
 
 def test_context_puts_the_hub_note_before_a_draft_with_the_same_path(vault: Vault):
@@ -283,7 +283,7 @@ def test_context_puts_the_hub_note_before_a_draft_with_the_same_path(vault: Vaul
         "---\ntitle: Avtal utkast\ndate: 2026-07-01\nupdated: 2026-07-01\ntags: [orchard]\nstatus: draft\n"
         "kind: system\npath: ~/projects/orchard\n---\n\nEtt utkast.\n",
     )
-    bundle = notes.context(vault, path=ORCHARD, repo="orchard")
+    bundle = context.context(vault, path=ORCHARD, repo="orchard")
     assert [note.key for note, _ in bundle.system][0] == "Areas/orchard.md"
 
 
@@ -300,12 +300,12 @@ def test_context_reads_a_deeper_system_note_in_full_and_lists_root_level_ones_as
         "---\ntitle: Personuppgifter\ndate: 2026-07-01\nupdated: 2026-07-01\ntags: [orchard]\nstatus: active\n"
         "kind: system\npath: ~/projects/orchard\n---\n\n" + filled(vault.schema, "system"),
     )
-    at_root = notes.context(vault, path=ORCHARD, repo="orchard")
+    at_root = context.context(vault, path=ORCHARD, repo="orchard")
     assert [note.key for note, _ in at_root.system] == ["Areas/orchard.md"]
     assert {note.key for note in at_root.system_rows} >= {
         "Areas/orchard-bokning.md",
         "Areas/orchard-personuppgifter.md",
     }
-    deep = notes.context(vault, path=f"{ORCHARD}/app/models/bookings", repo="orchard")
+    deep = context.context(vault, path=f"{ORCHARD}/app/models/bookings", repo="orchard")
     assert [note.key for note, _ in deep.system] == ["Areas/orchard.md", "Areas/orchard-bokning.md"]
     assert "## other system notes" in at_root.render()

@@ -14,7 +14,7 @@ from typing import Any, Protocol, TypeVar
 import anyio
 from anyio.from_thread import BlockingPortal, start_blocking_portal
 
-from mindin import changelog, credentials, feed, notes, tasks, views
+from mindin import backlog, changelog, context, credentials, feed, lint, notes, tasks, views
 from mindin.config import ConfigError, cache_dir, vault_id
 from mindin.frontmatter import dump, parse
 from mindin.git import current_branch, in_main_checkout, main_checkout, repo_name, repo_root
@@ -66,7 +66,7 @@ class VaultClient(Protocol):
     def asked_prompts(self) -> AskedPrompts: ...
     def changelog(self, repo: str, period: str, repo_path: Path | None, write: bool) -> str: ...
     def write_changelogs(self, period: str | None) -> list[str]: ...
-    def lint(self, write: str | None, park: bool) -> tuple[str, notes.Findings]: ...
+    def lint(self, write: str | None, park: bool) -> tuple[str, lint.Findings]: ...
     def stale_after_days(self) -> int: ...
     def schema(self) -> Schema: ...
     def backlog_view(self, area: str | None, priority: str | None) -> dict | None: ...
@@ -123,7 +123,7 @@ class LocalClient:
         return vault
 
     def context(self, cwd: str) -> dict:
-        return notes.context(self.synced(), **where(cwd)).as_dict()
+        return context.context(self.synced(), **where(cwd)).as_dict()
 
     def context_view(self, cwd: str) -> dict | None:
         return views.context_bundle(self.synced(), **where(cwd)).view()
@@ -171,10 +171,10 @@ class LocalClient:
     def write_changelogs(self, period: str | None) -> list[str]:
         return changelog.write_all(self.synced(), periods=[period] if period else None)
 
-    def lint(self, write: str | None, park: bool) -> tuple[str, notes.Findings]:
+    def lint(self, write: str | None, park: bool) -> tuple[str, lint.Findings]:
         self.vault.index.sync(force=True)
         self._synced = True
-        findings = notes.lint_findings(self.vault, write=write, park=park)
+        findings = lint.lint_findings(self.vault, write=write, park=park)
         return findings.render(), findings
 
     def stale_after_days(self) -> int:
@@ -188,7 +188,7 @@ class LocalClient:
 
     def backlog_text(self, area: str | None, priority: str | None) -> str:
         vault = self.synced()
-        return notes.render_backlog(notes.backlog(vault, area=area, priority=priority), vault)
+        return backlog.render_backlog(backlog.backlog(vault, area=area, priority=priority), vault)
 
     def search_view(self, query: str, limit: int | None) -> dict | None:
         vault = self.synced()
@@ -391,9 +391,9 @@ class RemoteClient:
         periods = [period] if period else changelog.periods_due(date.today())
         return self.write_pages(self.state.live_repos(), periods)
 
-    def lint(self, write: str | None, park: bool) -> tuple[str, notes.Findings]:
+    def lint(self, write: str | None, park: bool) -> tuple[str, lint.Findings]:
         text = self.tool_text("lint_and_park", write=write, park=park) if write or park else self.tool_text("lint")
-        return text, notes.Findings.parse(text)
+        return text, lint.Findings.parse(text)
 
     def stale_after_days(self) -> int:
         return self.schema().stale_after_days

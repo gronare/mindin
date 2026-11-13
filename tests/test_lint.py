@@ -4,7 +4,7 @@ from pathlib import Path
 
 from mindin.cli import main
 from mindin.frontmatter import parse
-from mindin.notes import lint, lint_note_text
+from mindin.lint import lint, lint_note_text
 from mindin.vault import Vault
 
 

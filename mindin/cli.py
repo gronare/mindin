@@ -29,6 +29,7 @@ from mindin.extensions import installed
 from mindin.frontmatter import parse
 from mindin.hosted import cli as hosted_cli
 from mindin.hosted.config import auth_config
+from mindin.lint import Findings
 from mindin.places import adopt_config
 from mindin.presets import CUSTOM_PRESET, PERSONAL_LAYOUTS, PRESETS, STARTING_POINTS
 from mindin.schema import CLAIM_KEY, Schema, capabilities, schema_from_text, template_line
@@ -145,7 +146,7 @@ def command_changelog(args: argparse.Namespace) -> int:
     return 0
 
 
-def lint_text(findings: notes.Findings, kind: str | None, term: Terminal, stale_after_days: int) -> str:
+def lint_text(findings: Findings, kind: str | None, term: Terminal, stale_after_days: int) -> str:
     if not term.pretty:
         return (findings.only(kind) if kind else findings).render()
     if kind:

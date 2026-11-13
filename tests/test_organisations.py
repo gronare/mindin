@@ -15,6 +15,7 @@ from mindin import provision
 from mindin.backends import SCHEMA_KEY
 from mindin.backends.local import LocalBackend
 from mindin.cli import main
+from mindin.context import ORGANISATION_PAGE_RULE
 from mindin.extensions import Extension
 from mindin.hosted.accounts import store as hosted_store
 from mindin.hosted.accounts.access import SupportAccess
@@ -24,7 +25,6 @@ from mindin.hosted.accounts.store import HostedStore, MembershipError
 from mindin.hosted.orgs import organisations as hosted_orgs
 from mindin.hosted.orgs.organisations import OrganisationError, Organisations, OrgDomain, clean_domain
 from mindin.hosted.signin.identities import Identities, Proof
-from mindin.notes import ORGANISATION_PAGE_RULE
 from mindin.presets import preset_data
 from mindin.schema import Schema
 from mindin.shared import Actor, SharedBackend, SharedRefusal, SharedRules, acting_as

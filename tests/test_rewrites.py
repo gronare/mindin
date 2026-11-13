@@ -9,7 +9,7 @@ from typing import Any
 import httpx2 as httpx
 import pytest
 
-from mindin import notes, provision
+from mindin import backlog, notes, provision
 from mindin.backends import VersionConflict
 from mindin.backends.local import LocalBackend
 from mindin.frontmatter import parse
@@ -137,11 +137,11 @@ def test_two_backlog_ideas_with_one_title_get_two_notes(vault: Vault, other: Vau
     def listing_then_meddle() -> list:
         listed = real_list()
         if not taken:
-            taken.append(notes.backlog_add(other, "Graft pears", "orchard", "from the other server"))
+            taken.append(backlog.backlog_add(other, "Graft pears", "orchard", "from the other server"))
         return listed
 
     vault.backend.list = listing_then_meddle
-    mine = notes.backlog_add(vault, "Graft pears", "orchard", "from this server")
+    mine = backlog.backlog_add(vault, "Graft pears", "orchard", "from this server")
     assert taken[0] != mine and mine.startswith(folder)
     assert "from the other server" in body(other, taken[0]) and "from this server" in body(other, mine)
 

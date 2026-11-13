@@ -11,7 +11,7 @@ from pathlib import Path
 from mindin import credentials
 from mindin.client import CHANGELOG_META, AskedPrompts, VaultClient, open_client
 from mindin.git import git, main_checkout, repo_name, repo_root
-from mindin.notes import vault_paths_in
+from mindin.index import expand_home
 
 SHA_PREFIX_LENGTH = 7
 VAULT_HINT = (
@@ -340,3 +340,20 @@ def verdict(target: StopTarget, commits: list[tuple[str, str]], stale: list[str]
     if prompts:
         asked.remember(session, prompts[-1])
     return Behind(commits=[sha for sha, _ in commits], stale=blocking, prompts=len(prompts))
+
+
+def _resolved(path: Path) -> Path:
+    try:
+        return path.resolve()
+    except OSError:
+        return path
+
+
+def vault_paths_in(paths: list[str], root: Path) -> list[str]:
+    target = _resolved(root)
+    inside = []
+    for raw in paths:
+        candidate = _resolved(Path(expand_home(raw)))
+        if candidate == target or target in candidate.parents:
+            inside.append(str(candidate))
+    return inside

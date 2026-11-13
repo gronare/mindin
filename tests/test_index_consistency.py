@@ -7,7 +7,7 @@ import pytest
 from mcp.client import Client
 from test_notes import VALID, body_of
 
-from mindin import notes
+from mindin import backlog, notes
 from mindin.backends import NotFound
 from mindin.index import Index
 from mindin.server import build_server
@@ -45,7 +45,7 @@ def test_set_status_updates_the_index_without_a_sync(vault: Vault, no_sync):
 
 
 def test_backlog_add_and_log_append_update_the_index_without_a_sync(vault: Vault, no_sync):
-    key = notes.backlog_add(vault, "Idé", "orchard", "En rad", priority="low")
+    key = backlog.backlog_add(vault, "Idé", "orchard", "En rad", priority="low")
     assert vault.index.note(key).status == "backlog"
     notes.log_append(vault, "orchard", "Rad", commits=("abc1234",))
     assert "abc1234" in [row["sha"] for row in vault.index.db.execute("SELECT sha FROM shas")]
@@ -125,7 +125,7 @@ def test_close_of_an_archived_note_keeps_its_key(vault: Vault):
 
 
 def test_backlog_add_with_a_non_latin_title_gets_a_usable_key(vault: Vault):
-    key = notes.backlog_add(vault, "日本語のタイトル", "orchard", "En rad")
+    key = backlog.backlog_add(vault, "日本語のタイトル", "orchard", "En rad")
     assert not key.endswith("-.md")
 
 

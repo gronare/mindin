@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from test_notes import body_of
 
-from mindin import notes
+from mindin import context, lint, notes
 from mindin.frontmatter import FrontmatterError, dump, parse, tags_of
 from mindin.index import note_from_text
 from mindin.search import QueryError, search, terms_of
@@ -60,7 +60,7 @@ def test_a_scalar_tags_value_is_a_lint_finding(vault: Vault, vault_dir):
         HEAD.replace("tags: [orchard]", "tags: 5") + "---\nbody\n", encoding="utf-8"
     )
     vault.index.sync(force=True)
-    assert "Areas/odd.md: tags must be a list, not int" in notes.lint(vault).groups["invalid_field"]
+    assert "Areas/odd.md: tags must be a list, not int" in lint.lint(vault).groups["invalid_field"]
 
 
 def test_a_note_that_cannot_be_read_into_a_row_is_indexed_as_invalid_and_the_sync_goes_on(
@@ -247,6 +247,6 @@ def test_a_huge_note_indexes_and_reads_truncated_in_context(vault: Vault, vault_
         f"{HEAD}kind: system\npath: ~/projects/big\n---\n\n{body}", encoding="utf-8"
     )
     vault.index.sync(force=True)
-    rendered = notes.context(vault, path=str(vault_dir.home() / "projects" / "big")).render()
-    assert notes.TRUNCATED_MARKER in rendered
-    assert len(rendered) < notes.CONTEXT_TRUNCATE + 2000
+    rendered = context.context(vault, path=str(vault_dir.home() / "projects" / "big")).render()
+    assert context.TRUNCATED_MARKER in rendered
+    assert len(rendered) < context.CONTEXT_TRUNCATE + 2000

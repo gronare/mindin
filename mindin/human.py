@@ -7,7 +7,7 @@ from datetime import date
 
 from mindin.frontmatter import FrontmatterError, parse
 from mindin.hooks import Commit
-from mindin.notes import Findings
+from mindin.lint import Findings
 from mindin.search import DAY_SECONDS, parse_date, partial_hint, translate_hint
 from mindin.terminal import (
     Terminal,

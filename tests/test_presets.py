@@ -6,7 +6,7 @@ import pytest
 import yaml
 from mcp.client import Client
 
-from mindin import notes, provision
+from mindin import backlog, context, lint, notes, provision
 from mindin.backends import SCHEMA_KEY
 from mindin.backends.local import LocalBackend
 from mindin.presets import PRESETS, preset_data
@@ -72,26 +72,26 @@ def test_the_tools_work_on_every_preset(tmp_path: Path, preset: str):
     assert [row.note.key for row in search(vault.index, schema, "grafting").rows] == [key]
 
     if preset in WITH_TASKS:
-        filed = notes.backlog_add(vault, "Try cleft grafts", "demo", "Next spring", priority="low")
+        filed = backlog.backlog_add(vault, "Try cleft grafts", "demo", "Next spring", priority="low")
         assert filed.startswith(f"{schema.backlog_folder}/")
-        assert [note.key for note in notes.backlog(vault)] == [filed]
+        assert [note.key for note in backlog.backlog(vault)] == [filed]
     else:
         with pytest.raises(NoHome, match=f"layout \\({preset}\\) has no task folder"):
-            notes.backlog_add(vault, "Try cleft grafts", "demo", "Next spring")
-        assert "has no task folder" in notes.render_backlog(notes.backlog(vault), vault)
+            backlog.backlog_add(vault, "Try cleft grafts", "demo", "Next spring")
+        assert "has no task folder" in backlog.render_backlog(backlog.backlog(vault), vault)
 
     if preset in WITH_LOG:
         logged = notes.log_append(vault, "demo", "grafted two pears", commits=("abc1234",))
         assert f"{schema.log_folder}/demo-log.md" in logged
-        assert any("grafted two pears" in line for line in notes.context(vault, repo="demo").log_tail)
+        assert any("grafted two pears" in line for line in context.context(vault, repo="demo").log_tail)
     else:
         with pytest.raises(NoHome, match="has no log folder"):
             notes.log_append(vault, "demo", "grafted two pears")
-        assert notes.context(vault, repo="demo").log_tail == []
+        assert context.context(vault, repo="demo").log_tail == []
 
-    bundle = notes.context(vault, repo="demo")
+    bundle = context.context(vault, repo="demo")
     assert "schema" not in bundle.render()
-    findings = notes.lint(vault).as_dict()
+    findings = lint.lint(vault).as_dict()
     assert not {"schema", "broken_frontmatter", "missing_area"} & set(findings), findings
 
     closed = notes.close(vault, key)
@@ -102,7 +102,7 @@ def test_the_tools_work_on_every_preset(tmp_path: Path, preset: str):
 @pytest.mark.parametrize("preset", list(PRESETS))
 def test_a_fresh_vault_of_every_preset_lints_clean(tmp_path: Path, preset: str):
     vault = open_preset(tmp_path, preset)
-    assert notes.lint(vault).as_dict() == {}
+    assert lint.lint(vault).as_dict() == {}
     vault.close()
 
 
@@ -114,14 +114,14 @@ def test_simple_keeps_notes_in_the_root_typed_by_category(tmp_path: Path):
     assert [row.note.key for row in search(vault.index, vault.schema, "repot").rows] == ["Fig repotting.md"]
     assert vault.schema.folder_of("Fig repotting.md") == ""
     assert "- the root — Most notes" in instructions(vault.schema)
-    assert set(notes.lint(vault).as_dict()) <= {"orphans"}
-    filed = notes.backlog_add(vault, "Fig", "garden", "Repot it in spring", priority="low")
+    assert set(lint.lint(vault).as_dict()) <= {"orphans"}
+    filed = backlog.backlog_add(vault, "Fig", "garden", "Repot it in spring", priority="low")
     assert filed == "Projects/garden-fig.md"
-    assert [note.key for note in notes.backlog(vault)] == [filed]
+    assert [note.key for note in backlog.backlog(vault)] == [filed]
     with pytest.raises(NoHome, match="layout \\(simple\\) has no log folder"):
         notes.log_append(vault, "garden", "repotted")
     assert notes.close(vault, filed) == filed
-    assert "done_not_closed" not in notes.lint(vault).as_dict()
+    assert "done_not_closed" not in lint.lint(vault).as_dict()
     vault.close()
 
 
@@ -130,7 +130,7 @@ def test_journal_files_days_by_year_and_work_beside_them(tmp_path: Path):
     day = "---\ntags: [daily]\nkind: day\n---\n\nPruned the pear.\n"
     notes.write(vault, "Daily/2026/2026-11-01.md", day)
     assert vault.schema.folder_of("Daily/2026/2026-11-01.md") == "Daily"
-    filed = notes.backlog_add(vault, "Graft the pear", "orchard", "In spring")
+    filed = backlog.backlog_add(vault, "Graft the pear", "orchard", "In spring")
     assert filed == "Projects/orchard-graft-the-pear.md"
     assert "Logs/orchard-log.md" in notes.log_append(vault, "orchard", "pruned")
     assert notes.close(vault, filed) == "Archive/orchard-graft-the-pear.md"
@@ -154,10 +154,10 @@ def test_a_vault_on_a_preset_this_version_does_not_ship_is_read_as_written(
     assert vault.schema.problems == ()
     assert vault.schema.notices == (unknown_preset("lyt"),)
     assert set(vault.schema.folders) == {"Efforts/On", "Calendar/Logs", "Efforts/Sleeping"}
-    assert notes.backlog_add(vault, "Prune", "orchard", "Soon").startswith("Efforts/On/")
+    assert backlog.backlog_add(vault, "Prune", "orchard", "Soon").startswith("Efforts/On/")
     assert "Calendar/Logs/orchard-log.md" in notes.log_append(vault, "orchard", "pruned")
-    assert "preset 'lyt' is not one this version ships" in notes.context(vault, repo="orchard").render()
-    assert "schema" in notes.lint(vault).as_dict()
+    assert "preset 'lyt' is not one this version ships" in context.context(vault, repo="orchard").render()
+    assert "schema" in lint.lint(vault).as_dict()
     assert provision.current_preset(backend) == "custom"
     for force in (False, True):
         result = provision.initialize(backend, force=force)
@@ -176,7 +176,7 @@ def test_a_closed_note_in_a_layout_without_an_archive_stays_put_and_lint_accepts
     vault = open_preset(tmp_path, "custom")
     notes.write(vault, "Notes/kept.md", NOTE)
     assert notes.close(vault, "Notes/kept.md") == "Notes/kept.md"
-    assert "done_not_closed" not in notes.lint(vault).as_dict()
+    assert "done_not_closed" not in lint.lint(vault).as_dict()
     vault.close()
 
 
@@ -230,9 +230,9 @@ def test_a_broken_schema_is_named_with_its_line_and_the_vault_runs_on_its_preset
     vault.reload_schema()
     assert vault.schema.preset == "simple"
     assert vault.schema.problems and vault.schema.problems[0].startswith("line ")
-    rendered = notes.context(vault, repo="demo").render()
+    rendered = context.context(vault, repo="demo").render()
     assert rendered.startswith(f"## schema\n{SCHEMA_KEY} does not hold, so the vault runs on the simple layout")
-    assert "schema" in notes.lint(vault).as_dict()
+    assert "schema" in lint.lint(vault).as_dict()
     vault.close()
 
 
@@ -289,9 +289,9 @@ def test_a_custom_layout_built_from_empty_gets_every_tool(tmp_path: Path):
     )
     vault.reload_schema()
     assert vault.schema.problems == ()
-    assert notes.backlog_add(vault, "Fence", "demo", "Mend it").startswith("Work/")
+    assert backlog.backlog_add(vault, "Fence", "demo", "Mend it").startswith("Work/")
     assert "Work/Logs/demo-log.md" in notes.log_append(vault, "demo", "mended")
-    assert [note.key for note in notes.backlog(vault)] == ["Work/demo-fence.md"]
+    assert [note.key for note in backlog.backlog(vault)] == ["Work/demo-fence.md"]
     vault.close()
 
 

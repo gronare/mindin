@@ -12,7 +12,7 @@ from remote_support import Served, serve
 from test_cli_hooks import feed, head_sha, make_repo, prompts, transcript_of
 from test_cli_output import in_a_terminal
 
-from mindin import credentials, hooks, human, notes, provision, views
+from mindin import context, credentials, hooks, human, lint, provision, views
 from mindin.backends.local import LocalBackend
 from mindin.cli import main
 from mindin.client import where
@@ -99,7 +99,7 @@ def reference(folder: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 
 
 def expected_session_start(vault: Vault, repo: Path) -> str:
-    return hooks.render_session_start(notes.context(vault, **where(str(repo))).as_dict(), str(repo)) + "\n"
+    return hooks.render_session_start(context.context(vault, **where(str(repo))).as_dict(), str(repo)) + "\n"
 
 
 def run_out(capsys: pytest.CaptureFixture, *argv: str) -> str:
@@ -186,7 +186,7 @@ def test_the_weekly_lint_writes_and_parks_as_the_vault_does(
     place: Place, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
 ):
     copy = shutil.copytree(place.folder, tmp_path / "before-lint")
-    expected = notes.lint_findings(reference(copy, monkeypatch, tmp_path), write="Log/lint.md", park=True).render()
+    expected = lint.lint_findings(reference(copy, monkeypatch, tmp_path), write="Log/lint.md", park=True).render()
     assert main(["lint", "--write", "Log/lint.md", "--park-stale"]) == 0
     captured = capsys.readouterr()
     assert (captured.out, captured.err) == (expected + "\n", "wrote Log/lint.md\n")
@@ -235,7 +235,7 @@ def test_the_terminal_renders_what_the_vault_holds(
     expected = [
         human.render_search(views.view(vault, "search", query="kärnan"), term),
         human.render_backlog(views.view(vault, "backlog"), term, paths=True),
-        human.render_lint(notes.lint_findings(vault), term, vault.schema.stale_after_days),
+        human.render_lint(lint.lint_findings(vault), term, vault.schema.stale_after_days),
         human.render_context(found, hooks.note_commits(str(repo), found["system"]), term),
     ]
     printed = [

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from template_support import filled
 
-from mindin import notes, tasks
+from mindin import context, notes, tasks
 from mindin.backends import VersionConflict
 from mindin.cli import main
 from mindin.frontmatter import parse, validate
@@ -178,7 +178,7 @@ def test_the_index_carries_the_claim_and_context_shows_it(vault: Vault):
     tasks.claim_note(vault, NOTE, "devbox", "search", repo="orchard")
     stored = json.loads(vault.index.note(NOTE).claim)
     assert (stored["machine"], stored["task"], stored["repo"]) == ("devbox", "search", "orchard")
-    rendered = notes.context(vault, repo="orchard").render()
+    rendered = context.context(vault, repo="orchard").render()
     assert f"worked on at devbox · search since {stored['since'][:10]}" in rendered
     tasks.release_note(vault, NOTE)
     assert vault.index.note(NOTE).claim == ""

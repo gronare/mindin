@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mindin import notes
+from mindin import backlog, context, lint
 from mindin.cli import main
 from mindin.vault import Vault
 
@@ -22,8 +22,8 @@ def days_ago(days: int) -> str:
 
 
 def with_backlog(vault: Vault) -> None:
-    notes.backlog_add(vault, "Graft the pear rootstock", "orchard", "Before the sap rises", priority="high")
-    notes.backlog_add(vault, "Sharpen the lathe chisels", "workshop", "They tear the grain", priority="low")
+    backlog.backlog_add(vault, "Graft the pear rootstock", "orchard", "Before the sap rises", priority="high")
+    backlog.backlog_add(vault, "Sharpen the lathe chisels", "workshop", "They tear the grain", priority="low")
 
 
 SEARCH_KARNAN = (
@@ -212,7 +212,7 @@ def test_backlog_in_a_terminal_has_one_row_per_item(vault: Vault, monkeypatch, c
 
 def test_a_long_backlog_is_grouped_and_stops_at_twenty(vault: Vault, monkeypatch, capsys):
     for number in range(25):
-        notes.backlog_add(
+        backlog.backlog_add(
             vault, f"Prune row {number:02}", "orchard", "Winter work", priority=("high", "low")[number % 2]
         )
     in_a_terminal(monkeypatch)
@@ -290,15 +290,15 @@ def test_every_finding_kind_the_linter_writes_has_a_name_and_an_explanation():
 
     from mindin.human import LINT_KINDS, lint_kind_named
 
-    written = set(re.findall(r'findings\.add\(\s*"(\w+)"', inspect.getsource(notes)))
+    written = set(re.findall(r'findings\.add\(\s*"(\w+)"', inspect.getsource(lint)))
     assert written and written <= set(LINT_KINDS)
     assert all(name and explanation for name, explanation in LINT_KINDS.values())
     assert all(lint_kind_named(kind) == kind for kind in LINT_KINDS)
 
 
 def test_the_findings_read_back_from_their_report(vault: Vault):
-    findings = notes.lint(vault)
-    assert notes.Findings.parse(findings.render()).as_dict() == findings.as_dict()
+    findings = lint.lint(vault)
+    assert lint.Findings.parse(findings.render()).as_dict() == findings.as_dict()
 
 
 ORCHARD_HOOK = """## system notes
@@ -350,7 +350,7 @@ def test_the_session_start_log_tail_holds_log_lines_only(vault: Vault, monkeypat
     repo = orchard_repo(tmp_path)
     feed(monkeypatch, {"cwd": str(repo)})
     assert run(capsys, "hook", "session-start") == ORCHARD_HOOK.format(d5=days_ago(5))
-    assert notes.context(vault, repo="orchard").log_tail == [
+    assert context.context(vault, repo="orchard").log_tail == [
         "- [2026-08-01] Bokningswidget bakom flagga | commits: a1b2c3d | [[orchard]]",
         "- [2026-08-15] Release-grinden mäter A/B | commits: e4f5a6b | [[orchard]]",
     ]

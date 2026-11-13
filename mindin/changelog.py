@@ -8,7 +8,7 @@ from pathlib import Path
 from mindin.frontmatter import dump, parse
 from mindin.git import git, is_checkout, repo_name
 from mindin.index import Note, stem_of
-from mindin.notes import changelog_notes, log_lines, note_key, rewrite, stamp
+from mindin.notes import fetch, note_key, rewrite, stamp
 from mindin.vault import Vault
 
 GENERATED_START = "<!-- changelog:generated -->"
@@ -171,3 +171,15 @@ def write_all(vault: Vault, periods: list[str] | None = None, repos: list[tuple[
             if write_page(vault, repo, period, path):
                 written.append(vault.schema.period_key(repo, period))
     return written
+
+
+def changelog_notes(vault: Vault, period: str) -> list[Note]:
+    return [note for note in vault.index.all_notes() if note.date.startswith(period)]
+
+
+def log_lines(vault: Vault, repo: str, period: str) -> list[str]:
+    try:
+        text, _ = fetch(vault, note_key(vault.schema.log_key(repo)))
+    except Exception:
+        return []
+    return [line for line in text.splitlines() if line.lstrip().startswith(f"- [{period}")]

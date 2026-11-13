@@ -11,7 +11,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import Tool as MCPTool
 
-from mindin import changelog, feed, note_templates, notes, provision, repo_pages, tasks, views
+from mindin import backlog, changelog, context, feed, lint, note_templates, notes, provision, repo_pages, tasks, views
 from mindin.backends import VaultError
 from mindin.dav import DavCredentials
 from mindin.frontmatter import FrontmatterError
@@ -323,7 +323,7 @@ def build_server(
         return run(
             lambda vault: (
                 "Filed: "
-                + notes.backlog_add(vault, title, area, line, priority=priority, source=source, sections=sections)
+                + backlog.backlog_add(vault, title, area, line, priority=priority, source=source, sections=sections)
             ),
             write=True,
             expected=(*EXPECTED_FAILURES, ValueError),
@@ -339,7 +339,7 @@ def build_server(
     )
     def backlog_tool(area: str | None = None, priority: str | None = None, limit: int = 50) -> str:
         return run(
-            lambda vault: notes.render_backlog(notes.backlog(vault, area=area, priority=priority)[:limit], vault),
+            lambda vault: backlog.render_backlog(backlog.backlog(vault, area=area, priority=priority)[:limit], vault),
             shared_refuses="backlog",
         )
 
@@ -387,8 +387,8 @@ def build_server(
         return run(answer)
 
     def organisation_pages(
-        current: Vault, bundle: notes.ContextBundle, path: str | None, repo: str | None, remote: str | None
-    ) -> list[notes.RepoPage]:
+        current: Vault, bundle: context.ContextBundle, path: str | None, repo: str | None, remote: str | None
+    ) -> list[context.RepoPage]:
         if not (path or repo):
             return []
         areas = {note.stem for note, _ in bundle.system} | {note.stem for note in bundle.system_rows}
@@ -415,7 +415,7 @@ def build_server(
         )
         def lint_and_park_tool(write: str | None = None, park: bool = False) -> str:
             return run(
-                lambda vault: notes.lint_and_park(vault, write=write, park=park),
+                lambda vault: lint.lint_and_park(vault, write=write, park=park),
                 force=True,
                 write=True,
                 shared_refuses="lint_and_park",
@@ -603,7 +603,7 @@ def build_server(
         ),
     )
     def lint_tool() -> str:
-        return run(lambda vault: notes.lint(vault).render(), force=True)
+        return run(lambda vault: lint.lint(vault).render(), force=True)
 
     @server.tool(
         name="init",
@@ -649,7 +649,7 @@ def reach_section(reached: list[Reachable]) -> str:
         searched = "searched with the main vault" if item.searched else "searched only when named"
         lines.append(f"- `{item.slug}` ({where}): {searched}")
     if any(item.organisation for item in reached):
-        lines.append(notes.ORGANISATION_PAGE_RULE)
+        lines.append(context.ORGANISATION_PAGE_RULE)
     return "\n".join(lines)
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from mindin import notes
+from mindin import backlog, context
 from mindin.search import SearchResult, search
 from mindin.vault import Vault
 
@@ -11,8 +11,8 @@ COMMANDS = ("search", "backlog", "context")
 
 def context_bundle(
     vault: Vault, path: str | None = None, repo: str | None = None, query: str | None = None, limit: int = 10
-) -> notes.ContextBundle:
-    bundle = notes.context(vault, path=path, repo=repo, query=query, limit=limit)
+) -> context.ContextBundle:
+    bundle = context.context(vault, path=path, repo=repo, query=query, limit=limit)
     if vault.rules is not None:
         bundle.notices.append(vault.rules.context_line)
         bundle.shared = True
@@ -32,7 +32,7 @@ def search_view(result: SearchResult) -> dict:
         "languages": list(result.languages),
         "vaults": list(result.vaults),
         "rows": [
-            notes.note_fields(row.note, now)
+            context.note_fields(row.note, now)
             | {"snippet": row.snippet, "section": row.section, "by_meaning": row.by_meaning, "vault": row.vault}
             for row in result.rows
         ],
@@ -41,10 +41,10 @@ def search_view(result: SearchResult) -> dict:
 
 def backlog_view(vault: Vault, area: str | None = None, priority: str | None = None) -> dict:
     now = time.time()
-    rows = notes.backlog(vault, area=area, priority=priority)
+    rows = backlog.backlog(vault, area=area, priority=priority)
     return {
-        "rows": [notes.note_fields(note, now) for note in rows],
-        "empty": "" if rows else notes.render_backlog([], vault),
+        "rows": [context.note_fields(note, now) for note in rows],
+        "empty": "" if rows else backlog.render_backlog([], vault),
     }
 
 

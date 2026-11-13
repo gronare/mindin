@@ -111,7 +111,7 @@ def _clean(raw: str) -> str | None:
         return key
     segments = key.split("/")
     body = segments[:-1] if key.endswith("/") else segments
-    if any(segment in ("", ".", "..") or "\\" in segment for segment in body):
+    if "\x00" in key or any(segment in ("", ".", "..") or "\\" in segment for segment in body):
         return None
     return key
 

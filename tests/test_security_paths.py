@@ -245,7 +245,7 @@ def test_one_subjects_backend_cannot_reach_another_subjects_notes(storage: Path)
 
 @pytest.mark.parametrize(
     "raw",
-    ["/../x", "/a/../x", "/%2e%2e/x", "/a/./x", "/a//x", "/a\\b", "/..%2fx", "/a/%2e/x"],
+    ["/../x", "/a/../x", "/%2e%2e/x", "/a/./x", "/a//x", "/a\\b", "/..%2fx", "/a/%2e/x", "/a%00.md", "/a/b%00/"],
 )
 def test_dav_refuses_every_shape_of_a_climbing_or_odd_path(raw: str):
     assert _clean(raw) is None

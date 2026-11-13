@@ -30,6 +30,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - Sync logs each note it could not fetch, and fetches it again on the next sync.
 - `search` and `backlog` with a negative `limit` answer no notes instead of all but the last few.
 - A search setting that would break search is reported and falls back to its default, and the vault keeps its layout.
+- WebDAV refuses a path with a NUL character.
 
 ## 0.17.0
 

@@ -17,11 +17,13 @@ from hosted_support import (
     pkce_pair,
     post_mcp,
     query,
+    running_a_loop,
     text_of,
     vault_choice_of,
 )
 
 from mindin.hosted.accounts.store import UNUSED_CLIENT_TTL
+from mindin.hosted.app import HostedProvider, Verdict
 from mindin.vault import SubjectVaults
 
 MCP_CIMD = "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration"
@@ -451,6 +453,39 @@ async def test_a_write_key_writes(site: Hosted):
     async with http:
         written = await call_tool(http, key, "write_file", {"path": "Areas/a.md", "content": NOTE_BODY})
     assert not written.get("isError"), text_of(written)
+
+
+@pytest.mark.anyio
+async def test_a_request_is_authenticated_off_the_event_loop(site: Hosted, monkeypatch: pytest.MonkeyPatch):
+    http = await site.member("ann@example.com")
+    key = site.key_for("ann@example.com")
+    on_the_loop: list[bool] = []
+    checked = HostedProvider.authenticate
+
+    def authenticate(self: HostedProvider, token: str, slug: str | None) -> Verdict:
+        on_the_loop.append(running_a_loop())
+        return checked(self, token, slug)
+
+    monkeypatch.setattr(HostedProvider, "authenticate", authenticate)
+    async with http:
+        listing = await call_tool(http, key, "list_files", {})
+    assert not listing.get("isError"), text_of(listing)
+    assert on_the_loop and not any(on_the_loop)
+
+
+@pytest.mark.anyio
+async def test_an_access_token_is_loaded_off_the_event_loop(site: Hosted, monkeypatch: pytest.MonkeyPatch):
+    on_the_loop: list[bool] = []
+    checked = HostedProvider.authenticate
+
+    def authenticate(self: HostedProvider, token: str, slug: str | None) -> Verdict:
+        on_the_loop.append(running_a_loop())
+        return checked(self, token, slug)
+
+    monkeypatch.setattr(HostedProvider, "authenticate", authenticate)
+    provider = HostedProvider(site.config, site.store, fetcher=None)  # type: ignore[arg-type]
+    assert await provider.load_access_token("an unknown token") is None
+    assert on_the_loop == [False]
 
 
 @pytest.mark.anyio

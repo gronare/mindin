@@ -285,8 +285,11 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
         )
 
     async def load_access_token(self, token: str) -> AccessToken | None:
-        row = self.store.load_token(token, "access")
-        return self.authenticate(token, self.resource_target(row["resource"])[1] if row else None).access
+        def verdict() -> Verdict:
+            row = self.store.load_token(token, "access")
+            return self.authenticate(token, self.resource_target(row["resource"])[1] if row else None)
+
+        return (await anyio.to_thread.run_sync(verdict)).access
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         self.store.revoke_grant(token.token)
@@ -416,7 +419,10 @@ class HostedGuard:
             await self.app(scope, receive, send)
             return
         token = bearer(scope)
-        verdict = self.provider.authenticate(token, found.slug) if token else self.through_proxy(scope, found)
+        if token:
+            verdict = await anyio.to_thread.run_sync(self.provider.authenticate, token, found.slug)
+        else:
+            verdict = await anyio.to_thread.run_sync(self.through_proxy, scope, found)
         if verdict.access is None:
             await self.refuse(send, verdict, found)
             return

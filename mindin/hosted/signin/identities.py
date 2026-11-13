@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import threading
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -67,11 +68,19 @@ def addresses(emails: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(email for email in cleaned if "@" in email))
 
 
+SIGNING_IN = threading.Lock()
+
+
 class Identities:
     def __init__(self, store: HostedStore) -> None:
         self.store = store
 
     def sign_in(self, proof: Proof, registration: Registration) -> Outcome:
+        # Sign-ins run on the event loop and in worker threads: two first ones of an identity must not both register it.
+        with SIGNING_IN:
+            return self._sign_in(proof, registration)
+
+    def _sign_in(self, proof: Proof, registration: Registration) -> Outcome:
         emails = addresses(proof.emails)
         with self.store.connect() as connection:
             row = connection.execute(

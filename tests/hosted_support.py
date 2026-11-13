@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -342,3 +343,11 @@ async def call_tool(
 
 def text_of(result: dict[str, Any]) -> str:
     return "".join(block.get("text", "") for block in result.get("content", []))
+
+
+def running_a_loop() -> bool:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True

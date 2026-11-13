@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import httpx2
 import pytest
 from forwarded_support import ISSUER, TYP, Proxy
-from hosted_support import BASE, INITIALIZE, Hosted, csrf_of, hosted, query
+from hosted_support import BASE, INITIALIZE, Hosted, csrf_of, hosted, query, running_a_loop
 from login_support import Authenticator, branded, hrefs
 
 from mindin.hosted.accounts.store import HostedStore, now
+from mindin.hosted.app import HostedGuard
 from mindin.hosted.config import ForwardedConfig
 from mindin.hosted.schema import STEPS, to_opened_tables
 from mindin.hosted.signin.identities import Identities, Proof
@@ -453,6 +457,48 @@ async def test_a_forwarded_identity_names_one_of_its_vaults_with_the_vault_param
         unknown = await http.post("/mcp?vault=nowhere", headers=headers, content=json.dumps(INITIALIZE))
     assert named.status_code == 200, named.text
     assert unknown.status_code == 403 and unknown.json()["error"] == "wrong_vault"
+
+
+@pytest.mark.anyio
+async def test_a_forwarded_identity_is_checked_off_the_event_loop(
+    vaults: SubjectVaults, tmp_path: Path, proxy: Proxy, monkeypatch: pytest.MonkeyPatch
+):
+    on_the_loop: list[bool] = []
+    checked = HostedGuard.through_proxy
+
+    def through_proxy(self: HostedGuard, scope: Any, found: Any) -> Any:
+        on_the_loop.append(running_a_loop())
+        return checked(self, scope, found)
+
+    monkeypatch.setattr(HostedGuard, "through_proxy", through_proxy)
+    async with hosted(vaults, tmp_path, forwarded=forwarded(proxy)) as site, site.browser() as http:
+        site.invite("user1042@example.com")
+        headers = {"X-Forwarded-Identity": proxy.token("1042"), **mcp_headers()}
+        started = await http.post("/mcp", headers=headers, content=json.dumps(INITIALIZE))
+    assert started.status_code == 200, started.text
+    assert on_the_loop and not any(on_the_loop)
+
+
+@pytest.mark.anyio
+async def test_two_first_requests_of_one_forwarded_identity_register_it_once(
+    vaults: SubjectVaults, tmp_path: Path, proxy: Proxy, monkeypatch: pytest.MonkeyPatch
+):
+    found = Identities._by_email
+
+    def slowly(self: Identities, connection: Any, emails: tuple[str, ...]) -> Any:
+        time.sleep(0.3)
+        return found(self, connection, emails)
+
+    monkeypatch.setattr(Identities, "_by_email", slowly)
+    async with hosted(vaults, tmp_path, forwarded=forwarded(proxy)) as site, site.browser() as http:
+        site.invite("user1042@example.com")
+        headers = {"X-Forwarded-Identity": proxy.token("1042"), **mcp_headers()}
+        first, second = await asyncio.gather(
+            http.post("/mcp", headers=headers, content=json.dumps(INITIALIZE)),
+            http.post("/mcp", headers=headers, content=json.dumps(INITIALIZE)),
+        )
+        assert (first.status_code, second.status_code) == (200, 200), (first.text, second.text)
+        assert ways(site, "user1042@example.com") == [("forwarded", "user1042@example.com")]
 
 
 @pytest.mark.anyio

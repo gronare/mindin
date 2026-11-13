@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from mindin.backends import MUST_NOT_EXIST, LimitReached, VaultBackend, VersionConflict, make_subject_backend
+from mindin.backends import MUST_NOT_EXIST, LimitReached, VaultBackend, VersionConflict
+from mindin.backends.factory import make_subject_backend
 from mindin.backends.s3 import S3Backend
 from mindin.changes import Change, ChangeBus, Kind, Listener
 from mindin.cli import main as cli_main

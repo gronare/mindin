@@ -12,7 +12,8 @@ from typing import Any, Literal, Protocol
 import yaml
 
 from mindin import provision
-from mindin.backends import VaultBackend, VaultError, make_backend, make_subject_backend
+from mindin.backends import VaultBackend, VaultError
+from mindin.backends.factory import make_backend, make_subject_backend
 from mindin.changes import NULL_BUS, Announcing, Change, ChangeBus, Kind, Publisher, forget_listing
 from mindin.config import cache_dir, env
 from mindin.embedding import Embedder, configured_embedder

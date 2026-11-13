@@ -187,7 +187,7 @@ def test_local_delete_removes_an_empty_directory_and_refuses_a_full_one(vault_di
 
 
 def test_make_subject_backend_nests_the_subject_under_the_prefix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    from mindin.backends import make_subject_backend
+    from mindin.backends.factory import make_subject_backend
 
     monkeypatch.setenv("VAULT_PATH", str(tmp_path))
     for name in ("S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_BUCKET"):
@@ -200,7 +200,7 @@ def test_make_subject_backend_nests_the_subject_under_the_prefix(tmp_path: Path,
 
 
 def test_make_subject_backend_extends_the_s3_prefix(monkeypatch: pytest.MonkeyPatch):
-    from mindin.backends import make_subject_backend
+    from mindin.backends.factory import make_subject_backend
 
     monkeypatch.delenv("VAULT_PATH", raising=False)
     monkeypatch.setenv("S3_ENDPOINT", ENDPOINT)

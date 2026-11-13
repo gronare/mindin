@@ -11,7 +11,8 @@ from moto import mock_aws
 from test_notes import VALID
 
 from mindin import notes
-from mindin.backends import NotFound, VaultError, make_subject_backend
+from mindin.backends import NotFound, VaultError
+from mindin.backends.factory import make_subject_backend
 from mindin.backends.local import LocalBackend
 from mindin.backends.s3 import S3Backend
 from mindin.dav import _clean

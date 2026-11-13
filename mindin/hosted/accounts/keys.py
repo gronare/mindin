@@ -15,7 +15,8 @@ from typing import cast
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from mindin.backends import Entry, VaultBackend, VaultError, is_vault_key, make_subject_backend
+from mindin.backends import Entry, VaultBackend, VaultError, is_vault_key
+from mindin.backends.factory import make_subject_backend
 from mindin.backends.local import LocalBackend
 from mindin.backends.sealed import DATA_KEY_BYTES, NONCE_BYTES, SealedBackend, Storage, new_data_key
 from mindin.config import ConfigError, env

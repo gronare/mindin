@@ -25,7 +25,7 @@ from hosted_support import (
 from test_hosted_app import authorize, consent, register
 from test_signin_device import decide, poll, start
 
-from mindin.backends import make_subject_backend
+from mindin.backends.factory import make_subject_backend
 from mindin.backends.local import LocalBackend
 from mindin.backends.sealed import SealedBackend, Unreadable, new_data_key
 from mindin.cli import main

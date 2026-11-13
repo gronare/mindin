@@ -20,7 +20,7 @@ from mindin.config import ConfigError, cache_dir, vault_id
 from mindin.frontmatter import dump, parse
 from mindin.git import current_branch, in_main_checkout, main_checkout, repo_name, repo_root
 from mindin.remote import Remote, RemoteError, connect, refused, signed_in_key
-from mindin.schema import NoHome, Schema
+from mindin.schema import MAX_ROWS, NoHome, Schema
 from mindin.search import render, search
 from mindin.snapshot import build_snapshot
 from mindin.vault import Vault, Vectoring, open_vault
@@ -28,7 +28,6 @@ from mindin.vault import Vault, Vectoring, open_vault
 T = TypeVar("T")
 CHANGELOG_META = "changelog_ran_on"
 ASKED_LIMIT = 200
-REMOTE_BACKLOG_LIMIT = 10000
 FIRST_PAUSE = 1.0
 LONGEST_PAUSE = 60.0
 Emit = Callable[[dict], None]
@@ -408,7 +407,7 @@ class RemoteClient:
         return self.view("backlog", area=area, priority=priority)
 
     def backlog_text(self, area: str | None, priority: str | None) -> str:
-        return self.tool_text("backlog", area=area, priority=priority, limit=REMOTE_BACKLOG_LIMIT)
+        return self.tool_text("backlog", area=area, priority=priority, limit=MAX_ROWS)
 
     def search_view(self, query: str, limit: int | None) -> dict | None:
         return self.view("search", query=query, limit=limit)

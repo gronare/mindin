@@ -18,7 +18,7 @@ from mindin.frontmatter import FrontmatterError
 from mindin.hosted.config import MACHINE_KEY_PURPOSE, WRITE_SCOPE
 from mindin.hosted.scopes import ScopeError, require_write
 from mindin.presets import PERSONAL_LAYOUTS
-from mindin.schema import CLAIM_KEY, NoHome, instructions, shared_instructions
+from mindin.schema import CLAIM_KEY, NoHome, bounded, instructions, shared_instructions
 from mindin.search import QueryError, Searched, SearchResult, across, render, search
 from mindin.snapshot import build_snapshot
 from mindin.vault import (
@@ -166,7 +166,7 @@ def build_server(
             vault.sync()
             if alone:
                 return search(vault.index, vault.schema, query, limit=limit, **filters)
-            wanted = vault.schema.default_limit if limit is None else limit
+            wanted = bounded(limit, vault.schema.default_limit)
         return across([searched_in(item, query, wanted, filters) for item in chosen], wanted)
 
     def searched_in(item: Reachable, query: str, limit: int, filters: dict[str, Any]) -> Searched:
@@ -338,10 +338,15 @@ def build_server(
         ),
     )
     def backlog_tool(area: str | None = None, priority: str | None = None, limit: int = 50) -> str:
-        return run(
-            lambda vault: backlog.render_backlog(backlog.backlog(vault, area=area, priority=priority)[:limit], vault),
-            shared_refuses="backlog",
-        )
+        def answer(vault: Vault) -> str:
+            rows = backlog.backlog(vault, area=area, priority=priority)
+            shown = rows[: bounded(limit, 50)]
+            if len(shown) == len(rows):
+                return backlog.render_backlog(rows, vault)
+            listed = backlog.render_backlog(shown, vault).split("\n", 1)[1:] if shown else []
+            return "\n".join([f"{len(rows)} backlog items, the first {len(shown)} shown", *listed])
+
+        return run(answer, shared_refuses="backlog")
 
     @server.tool(
         name="log_append",
@@ -380,7 +385,7 @@ def build_server(
         remote: str | None = None,
     ) -> str:
         def answer(vault: Vault) -> str:
-            bundle = views.context_bundle(vault, path=path, repo=repo, query=query, limit=limit)
+            bundle = views.context_bundle(vault, path=path, repo=repo, query=query, limit=bounded(limit, 10))
             bundle.organisation_pages = organisation_pages(vault, bundle, path, repo, remote)
             return json.dumps(bundle.as_dict(), ensure_ascii=False) if format == "json" else bundle.render()
 

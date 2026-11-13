@@ -591,6 +591,17 @@ async def test_a_member_neither_moves_nor_deletes_the_vaults_layout_over_webdav(
     assert schema.status_code == 200 and b"preset: shared" in schema.content
 
 
+def test_a_shared_vault_refuses_a_schema_whose_search_setting_would_be_replaced(tmp_path: Path):
+    inner = LocalBackend(tmp_path / "vault")
+    provision.initialize(inner, preset="shared")
+    admin = Actor("ada@acme.test", "acc_ada", "laptop")
+    backend = SharedBackend(inner, SharedRules("Wiki"), NoHistory(), edits_layout=lambda actor: actor == admin)
+    _, version = inner.get(SCHEMA_KEY)
+    with acting_as(admin), pytest.raises(SharedRefusal, match="search.default_limit is not a whole number"):
+        backend.put(SCHEMA_KEY, "preset: shared\nsearch:\n  default_limit: -1\n")
+    assert inner.get(SCHEMA_KEY)[1] == version
+
+
 def test_only_a_layout_editor_deletes_moves_or_makes_folders_under_the_vaults_layout(tmp_path: Path):
     inner = LocalBackend(tmp_path / "vault")
     provision.initialize(inner, preset="shared")
@@ -922,6 +933,19 @@ async def test_a_connection_searches_and_lists_the_organisation_vault_and_not_a_
     assert ORGANISATION_PAGE_RULE in text_of(bundle)
     assert "wiki | Resources/klarna.md | Klarna" in text_of(found) and "side |" not in text_of(found), text_of(found)
     assert "side | Resources/klarna.md | Klarna on the side" in text_of(named), text_of(named)
+
+
+@pytest.mark.anyio
+async def test_a_search_across_vaults_with_a_negative_limit_answers_no_rows(site: Hosted):
+    ada, bea = await company(site)
+    async with ada, bea:
+        for name in ("Klarna", "Klarna payouts", "Klarna fees"):
+            page = wiki_page(name, "acme/payments")
+            path = f"Resources/{name.lower().replace(' ', '-')}.md"
+            assert not (await write(ada, key(site, "ada@acme.test"), path, page)).get("isError")
+        spanning = cli_key(site, "bea@acme.test", spans=True)
+        found = await call_tool(bea, spanning, "search", {"query": "klarna", "limit": -1})
+    assert "Resources/klarna" not in text_of(found), text_of(found)
 
 
 @pytest.mark.anyio

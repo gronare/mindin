@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from mindin.index import Index, Note
-from mindin.schema import Schema
+from mindin.schema import Schema, bounded
 from mindin.stemming import algorithms_of, stemmed
 
 log = logging.getLogger(__name__)
@@ -382,7 +382,7 @@ def search(
         result.best_terms = max(row.terms for row in visible)
     result.total = len(visible)
     result.by_meaning = sum(row.by_meaning for row in visible)
-    result.rows = visible[: schema.default_limit if limit is None else limit]
+    result.rows = visible[: bounded(limit, schema.default_limit)]
     return result
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from functools import cached_property
@@ -17,6 +18,62 @@ CLAIM_STALE_DAYS = 14
 DEFAULT_LOG_ENTRY_FORMAT = "- [{date}] {line} | branch: {branch} | commits: {commits} | {area}"
 FOLDER_KINDS = ("system", "reference", "task", "log", "archive")
 PRESET_LINE = re.compile(r"^preset:[ \t]*['\"]?([\w-]+)", re.MULTILINE)
+
+
+MAX_ROWS = 1000
+
+
+SEARCH_DEFAULTS: dict[str, float] = {
+    "default_limit": 15,
+    "title_weight": 10.0,
+    "summary_weight": 5.0,
+    "tags_weight": 3.0,
+    "body_weight": 1.0,
+    "stem_weight": 20.0,
+    "stemmed_weight": 0.5,
+    "recency_half_life_days": 90.0,
+}
+BM25_FIELDS = ("title", "summary", "tags", "body", "stem", "stemmed")
+
+
+def bounded(limit: int | None, default: int) -> int:
+    return max(0, min(default if limit is None else int(limit), MAX_ROWS))
+
+
+def _finite(value: float) -> bool:
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def search_value_problem(key: str, value: Any) -> str | None:
+    if value is None:
+        return None
+    if not _number(value) or not _finite(value):
+        return "is not a finite number"
+    if key == "default_limit" and (value != int(value) or value < 1):
+        return "is not a whole number of 1 or more"
+    if key.endswith("_weight") and value < 0:
+        return "is below 0"
+    if key == "recency_half_life_days" and value <= 0:
+        return "is not above 0"
+    return None
+
+
+# A schema problem swaps the whole layout for the base preset, so bad search values are notices with a fallback.
+def settled_search(merged: dict[str, Any], base: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    search = merged.get("search") if isinstance(merged.get("search"), dict) else {}
+    preset = base.get("search") if isinstance(base.get("search"), dict) else {}
+    kept, notices = dict(search), []
+    for key, value in search.items():
+        problem = search_value_problem(key, value) if key in SEARCH_DEFAULTS else None
+        if problem is None:
+            continue
+        own = preset.get(key)
+        kept[key] = SEARCH_DEFAULTS[key] if own is None or search_value_problem(key, own) else own
+        notices.append(f"search.{key} {problem}, so search uses {kept[key]:g} instead")
+    return ({**merged, "search": kept} if notices else merged), notices
 
 
 class NoHome(Exception):
@@ -265,25 +322,21 @@ class Schema:
     def _search(self) -> dict[str, Any]:
         return self.data.get("search") or {}
 
+    def _search_value(self, key: str) -> float:
+        value = self._search().get(key)
+        return SEARCH_DEFAULTS[key] if value is None or search_value_problem(key, value) else float(value)
+
     @property
     def default_limit(self) -> int:
-        return int(self._search().get("default_limit", 15))
+        return min(int(self._search_value("default_limit")), MAX_ROWS)
 
     @property
     def recency_half_life_days(self) -> float:
-        return float(self._search().get("recency_half_life_days", 90))
+        return self._search_value("recency_half_life_days")
 
     @property
     def bm25_weights(self) -> tuple[float, float, float, float, float, float]:
-        search = self._search()
-        return (
-            float(search.get("title_weight", 10.0)),
-            float(search.get("summary_weight", 5.0)),
-            float(search.get("tags_weight", 3.0)),
-            float(search.get("body_weight", 1.0)),
-            float(search.get("stem_weight", 20.0)),
-            float(search.get("stemmed_weight", 0.5)),
-        )
+        return tuple(self._search_value(f"{field}_weight") for field in BM25_FIELDS)  # type: ignore[return-value]
 
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -595,7 +648,10 @@ def schema_from_text(text: str) -> Schema:
         return Schema(base, tuple(problems), notices)
     merged = settled_templates(deep_merge(base, override), override)
     found = schema_problems(merged)
-    return Schema(base, tuple(found), notices) if found else Schema(merged, (), notices)
+    if found:
+        return Schema(base, tuple(found), notices)
+    settled, replaced = settled_search(merged, base)
+    return Schema(settled, (), (*notices, *replaced))
 
 
 def unknown_preset(name: str) -> str:

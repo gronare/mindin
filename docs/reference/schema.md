@@ -103,10 +103,10 @@ In a shared vault, the schema and its bundle are changed by the vault's owner or
 | `tags.strict` | `false` | `true` refuses a write with a tag outside the vocabulary, and `lint` reports such tags. |
 | `synonyms` | `[]` | Groups of words search treats as one, such as `[[bokning, booking]]`. |
 | `stale_after_days` | `30` | When an open task note counts as stale. |
-| `search.default_limit` | `15` | How many notes `search` returns when the call names no `limit`. |
-| `search.recency_half_life_days` | `90` | How fast an old note's rank decays. |
-| `search.title_weight`, `summary_weight`, `tags_weight`, `body_weight`, `stem_weight` | `10.0`, `5.0`, `3.0`, `1.0`, `20.0` | How much a match in the title, summary, tags, body and file name weighs. |
-| `search.stemmed_weight` | `0.5` | How much a match on a word's stem alone weighs, so the exact form ranks first. |
+| `search.default_limit` | `15` | How many notes `search` returns when the call names no `limit`: a whole number, 1 or more; above 1000 answers 1000. Any other value is reported by `lint` and `schema check`, and search uses the layout's own value. A call's own `limit` is held to 0–1000. |
+| `search.recency_half_life_days` | `90` | How fast an old note's rank decays: a number above 0. Any other value is reported, and search uses the layout's own value. |
+| `search.title_weight`, `summary_weight`, `tags_weight`, `body_weight`, `stem_weight` | `10.0`, `5.0`, `3.0`, `1.0`, `20.0` | How much a match in the title, summary, tags, body and file name weighs: a finite number, 0 or more. Any other value is reported, and search uses the layout's own value. |
+| `search.stemmed_weight` | `0.5` | How much a match on a word's stem alone weighs, so the exact form ranks first: a finite number, 0 or more. Any other value is reported, and search uses the layout's own value. |
 
 ## Repo log
 

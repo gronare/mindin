@@ -5,8 +5,11 @@ from pathlib import Path
 import pytest
 from mcp.client import Client
 
+from mindin.schema import schema_from_text
 from mindin.server import build_server
 from mindin.vault import Vault
+
+ORCHARD = str(Path("~/projects/orchard").expanduser())
 
 TOOL_NAMES = {
     "search",
@@ -78,6 +81,56 @@ async def test_search_without_a_limit_takes_the_schemas_default_limit(vault: Vau
 
 
 @pytest.mark.anyio
+async def test_a_negative_limit_answers_the_count_and_no_rows_from_the_end(vault: Vault):
+    async with Client(build_server(vault)) as client:
+        searched = await text_of(client, "search", {"query": "orchard", "limit": -2})
+        for title in ("First idea", "Second idea"):
+            await text_of(client, "backlog_add", {"title": title, "area": "orchard", "line": "later"})
+        listed = await text_of(client, "backlog", {"limit": -1})
+        one = await text_of(client, "backlog", {"limit": 1})
+        huge = await text_of(client, "backlog", {"limit": 10**12})
+        bundle = await text_of(client, "context", {"path": ORCHARD, "repo": "orchard", "limit": -1})
+    assert searched.startswith("0 of 5 ")
+    assert "## open tasks" not in bundle and "## system notes" in bundle
+    assert listed == "2 backlog items, the first 0 shown"
+    assert one.splitlines()[0] == "2 backlog items, the first 1 shown" and len(one.splitlines()) == 2
+    assert huge.splitlines()[0] == "2 backlog items"
+
+
+@pytest.mark.parametrize(
+    ("line", "notice", "limit", "title_weight"),
+    [
+        ("default_limit: -1", "search.default_limit is not a whole number of 1 or more, so search uses 15", 15, 10.0),
+        ("default_limit: 2.5", "search.default_limit is not a whole number of 1 or more, so search uses 15", 15, 10.0),
+        ("recency_half_life_days: 0", "search.recency_half_life_days is not above 0, so search uses 90", 15, 10.0),
+        ("title_weight: .inf", "search.title_weight is not a finite number, so search uses 10", 15, 10.0),
+        (f"title_weight: {10**400}", "search.title_weight is not a finite number, so search uses 10", 15, 10.0),
+        (f"default_limit: {10**400}", "search.default_limit is not a finite number, so search uses 15", 15, 10.0),
+        ("title_weight: -1", "search.title_weight is below 0, so search uses 10", 15, 10.0),
+    ],
+)
+def test_a_search_setting_that_would_break_search_falls_back_and_keeps_the_layout(
+    line: str, notice: str, limit: int, title_weight: float
+):
+    schema = schema_from_text(f"preset: para\nsearch:\n  {line}\n")
+    assert schema.problems == ()
+    assert any(found.startswith(notice) for found in schema.notices), schema.notices
+    assert schema.preset == "para"
+    assert schema.default_limit == limit and schema.bm25_weights[0] == title_weight
+    assert schema.recency_half_life_days > 0
+
+
+def test_a_default_limit_above_the_cap_answers_the_cap():
+    schema = schema_from_text("search:\n  default_limit: 100000000\n")
+    assert schema.problems == () and schema.notices == () and schema.default_limit == 1000
+
+
+def test_a_whole_number_written_as_a_float_is_a_valid_default_limit():
+    schema = schema_from_text("search:\n  default_limit: 20.0\n")
+    assert schema.notices == () and schema.default_limit == 20
+
+
+@pytest.mark.anyio
 async def test_write_then_read_round_trips(vault: Vault):
     content = (
         "---\ntitle: Via MCP\ndate: 2026-08-01\nupdated: 2026-08-01\n"
@@ -136,3 +189,9 @@ async def test_init_keeps_what_exists_and_writes_the_rest(vault: Vault):
 async def test_the_server_introduces_itself_as_mindin(vault: Vault):
     async with Client(build_server(vault)) as client:
         assert client.server_info.name == "mindin"
+
+
+def test_a_bad_search_setting_falls_back_to_the_layouts_own_value():
+    schema = schema_from_text("preset: wiki\nsearch:\n  recency_half_life_days: 0\n")
+    assert schema.problems == () and schema.recency_half_life_days == 180
+    assert schema.notices == ("search.recency_half_life_days is not above 0, so search uses 180 instead",)

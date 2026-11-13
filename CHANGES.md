@@ -28,6 +28,8 @@ What each mindin release brings, one line per change, as you would tell someone 
 - Session start names a note it could not read instead of leaving it out without a word.
 - The stop hook stays quiet during a storage outage instead of asking to log every commit.
 - Sync logs each note it could not fetch, and fetches it again on the next sync.
+- `search` and `backlog` with a negative `limit` answer no notes instead of all but the last few.
+- A search setting that would break search is reported and falls back to its default, and the vault keeps its layout.
 
 ## 0.17.0
 

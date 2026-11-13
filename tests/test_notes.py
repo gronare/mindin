@@ -258,6 +258,51 @@ def test_the_log_tail_holds_log_lines_only(vault: Vault):
     assert tail and all(line.startswith("- [") for line in tail), tail
 
 
+def failing_reads_of(vault: Vault, key: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    stored = vault.backend.get
+
+    def get(wanted: str) -> tuple[str, str]:
+        if wanted == key:
+            raise OSError("storage is down")
+        return stored(wanted)
+
+    monkeypatch.setattr(vault.backend, "get", get)
+
+
+@pytest.mark.parametrize("key", ["Log/orchard-log.md", "Areas/orchard.md"])
+def test_context_names_a_note_it_could_not_read_and_gives_the_rest(
+    vault: Vault, key: str, monkeypatch: pytest.MonkeyPatch
+):
+    whole = context.context(vault, path=ORCHARD, repo="orchard")
+    failing_reads_of(vault, key, monkeypatch)
+    bundle = context.context(vault, path=ORCHARD, repo="orchard")
+    assert bundle.notices == [f"{key} could not be read, so it is left out: storage is down"]
+    assert bundle.render().startswith(bundle.notices[0])
+    assert [note.key for note in bundle.tasks] == [note.key for note in whole.tasks]
+    assert (bundle.system == []) == (key == "Areas/orchard.md")
+    assert (bundle.log_tail == []) == (key == "Log/orchard-log.md")
+
+
+def test_context_leaves_out_a_system_note_deleted_since_it_was_indexed(vault: Vault):
+    (vault.backend.root / "Areas" / "orchard.md").unlink()
+    assert context.context(vault, path=ORCHARD, repo="orchard").system == []
+
+
+def test_context_has_no_log_tail_in_a_layout_without_a_log_folder(vault: Vault):
+    vault.schema.data["folders"] = {name: spec for name, spec in vault.schema.data["folders"].items() if name != "Log"}
+    vault.schema.data["log"] = {key: value for key, value in vault.schema.data["log"].items() if key != "folder"}
+    assert vault.schema.log_folder is None
+    assert context.context(vault, path=ORCHARD, repo="orchard").log_tail == []
+
+
+def test_the_changelog_reports_a_storage_outage_instead_of_an_empty_month(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch
+):
+    failing_reads_of(vault, "Log/orchard-log.md", monkeypatch)
+    with pytest.raises(OSError, match="storage is down"):
+        changelog.log_lines(vault, "orchard", date.today().isoformat()[:7])
+
+
 def test_context_says_so_when_nothing_matches(vault: Vault):
     assert context.context(vault, path="/opt/annat", repo="annat").render() == "No vault context for this path or repo."
 

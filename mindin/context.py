@@ -5,11 +5,12 @@ import os
 import time
 from dataclasses import asdict, dataclass, field
 
+from mindin.backends import NotFound
 from mindin.backlog import priority_rank
 from mindin.frontmatter import FRONTMATTER_RE
 from mindin.index import Note, expand_home
 from mindin.notes import BACKLOG_STATUS, OPEN_STATUSES, fetch, note_key
-from mindin.schema import broken_schema_lines
+from mindin.schema import NoHome, broken_schema_lines
 from mindin.search import age_days, humanize_age
 from mindin.vault import Vault
 
@@ -190,8 +191,12 @@ def _system_rank(note: Note, path: str | None, repo: str | None) -> tuple:
     return (not exact, note.stem != repo, note.status != "active", -path_overlap(note, path), note.key)
 
 
+def unread(key: str, exc: Exception) -> str:
+    return f"{key} could not be read, so it is left out: {' '.join(str(exc).split()) or type(exc).__name__}"
+
+
 def _system_notes(
-    vault: Vault, notes: list[Note], path: str | None, repo: str | None
+    vault: Vault, notes: list[Note], path: str | None, repo: str | None, notices: list[str]
 ) -> tuple[list[tuple[Note, str]], list[Note]]:
     folders = set(vault.schema.system_folders)
     system = [n for n in notes if n.kind == "system" or vault.schema.folder_of(n.key) in folders]
@@ -205,19 +210,30 @@ def _system_notes(
     for note in full:
         try:
             text, _ = fetch(vault, note.key)
-        except Exception:
+        except NotFound:
+            continue
+        except Exception as exc:
+            # Named in the notices and left out: one unreadable note must not cost the session its context.
+            notices.append(unread(note.key, exc))
             continue
         loaded.append((note, _truncate(text)))
     rows = [n for n in candidates if n not in full][:15]
     return loaded, rows
 
 
-def _log_tail(vault: Vault, repo: str | None) -> list[str]:
+def _log_tail(vault: Vault, repo: str | None, notices: list[str]) -> list[str]:
     if not repo:
         return []
     try:
-        text, _ = fetch(vault, note_key(vault.schema.log_key(repo)))
-    except Exception:
+        key = note_key(vault.schema.log_key(repo))
+    except (NotFound, NoHome):
+        return []
+    try:
+        text, _ = fetch(vault, key)
+    except NotFound:
+        return []
+    except Exception as exc:
+        notices.append(unread(key, exc))
         return []
     lines = [line for line in FRONTMATTER_RE.sub("", text, count=1).splitlines() if line.strip()]
     return lines[-LOG_TAIL_LINES:]
@@ -261,7 +277,9 @@ def context(
     stale_after = vault.schema.stale_after_days
     triage = [note for note in tasks if age_days(note, now) > stale_after]
     fresh = [note for note in tasks if age_days(note, now) <= stale_after]
-    system, system_rows = _system_notes(vault, notes, path, repo)
+    notices: list[str] = []
+    system, system_rows = _system_notes(vault, notes, path, repo, notices)
+    log_tail = _log_tail(vault, repo, notices)
     return ContextBundle(
         system=system,
         system_rows=system_rows,
@@ -270,8 +288,9 @@ def context(
         backlog=backlog_rows[:limit],
         backlog_total=len(backlog_rows),
         references=references[:limit],
-        log_tail=_log_tail(vault, repo),
+        log_tail=log_tail,
         repo=repo,
         stale_after_days=vault.schema.stale_after_days,
         schema_problems=broken_schema_lines(vault.schema),
+        notices=notices,
     )

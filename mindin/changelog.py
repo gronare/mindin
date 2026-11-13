@@ -5,10 +5,12 @@ from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
+from mindin.backends import NotFound
 from mindin.frontmatter import dump, parse
 from mindin.git import git, is_checkout, repo_name
 from mindin.index import Note, stem_of
 from mindin.notes import fetch, note_key, rewrite, stamp
+from mindin.schema import NoHome
 from mindin.vault import Vault
 
 GENERATED_START = "<!-- changelog:generated -->"
@@ -180,6 +182,6 @@ def changelog_notes(vault: Vault, period: str) -> list[Note]:
 def log_lines(vault: Vault, repo: str, period: str) -> list[str]:
     try:
         text, _ = fetch(vault, note_key(vault.schema.log_key(repo)))
-    except Exception:
+    except (NotFound, NoHome):
         return []
     return [line for line in text.splitlines() if line.lstrip().startswith(f"- [{period}")]

@@ -15,6 +15,7 @@ import anyio
 from anyio.from_thread import BlockingPortal, start_blocking_portal
 
 from mindin import backlog, changelog, context, credentials, feed, lint, notes, tasks, views
+from mindin.backends import NotFound
 from mindin.config import ConfigError, cache_dir, vault_id
 from mindin.frontmatter import dump, parse
 from mindin.git import current_branch, in_main_checkout, main_checkout, repo_name, repo_root
@@ -139,7 +140,7 @@ class LocalClient:
             text, _ = vault.backend.get(vault.schema.log_key(repo))
         except NoHome:
             return None
-        except Exception:
+        except NotFound:
             return ""
         return text
 

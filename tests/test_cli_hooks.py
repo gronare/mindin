@@ -10,6 +10,7 @@ import pytest
 from mindin import git, hooks, notes, provision
 from mindin.backends.local import LocalBackend
 from mindin.cli import main
+from mindin.client import LocalClient
 from mindin.config import env
 from mindin.vault import Vault
 
@@ -626,3 +627,38 @@ def test_the_commit_check_switches_off_alone(vault: Vault, monkeypatch: pytest.M
     assert stop_found(payload) is None
     transcript_of(transcript, prompts("p1", "p2", "p3"))
     assert stop_found(payload) == hooks.Behind(commits=[], stale=[], prompts=3)
+
+
+def test_the_local_client_reads_a_missing_log_as_empty_and_an_outage_as_an_error(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch
+):
+    client = LocalClient()
+    client._vault = vault
+    assert client.log_text("nowhere") == ""
+
+    def down(key: str) -> tuple[str, str]:
+        raise OSError("storage is down")
+
+    monkeypatch.setattr(vault.backend, "get", down)
+    with pytest.raises(OSError, match="storage is down"):
+        client.log_text("orchard")
+
+
+def test_the_stop_hook_stays_quiet_while_the_log_cannot_be_read(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    repo = make_repo(tmp_path / "repos", "workshop")
+    feed(monkeypatch, {"cwd": str(repo)})
+    assert main(["hook", "stop"]) == 0
+    assert capsys.readouterr().out.strip() != ""
+    stored = LocalBackend.get
+
+    def down(self: LocalBackend, key: str) -> tuple[str, str]:
+        if key.startswith("Log/"):
+            raise OSError("storage is down")
+        return stored(self, key)
+
+    monkeypatch.setattr(LocalBackend, "get", down)
+    feed(monkeypatch, {"cwd": str(repo)})
+    assert main(["hook", "stop"]) == 0
+    assert capsys.readouterr().out.strip() == ""

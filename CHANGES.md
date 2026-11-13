@@ -26,6 +26,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - The hosted server keeps answering other requests while one waits on its account database.
 - A vault whose schema cannot be read reports the error instead of switching to the default layout.
 - Session start names a note it could not read instead of leaving it out without a word.
+- The stop hook stays quiet during a storage outage instead of asking to log every commit.
 
 ## 0.17.0
 

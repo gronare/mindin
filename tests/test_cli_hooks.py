@@ -98,11 +98,11 @@ def test_session_start_lists_commits_newer_than_the_note(
 
 def test_stop_reminds_when_a_commit_is_not_logged(vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path, capsys):
     repo = make_repo(tmp_path / "repos", "frame")
+    assert hooks.behind(json.dumps({"cwd": str(repo)})).commits == [head_sha(repo)]
     feed(monkeypatch, {"cwd": str(repo)})
     assert main(["hook", "stop"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["hookSpecificOutput"]["hookEventName"] == "Stop"
-    assert head_sha(repo) in payload["hookSpecificOutput"]["additionalContext"]
+    assert payload == {"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": "vault"}}
 
 
 def test_stop_hands_its_reminder_as_feedback_not_as_a_block(
@@ -159,11 +159,9 @@ def test_stop_names_only_the_sessions_own_commit_after_a_fast_forward(
     notes.log_append(vault, "frame", "Första bygget", commits=(head_sha(repo),))
     theirs = fast_forward_from_a_teammate(repo, tmp_path)
     mine = commit_in(repo, "My commit")
-    feed(monkeypatch, {"cwd": str(repo)})
-    assert main(["hook", "stop"]) == 0
-    reason = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
-    assert mine in reason
-    assert theirs not in reason
+    found = hooks.behind(json.dumps({"cwd": str(repo)}))
+    assert mine in found.commits
+    assert theirs not in found.commits
 
 
 def test_stop_counts_cherry_picks_and_merge_commits_but_not_the_merged_branch(tmp_path):
@@ -243,12 +241,8 @@ def test_stop_blocks_on_a_stale_note_the_session_touched(
     repo = make_repo(tmp_path / "repos", "workshop")
     notes.log_append(vault, "workshop", "Bygget", commits=(head_sha(repo),))
     transcript = write_transcript(tmp_path / "t.jsonl", "read_file", {"path": "Projects/workshop-stale.md"})
-    feed(monkeypatch, {"cwd": str(repo), "transcript_path": str(transcript)})
-    assert main(["hook", "stop"]) == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["hookSpecificOutput"]["hookEventName"] == "Stop"
-    assert "Projects/workshop-stale.md" in payload["hookSpecificOutput"]["additionalContext"]
-    assert "systemMessage" not in payload
+    found = hooks.behind(json.dumps({"cwd": str(repo), "transcript_path": str(transcript)}))
+    assert found.stale == ["Projects/workshop-stale.md"] and found.commits == []
 
 
 def test_stop_stays_silent_about_stale_notes_the_session_did_not_touch(
@@ -276,13 +270,8 @@ def test_stop_blocks_on_an_unlogged_commit_without_naming_untouched_notes(
     vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
 ):
     repo = make_repo(tmp_path / "repos", "workshop")
-    feed(monkeypatch, {"cwd": str(repo)})
-    assert main(["hook", "stop"]) == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["hookSpecificOutput"]["hookEventName"] == "Stop"
-    assert head_sha(repo) in payload["hookSpecificOutput"]["additionalContext"]
-    assert "Projects/workshop-stale.md" not in payload["hookSpecificOutput"]["additionalContext"]
-    assert "systemMessage" not in payload
+    found = hooks.behind(json.dumps({"cwd": str(repo)}))
+    assert found.commits == [head_sha(repo)] and found.stale == []
 
 
 def test_stop_outside_a_git_repo_is_silent(vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path, capsys):
@@ -352,18 +341,12 @@ def test_session_start_in_a_worktree_lists_commits_on_note_paths_in_the_main_che
     assert "First commit" in out
 
 
-def test_stop_in_a_worktree_names_the_main_repo_and_the_branch(
-    vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
-):
+def test_stop_in_a_worktree_checks_the_main_repos_log(vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path, capsys):
     repo = make_repo(tmp_path / "repos", "frame")
     notes.log_append(vault, "frame", "Första bygget", commits=(head_sha(repo),))
     worktree = add_worktree(repo, tmp_path / "repos" / "wt1.frame", "fix-app")
     mine = commit_in(worktree, "Fix the app")
-    feed(monkeypatch, {"cwd": str(worktree)})
-    assert main(["hook", "stop"]) == 0
-    reason = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
-    assert f"log_append(repo='frame', branch='fix-app', line='<what landed>', commits=['{mine}'])" in reason
-    assert "wt1.frame" not in reason
+    assert hooks.behind(json.dumps({"cwd": str(worktree)})).commits == [mine]
 
 
 def test_stop_in_a_worktree_is_silent_once_logged_under_the_main_repo(
@@ -561,35 +544,35 @@ def cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path / "cache"
 
 
-def stop_payload(monkeypatch: pytest.MonkeyPatch, capsys, payload: dict) -> dict | None:
-    feed(monkeypatch, payload)
-    assert main(["hook", "stop"]) == 0
-    out = capsys.readouterr().out.strip()
-    return json.loads(out) if out else None
+def stop_found(payload: dict) -> hooks.Behind | None:
+    return hooks.behind(json.dumps(payload))
 
 
 def prompts(*uuids: str) -> list[dict]:
     return [prompt(uuid) for uuid in uuids]
 
 
-def test_stop_waits_for_three_prompts_after_the_last_vault_write_and_asks_once(
-    cache: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
-):
+def test_stop_waits_for_three_prompts_after_the_last_vault_write_and_asks_once(cache: Path, tmp_path: Path):
     transcript = transcript_of(tmp_path / "t.jsonl", [prompt("p0"), vault_call("write_file"), *prompts("p1", "p2")])
     payload = {"cwd": str(tmp_path), "session_id": "s-orchard", "transcript_path": str(transcript)}
-    assert stop_payload(monkeypatch, capsys, payload) is None
+    assert stop_found(payload) is None
     transcript_of(transcript, [prompt("p0"), vault_call("write_file"), *prompts("p1", "p2", "p3")])
-    blocked = stop_payload(monkeypatch, capsys, payload)
-    assert blocked["hookSpecificOutput"]["hookEventName"] == "Stop"
-    assert "the user wrote 3 messages since your last vault write" in blocked["hookSpecificOutput"]["additionalContext"]
-    assert stop_payload(monkeypatch, capsys, payload) is None
+    assert stop_found(payload).prompts == 3
+    assert stop_found(payload) is None
     transcript_of(transcript, [vault_call("write_file"), *prompts("p1", "p2", "p3", "p4", "p5")])
-    assert stop_payload(monkeypatch, capsys, payload) is None
+    assert stop_found(payload) is None
     transcript_of(transcript, [vault_call("write_file"), *prompts("p1", "p2", "p3", "p4", "p5", "p6")])
-    assert (
-        "wrote 3 messages since"
-        in stop_payload(monkeypatch, capsys, payload)["hookSpecificOutput"]["additionalContext"]
-    )
+    assert stop_found(payload).prompts == 3
+
+
+def test_stop_says_only_vault_when_messages_are_unsaved(
+    cache: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    transcript = transcript_of(tmp_path / "t.jsonl", prompts("p1", "p2", "p3"))
+    feed(monkeypatch, {"cwd": str(tmp_path), "session_id": "s-orchard", "transcript_path": str(transcript)})
+    assert main(["hook", "stop"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": "vault"}}
 
 
 @pytest.mark.parametrize(("setting", "threshold"), [("1", 1), ("5", 5), ("0", 3), ("-2", 3), ("many", 3), ("", 3)])
@@ -598,61 +581,48 @@ def test_the_prompt_threshold_comes_from_the_setting(monkeypatch: pytest.MonkeyP
     assert hooks.prompt_threshold() == threshold
 
 
-def test_stop_asks_at_a_custom_number_of_prompts(cache: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
+def test_stop_asks_at_a_custom_number_of_prompts(cache: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     transcript = transcript_of(tmp_path / "t.jsonl", [prompt("p1")])
     payload = {"cwd": str(tmp_path), "session_id": "s-orchard", "transcript_path": str(transcript)}
     monkeypatch.setenv("VAULT_STOP_HOOK_PROMPTS", "1")
-    assert (
-        "wrote 1 message since" in stop_payload(monkeypatch, capsys, payload)["hookSpecificOutput"]["additionalContext"]
-    )
-    assert (
-        stop_payload(monkeypatch, capsys, {**payload, "session_id": "s-workshop"})["hookSpecificOutput"][
-            "hookEventName"
-        ]
-        == "Stop"
-    )
+    assert stop_found(payload).prompts == 1
+    assert stop_found({**payload, "session_id": "s-workshop"}).prompts == 1
 
 
-def test_stop_is_silent_when_the_last_prompts_came_before_a_vault_write(
-    cache: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
-):
+def test_stop_is_silent_when_the_last_prompts_came_before_a_vault_write(cache: Path, tmp_path: Path):
     entries = [*prompts("p1", "p2", "p3"), vault_call("log_append", "claude_ai_Vault")]
     transcript = transcript_of(tmp_path / "t.jsonl", entries)
     payload = {"cwd": str(tmp_path), "session_id": "s-orchard", "transcript_path": str(transcript)}
-    assert stop_payload(monkeypatch, capsys, payload) is None
+    assert stop_found(payload) is None
 
 
-def test_the_prompt_check_switches_off_alone(cache: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
+def test_the_prompt_check_switches_off_alone(cache: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     transcript = transcript_of(tmp_path / "t.jsonl", prompts("p1", "p2", "p3"))
     payload = {"cwd": str(tmp_path), "session_id": "s-orchard", "transcript_path": str(transcript)}
     monkeypatch.setenv("VAULT_STOP_HOOK_PROMPTS", "off")
-    assert stop_payload(monkeypatch, capsys, payload) is None
+    assert stop_found(payload) is None
     monkeypatch.delenv("VAULT_STOP_HOOK_PROMPTS")
     monkeypatch.setenv("VAULT_STOP_HOOK", "off")
-    assert stop_payload(monkeypatch, capsys, payload) is None
-    assert stop_payload(monkeypatch, capsys, {**payload, "stop_hook_active": True}) is None
+    assert stop_found(payload) is None
+    assert stop_found({**payload, "stop_hook_active": True}) is None
 
 
-def test_stop_names_prompts_and_unlogged_commits_in_one_block(
-    vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+def test_stop_finds_prompts_and_unlogged_commits_in_one_block(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     repo = make_repo(tmp_path / "repos", "workshop")
     transcript = transcript_of(tmp_path / "t.jsonl", prompts("p1", "p2", "p3"))
     payload = {"cwd": str(repo), "session_id": "s-workshop", "transcript_path": str(transcript)}
-    blocked = stop_payload(monkeypatch, capsys, payload)
-    assert head_sha(repo) in blocked["hookSpecificOutput"]["additionalContext"]
-    assert "the user wrote 3 messages since" in blocked["hookSpecificOutput"]["additionalContext"]
+    assert stop_found(payload) == hooks.Behind(commits=[head_sha(repo)], stale=[], prompts=3)
     monkeypatch.setenv("VAULT_STOP_HOOK_PROMPTS", "off")
-    assert "message" not in stop_payload(monkeypatch, capsys, payload)["hookSpecificOutput"]["additionalContext"]
+    assert stop_found(payload) == hooks.Behind(commits=[head_sha(repo)], stale=[], prompts=0)
 
 
-def test_the_commit_check_switches_off_alone(vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys):
+def test_the_commit_check_switches_off_alone(vault: Vault, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     repo = make_repo(tmp_path / "repos", "orchard")
     transcript = transcript_of(tmp_path / "t.jsonl", prompts("p1", "p2"))
     payload = {"cwd": str(repo), "session_id": "s-orchard", "transcript_path": str(transcript)}
     monkeypatch.setenv("VAULT_STOP_HOOK_COMMITS", "off")
-    assert stop_payload(monkeypatch, capsys, payload) is None
+    assert stop_found(payload) is None
     transcript_of(transcript, prompts("p1", "p2", "p3"))
-    blocked = stop_payload(monkeypatch, capsys, payload)
-    assert "the user wrote 3 messages since" in blocked["hookSpecificOutput"]["additionalContext"]
-    assert head_sha(repo) not in blocked["hookSpecificOutput"]["additionalContext"]
+    assert stop_found(payload) == hooks.Behind(commits=[], stale=[], prompts=3)

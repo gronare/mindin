@@ -10,7 +10,7 @@ from pathlib import Path
 
 from mindin import credentials
 from mindin.client import CHANGELOG_META, AskedPrompts, VaultClient, open_client
-from mindin.git import current_branch, git, main_checkout, repo_name, repo_root
+from mindin.git import git, main_checkout, repo_name, repo_root
 from mindin.notes import vault_paths_in
 
 SHA_PREFIX_LENGTH = 7
@@ -149,8 +149,8 @@ def unlogged_in(logged: str, root: Path) -> list[tuple[str, str]]:
     return [(sha, subject) for sha, subject in _recent_commits(root) if sha not in logged]
 
 
-def stale_labels(triage: list[dict]) -> list[tuple[str, str]]:
-    return [(note["key"], f"{note['key']} ({note['age']} old)") for note in triage]
+def stale_keys(triage: list[dict]) -> list[str]:
+    return [note["key"] for note in triage]
 
 
 VAULT_WRITES = frozenset(
@@ -256,27 +256,6 @@ def unsaved_prompts(found: Transcript, last_asked: str | None) -> list[str]:
     return prompts
 
 
-def _reason(
-    commits: list[tuple[str, str]], stale: list[str], repo: str, branch: str | None = None, prompts: int = 0
-) -> str:
-    parts = []
-    if commits:
-        listed = ", ".join(f"{sha} {subject}" for sha, subject in commits)
-        shas = [sha for sha, _ in commits]
-        on_branch = f", branch='{branch}'" if branch else ""
-        parts.append(f"log_append(repo='{repo}'{on_branch}, line='<what landed>', commits={shas}) — {listed}")
-    if stale:
-        parts.append("close these notes, or say in them what is still open: " + ", ".join(stale))
-    if prompts:
-        messages = "1 message" if prompts == 1 else f"{prompts} messages"
-        parts.append(
-            f"the user wrote {messages} since your last vault write: save any decision, deferral or idea from "
-            "them in the vault (a task note, a Decisions line, backlog_add) before stopping, or stop again if "
-            "there is nothing to save"
-        )
-    return "The vault is behind this session. " + "; ".join(parts)
-
-
 def _switched_off(name: str) -> bool:
     return (os.environ.get(name) or "").lower() == "off"
 
@@ -313,7 +292,17 @@ def stop_target(raw: str) -> StopTarget | None:
     return StopTarget(data=data, cwd=cwd, root=root, repo=repo_name(cwd) if root else "", prompts=prompts)
 
 
-def stop(raw: str) -> str | None:
+STOP_REASON = "vault"
+
+
+@dataclass(frozen=True)
+class Behind:
+    commits: list[str]
+    stale: list[str]
+    prompts: int
+
+
+def behind(raw: str) -> Behind | None:
     target = stop_target(raw)
     if target is None:
         return None
@@ -321,7 +310,13 @@ def stop(raw: str) -> str | None:
         return stop_verdict(client, target)
 
 
-def stop_verdict(client: VaultClient, target: StopTarget) -> str | None:
+def stop(raw: str) -> str | None:
+    if behind(raw) is None:
+        return None
+    return json.dumps({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": STOP_REASON}})
+
+
+def stop_verdict(client: VaultClient, target: StopTarget) -> Behind | None:
     asked = client.asked_prompts()
     if target.root is None:
         return verdict(target, [], [], asked)
@@ -329,15 +324,13 @@ def stop_verdict(client: VaultClient, target: StopTarget) -> str | None:
         client.refresh_month_pages()
     logged = client.log_text(target.repo)
     commits = [] if logged is None else unlogged_in(logged, target.root)
-    stale = stale_labels(client.context(target.cwd)["triage"])
+    stale = stale_keys(client.context(target.cwd)["triage"])
     return verdict(target, commits, stale, asked)
 
 
-def verdict(
-    target: StopTarget, commits: list[tuple[str, str]], stale: list[tuple[str, str]], asked: AskedPrompts
-) -> str | None:
+def verdict(target: StopTarget, commits: list[tuple[str, str]], stale: list[str], asked: AskedPrompts) -> Behind | None:
     found = read_transcript(target.data.get("transcript_path"))
-    blocking = [label for key, label in stale if key in found.touched]
+    blocking = [key for key in stale if key in found.touched]
     session = str(target.data.get("session_id") or "")
     prompts = unsaved_prompts(found, asked.last(session)) if target.prompts and session else []
     if len(prompts) < target.prompts:
@@ -346,6 +339,4 @@ def verdict(
         return None
     if prompts:
         asked.remember(session, prompts[-1])
-    branch = current_branch(target.root) if target.root is not None else None
-    reason = _reason(commits, blocking, target.repo, branch, len(prompts))
-    return json.dumps({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": reason}})
+    return Behind(commits=[sha for sha, _ in commits], stale=blocking, prompts=len(prompts))

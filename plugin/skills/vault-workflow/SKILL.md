@@ -11,7 +11,17 @@ The vault is a folder of markdown notes (an Obsidian vault) reached through the 
 
 1. **Session start.** The `session-start` hook already printed a context bundle: the system notes for the code you are in, open task notes, reference notes, and the last log lines for the repo. If it did not (no hook, another cwd), call `context` with the path you work in. Read the system note before touching code. When the bundle lists commits newer than a system note, the note may be stale: trust the code, fix the note in the same pass.
 2. **Before the first edit.** The system note for the subsystem must exist and describe today's state. If it is missing, write it (folder of kind `system`, `kind: system`, a `path` list, a `summary`). Write a task note (folder of kind `task`) only when the work spans sessions or needs a decision record; it must carry `area: "[[<system note>]]"`.
-3. **Session end.** Update the system note with what changed, then call `log_append` with the repo, one line, the commit shas and the area. The `stop` hook reminds you when commits from the last day are missing from the log. Close finished task notes with `close` (optionally `merged_into` the system note).
+3. **Session end.** Update the system note with what changed, then call `log_append` with the repo, one line, the commit shas and the area. The `stop` hook keeps you going while the vault is behind; see below. Close finished task notes with `close` (optionally `merged_into` the system note).
+
+## When the Stop hook says `vault`
+
+The `stop` hook's whole message is `vault`: this session left the vault behind. Find what is behind, save it, then stop:
+
+- **Messages.** The user's messages since your last vault write: save each decision, deferral or idea in them (a task note, a Decisions line, `backlog_add`).
+- **Commits.** In a git repo, the session's commits (`git log --oneline --since='1 day ago' --author="$(git config user.name)"`) that the repo log lacks (its last lines come from `context`, or `read_file` the log): `log_append` with the repo, the branch, one line and those shas.
+- **Stale notes.** Task notes you read or wrote this session that `context` lists under `triage`: `close` each one that is done; `append_file` a dated line saying what is still open to the rest.
+
+With nothing to save, stop again; the hook asks once. Your reply to the user names what you saved, in one line, or says nothing about the vault.
 
 ## Where the notes are
 

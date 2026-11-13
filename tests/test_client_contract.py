@@ -156,19 +156,15 @@ def test_stop_asks_for_unlogged_commits_and_unsaved_prompts_once(
 ):
     repo = make_repo(tmp_path / "repos", "frame")
     transcript = str(transcript_of(tmp_path / "t.jsonl", prompts("p1", "p2", "p3")))
-    reason = json.loads(
-        hook_output(monkeypatch, capsys, {"cwd": str(repo), "session_id": "s1", "transcript_path": transcript}, "stop")
-    )["hookSpecificOutput"]["additionalContext"]
-    assert head_sha(repo) in reason and "the user wrote 3 messages since" in reason
+    found = hooks.behind(json.dumps({"cwd": str(repo), "session_id": "s1", "transcript_path": transcript}))
+    assert found == hooks.Behind(commits=[head_sha(repo)], stale=[], prompts=3)
     outside = tmp_path / "shed"
     outside.mkdir()
     payload = {"cwd": str(outside), "session_id": "s1", "transcript_path": transcript}
     assert hook_output(monkeypatch, capsys, payload, "stop").strip() == ""
     payload["session_id"] = "s2"
-    assert (
-        "the user wrote 3 messages since"
-        in json.loads(hook_output(monkeypatch, capsys, payload, "stop"))["hookSpecificOutput"]["additionalContext"]
-    )
+    reason = json.loads(hook_output(monkeypatch, capsys, payload, "stop"))["hookSpecificOutput"]["additionalContext"]
+    assert reason == "vault"
 
 
 def test_stop_leaves_commits_alone_on_a_layout_without_a_log(
@@ -181,8 +177,7 @@ def test_stop_leaves_commits_alone_on_a_layout_without_a_log(
     assert hook_output(monkeypatch, capsys, {"cwd": str(repo), "session_id": "s1"}, "stop").strip() == ""
     transcript = str(transcript_of(tmp_path / "t.jsonl", prompts("p1", "p2", "p3")))
     payload = {"cwd": str(repo), "session_id": "s2", "transcript_path": transcript}
-    reason = json.loads(hook_output(monkeypatch, capsys, payload, "stop"))["hookSpecificOutput"]["additionalContext"]
-    assert "the user wrote 3 messages since" in reason and "log_append" not in reason
+    assert hooks.behind(json.dumps(payload)) == hooks.Behind(commits=[], stale=[], prompts=3)
     assert main(["log", "append", "--cwd", str(repo), "--line", "Ramade in lunden"]) == 1
     assert "has no log folder" in capsys.readouterr().err
 

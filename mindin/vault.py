@@ -110,7 +110,11 @@ class Vault:
         with self._catching_up:
             if self._schema_changed:
                 self._schema_changed = False
-                self.reload_schema()
+                try:
+                    self.reload_schema()
+                except BaseException:
+                    self._schema_changed = True
+                    raise
 
     def sync(self, force: bool = False) -> int:
         self.catch_up()

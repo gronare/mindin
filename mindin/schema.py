@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from mindin.backends import SCHEMA_KEY, VaultBackend
+from mindin.backends import SCHEMA_KEY, NotFound, VaultBackend
 from mindin.bundle import bundle_problems, bundle_text
 from mindin.presets import DEFAULT_PRESET, PRESETS, base_preset, preset_data
 
@@ -608,7 +608,7 @@ def unknown_preset(name: str) -> str:
 def _schema_text(backend: VaultBackend) -> str | None:
     try:
         text, _ = backend.get(SCHEMA_KEY)
-    except Exception:
+    except NotFound:
         return None
     return text
 
@@ -616,7 +616,10 @@ def _schema_text(backend: VaultBackend) -> str | None:
 def load_schema(backend: VaultBackend | None = None, override_path: str | None = None) -> Schema:
     if override_path:
         return schema_from_text(Path(override_path).expanduser().read_text(encoding="utf-8"))
-    text = _schema_text(backend) if backend is not None else None
+    try:
+        text = _schema_text(backend) if backend is not None else None
+    except UnicodeDecodeError:
+        return Schema(default_schema_data(), (f"{SCHEMA_KEY} is not UTF-8 text",))
     return schema_from_text(text) if text is not None else Schema(default_schema_data())
 
 

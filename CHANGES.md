@@ -24,6 +24,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - A hosted server shutting down ends open requests within five seconds, so a restart no longer waits on them.
 - The hosted server no longer answers "database is locked" when one request writes while another reads.
 - The hosted server keeps answering other requests while one waits on its account database.
+- A vault whose schema cannot be read reports the error instead of switching to the default layout.
 
 ## 0.17.0
 

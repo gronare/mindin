@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import secrets
 import sqlite3
@@ -14,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from mindin.backends import FETCH_WORKERS, SCHEMA_KEY, Entry, VaultBackend
+from mindin.backends import FETCH_WORKERS, SCHEMA_KEY, Entry, NotFound, VaultBackend
 from mindin.feed import Action, Changed, Page, page_of
 from mindin.frontmatter import CLAIM_KEY, FrontmatterError, claim_fields, folder_of, parse, tags_of
 from mindin.stemming import algorithms_of, stemmed
@@ -60,6 +61,8 @@ CREATE TABLE IF NOT EXISTS repos (repo TEXT PRIMARY KEY, root TEXT, seen_at TEXT
 CREATE TABLE IF NOT EXISTS feed_marks (key TEXT PRIMARY KEY, seq INTEGER NOT NULL, action TEXT NOT NULL, at REAL);
 CREATE INDEX IF NOT EXISTS feed_marks_seq ON feed_marks(seq);
 """
+
+log = logging.getLogger(__name__)
 
 NOTE_COLUMNS = (
     "key, version, mtime, folder, stem, title, summary, status, kind, area, "
@@ -548,7 +551,10 @@ class Index:
     def _safe_get(self, key: str) -> str | None:
         try:
             text, _ = self.backend.get(key)
-        except Exception:
+        except NotFound:
+            return None
+        except Exception as exc:
+            log.warning("could not fetch %s for the index, retried on the next sync: %s", key, exc)
             return None
         return text
 

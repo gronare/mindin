@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from pathlib import Path
 
+import pytest
+
+from mindin.backends import NotFound
 from mindin.index import Index, link_targets, path_list, shas_in
 from mindin.search import search
 from mindin.vault import Vault
@@ -186,3 +190,41 @@ def test_the_same_languages_keep_the_index(vault: Vault):
         assert len(index.all_notes()) == count
     finally:
         index.close()
+
+
+def test_sync_logs_a_note_it_could_not_fetch_and_fetches_it_next_time(
+    vault: Vault, vault_dir: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    (vault_dir / "Areas" / "quince.md").write_text("---\ntitle: Quince\n---\nbody\n", encoding="utf-8")
+    stored = vault.backend.get
+
+    def down(key: str) -> tuple[str, str]:
+        if key == "Areas/quince.md":
+            raise OSError("storage is down")
+        return stored(key)
+
+    monkeypatch.setattr(vault.backend, "get", down)
+    with caplog.at_level(logging.WARNING, logger="mindin.index"):
+        vault.index.sync(force=True)
+    assert "could not fetch Areas/quince.md" in caplog.text
+    assert vault.index.note("Areas/quince.md") is None
+    monkeypatch.setattr(vault.backend, "get", stored)
+    vault.index.sync(force=True)
+    assert vault.index.note("Areas/quince.md") is not None
+
+
+def test_sync_says_nothing_about_a_note_deleted_while_it_ran(
+    vault: Vault, vault_dir: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    (vault_dir / "Areas" / "quince.md").write_text("---\ntitle: Quince\n---\nbody\n", encoding="utf-8")
+    stored = vault.backend.get
+
+    def deleted(key: str) -> tuple[str, str]:
+        if key == "Areas/quince.md":
+            raise NotFound(key)
+        return stored(key)
+
+    monkeypatch.setattr(vault.backend, "get", deleted)
+    with caplog.at_level(logging.WARNING, logger="mindin.index"):
+        vault.index.sync(force=True)
+    assert "quince" not in caplog.text

@@ -12,6 +12,9 @@ What each mindin release brings, one line per change, as you would tell someone 
 - The `template` tool and `mindin template --json` give a kind's headings, required sections and a skeleton.
 - `backlog_add` takes the task template's `sections`, or one line that files a draft to write out.
 - `task open` writes the task template's headings, and `task check` checks its required sections by default.
+- `mindin changes` and the `changes` tool answer only the notes changed since a cursor, and can wait for the next change.
+- `mindin watch` follows a vault as JSON lines, one per batch of changes.
+- `mindin read --json` gives a note with its etag, and `mindin write --etag` writes it back only over that version.
 
 ### Fixed
 

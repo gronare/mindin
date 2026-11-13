@@ -296,6 +296,8 @@ VAULT_ROWS = (
     "vault_members",
     "vault_invitations",
     "vault_changes",
+    "vault_feed",
+    "vault_feed_heads",
     "organisation_editors",
     "organisation_vaults",
 )

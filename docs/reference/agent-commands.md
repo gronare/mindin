@@ -22,7 +22,14 @@ mindin log append --cwd ~/wt/wt1.myapp --line "Login fixed" --commit abc1234 --c
 mindin log path --repo myapp                         # {"path": "Log/myapp-log.md"}
 mindin log path --repo myapp --repo docs            # {"myapp": "Log/myapp-log.md", "docs": "Log/docs-log.md"}
 mindin snapshot --json [--since ETAG]               # the board's notes and logs in one answer
+mindin changes --json [--since CURSOR] [--wait SECONDS] [--body] [--limit N]
+# {"cursor": "a1b2c3d4.42", "reset": false, "more": false, "changes": [{"key": "Projects/myapp-idea.md", "action": "write", "version": "…", "note": {"frontmatter": {…}}}]}
+mindin watch --json [--since CURSOR] [--body]       # one line like changes now, then one per batch, until stopped
 mindin read Projects/myapp-idea.md [--body]          # the note as stored in a pipe, or only its text after the frontmatter
+mindin read Projects/myapp-idea.md --json
+# {"text": "---\ntitle: …", "etag": "9b2f…"}
+mindin write Projects/myapp-idea.md --etag 9b2f… < note.md
+# {"path": "Projects/myapp-idea.md", "etag": "c41a…"}
 mindin template --json --kind task
 # {"kind": "task", "language": "en", "sections": [{"key": "background", "heading": "Background", "required": true}, …], "questions": "questions", "skeleton": "## Background\n\n## Goal\n…"}
 mindin status
@@ -30,7 +37,7 @@ mindin status
 mindin status --probe
 # {"configured": true, "version": "0.17.0", "backend": "s3", "source": "config", "writable": true, "signals": "on", "signals_source": "config", "signals_change": "mindin setup --signals yes|no"}
 mindin about --json
-# {"name": "mindin", "version": "0.17.0", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "read", "templates"], "former_names": ["notes-vault-mcp"]}
+# {"name": "mindin", "version": "0.17.0", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "changes", "watch", "read", "write", "templates"], "former_names": ["notes-vault-mcp"]}
 ```
 
 ## task open
@@ -67,6 +74,28 @@ The repo is the main checkout's name, also from a worktree, and the area is the 
 
 Every answer carries an `etag`; with `--since <etag>` the answer is only `{"unchanged": true, "etag": …}` until something it covers changes, so a client can ask every few seconds. Through a server it is one request.
 
+## read and write
+
+`read --json` answers the whole note as stored, frontmatter included, as `text`, with its `etag`. `write` reads a whole note from stdin and writes it the way `write_file` does: the schema, the [note templates](schema.md#note-templates) and the content checks apply, `updated` is stamped and a claim is kept. With `--etag` it writes only over that version, so a tool edits a note in three steps: `read --json`, change the text, `write --etag`. A note changed in between fails with exit 1 and a message naming the etag; `--etag "*"` creates a note that must not exist yet. Any other refusal fails with exit 1 and the reason `write_file` gives.
+
+## changes and watch
+
+`changes --json` answers the notes written, deleted or moved since `--since`, each once in its latest state, so a client that keeps a copy of the vault fetches only what changed:
+
+- `changes` lists each note as `key`, `action` (`write`, `delete`, or `schema` for `.vault/schema.yml`), `version` (the etag `read_file` gives) and `note`: its `frontmatter`, and with `--body` its `body` too; `null` for a delete. A move is a `delete` of the old key and a `write` of the new one.
+- `cursor` is what to pass as `--since` next. It is opaque: keep it as it is.
+- `reset: true` means the cursor cannot be followed: there was none, it is from another vault or index, or the changes after it are no longer kept (30 days, or the last 10,000 per vault). Read the whole vault, with `snapshot`, then follow from the `cursor` the reset answer carries; read that cursor first so nothing written in between is missed.
+- `more: true` means `--limit` (100) cut the answer short: ask again with the new cursor at once.
+- `--wait` holds the answer until something changes or the seconds pass; an answer with no changes keeps the cursor.
+
+`watch --json` is one long-lived process for a client that reads a stream: it prints one line shaped like the answer of `changes` at once, with the cursor to follow from, then one line per batch of changes. When it loses the server it says so on stderr and connects again, waiting 1 second, then twice as long each time up to a minute, and carries on from its last cursor; a refused key or a server without `changes` ends it with exit 1.
+
+How a wait learns of a change depends on where the vault is:
+
+- **Server**: a write on the server wakes the waiting request at once; nothing is polled. One request holds up to 50 seconds, so `watch` and a longer `--wait` ask again.
+- **Folder**: the operating system's file events wake it; a file in a dot-folder, such as `.obsidian/`, does not.
+- **Bucket**: S3 tells nothing, so the bucket is listed at most every 20 seconds while a client waits.
+
 ## status
 
 `status` never fails: with no vault configured it prints `"configured": false, "backend": null, "source": null` and exits 0. `source` names what decided where the vault is: `env`, `config` (mindin's own, from `setup`) or `plugin` ([Where commands find the vault](command-line.md#where-commands-find-the-vault)). Through a server it answers `"backend": "server"` with the `server` and whether this machine is `signed_in`. It is read-only and leaves `writable` null; `--probe` measures it by writing and deleting `.vault/write-probe`. `signals` is `on`, `off` or `not asked` for the [install signal](configuration.md#install-signal), `signals_source` names what decided it, `env` or `config` (`null` while not asked), and `signals_change` is the command that changes it.
@@ -77,5 +106,5 @@ Every answer carries an `etag`; with `--since <etag>` the answer is only `{"unch
 
 - `name` is always `mindin`, also when run as `notes-vault-mcp`.
 - `contract` is the version of these commands' JSON; it changes only when an answer changes shape.
-- `capabilities` lists the commands this install has: `tasks` (`task`), `claims` (`task claim`), `log`, `snapshot`, `read` and `templates` (`template`).
+- `capabilities` lists the commands this install has: `tasks` (`task`), `claims` (`task claim`), `log`, `snapshot`, `changes`, `watch`, `read`, `write` (`read --json` and `write`) and `templates` (`template`).
 - `former_names` lists the names the package and command had before.

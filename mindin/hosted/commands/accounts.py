@@ -18,6 +18,7 @@ from mindin.hosted.accounts.store import AccountStatus, HostedStore, MembershipE
 from mindin.hosted.accounts.vaults import PERSONAL, SHARED
 from mindin.hosted.commands.support import add_operator
 from mindin.hosted.config import auth_config, auth_dir
+from mindin.hosted.feed import ChangeFeed, recording
 from mindin.hosted.pages.templates import stamp
 from mindin.presets import PERSONAL_LAYOUTS
 
@@ -208,7 +209,8 @@ def command_import(args: argparse.Namespace) -> int:
         return 1
     sealed_target, _ = sealed.for_vault(vault.id)
     quotas = Quotas(store, store.extensions, lambda vault_id: sealed.facts(vault_id).size)
-    target = quotas.guard(vault, sealed_target)
+    feed = ChangeFeed(store, lambda vault_id: sealed.for_vault(vault_id)[0])
+    target = recording(feed, vault.id, quotas.guard(vault, sealed_target))
     try:
         plan = prepare_import(target, backend_source(source))
     except BadArchive as exc:

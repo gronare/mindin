@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import secrets
 import sqlite3
 import threading
 import time
@@ -14,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mindin.backends import FETCH_WORKERS, SCHEMA_KEY, Entry, VaultBackend
+from mindin.feed import Action, Changed, Page, page_of
 from mindin.frontmatter import CLAIM_KEY, FrontmatterError, claim_fields, folder_of, parse, tags_of
 from mindin.stemming import algorithms_of, stemmed
 
@@ -29,6 +31,9 @@ SHA_RE = re.compile(r"\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}\b")
 WIKILINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
 FIELD_TEXT_MAX = 10_000
 CLOSE_WAIT_SECONDS = 10.0
+FEED_KEEP_MARKS = 10_000
+FEED_KEEP_SECONDS = 30 * 86400
+FEED_PRUNE_EVERY = 100
 
 FTS_SQL = """
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -52,6 +57,8 @@ CREATE TABLE IF NOT EXISTS links (src TEXT, target TEXT);
 CREATE INDEX IF NOT EXISTS links_target ON links(target);
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS repos (repo TEXT PRIMARY KEY, root TEXT, seen_at TEXT);
+CREATE TABLE IF NOT EXISTS feed_marks (key TEXT PRIMARY KEY, seq INTEGER NOT NULL, action TEXT NOT NULL, at REAL);
+CREATE INDEX IF NOT EXISTS feed_marks_seq ON feed_marks(seq);
 """
 
 NOTE_COLUMNS = (
@@ -198,7 +205,7 @@ def _casefold(text: str | None) -> str | None:
     return text.casefold() if text else text
 
 
-NOTE_TABLES = ("notes", "notes_fts", "shas", "links")
+NOTE_TABLES = ("notes", "notes_fts", "shas", "links", "feed_marks")
 
 
 class Index:
@@ -279,6 +286,12 @@ class Index:
             if column not in present:
                 self.db.execute(f"ALTER TABLE notes ADD COLUMN {column} TEXT")
                 self._forget_notes()
+        if "seq" not in present:
+            self.db.execute("ALTER TABLE notes ADD COLUMN seq INTEGER")
+            self._forget_notes()
+        self.db.execute("CREATE INDEX IF NOT EXISTS notes_seq ON notes(seq)")
+        if self.meta("feed_epoch") is None:
+            self._forget_notes()
         if not FTS_COLUMNS.issubset(self._columns("notes_fts")):
             self.db.execute("DROP TABLE notes_fts")
             self.db.executescript(FTS_SQL)
@@ -295,7 +308,11 @@ class Index:
         db = db or self.db
         for table in NOTE_TABLES:
             db.execute(f"DELETE FROM {table}")
-        db.execute("DELETE FROM meta WHERE k = 'last_sync'")
+        db.execute("DELETE FROM meta WHERE k IN ('last_sync', 'feed_seq', 'feed_pruned', 'feed_schema')")
+        db.execute(
+            "INSERT INTO meta(k, v) VALUES('feed_epoch', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+            (secrets.token_hex(4),),
+        )
 
     def close(self) -> None:
         if self.vectors is not None:
@@ -338,12 +355,74 @@ class Index:
             note, body = broken_note(key, version, mtime, size, f"could not index: {exc}"), ""
         with self._transaction() as db:
             self._delete(db, key)
-            self._insert(db, note, body, text)
+            self._insert(db, note, body, text, self._next_seq(db))
+            db.execute("DELETE FROM feed_marks WHERE key = ?", (key,))
         return note
 
-    def _insert(self, db: sqlite3.Connection, note: Note, body: str, text: str) -> None:
+    def _next_seq(self, db: sqlite3.Connection) -> int:
+        row = db.execute("SELECT v FROM meta WHERE k = 'feed_seq'").fetchone()
+        seq = int(row["v"] if row else 0) + 1
+        db.execute("INSERT INTO meta(k, v) VALUES('feed_seq', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", (seq,))
+        return seq
+
+    def _mark(self, db: sqlite3.Connection, key: str, action: Action) -> None:
+        seq = self._next_seq(db)
         db.execute(
-            f"INSERT INTO notes ({NOTE_COLUMNS}) VALUES ({', '.join('?' * 22)})",
+            "INSERT INTO feed_marks(key, seq, action, at) VALUES(?, ?, ?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET seq = excluded.seq, action = excluded.action, at = excluded.at",
+            (key, seq, action, time.time()),
+        )
+        if seq % FEED_PRUNE_EVERY == 0:
+            self._prune_marks(db)
+
+    def _prune_marks(
+        self, db: sqlite3.Connection, keep: int = FEED_KEEP_MARKS, keep_seconds: float = FEED_KEEP_SECONDS
+    ) -> None:
+        crowded = db.execute("SELECT seq FROM feed_marks ORDER BY seq DESC LIMIT 1 OFFSET ?", (keep,)).fetchone()
+        aged = db.execute(
+            "SELECT MAX(seq) AS seq FROM feed_marks WHERE at < ?", (time.time() - keep_seconds,)
+        ).fetchone()
+        cut = max(crowded["seq"] if crowded else 0, aged["seq"] or 0)
+        if not cut:
+            return
+        db.execute("DELETE FROM feed_marks WHERE seq <= ?", (cut,))
+        pruned = int(self._meta_in(db, "feed_pruned") or 0)
+        db.execute(
+            "INSERT INTO meta(k, v) VALUES('feed_pruned', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+            (max(pruned, cut),),
+        )
+
+    def prune_feed(self, keep: int = FEED_KEEP_MARKS, keep_seconds: float = FEED_KEEP_SECONDS) -> None:
+        with self._transaction() as db:
+            self._prune_marks(db, keep, keep_seconds)
+
+    def _meta_in(self, db: sqlite3.Connection, key: str) -> str | None:
+        row = db.execute("SELECT v FROM meta WHERE k = ?", (key,)).fetchone()
+        return row["v"] if row else None
+
+    def feed_cursor(self, epoch: str, seq: int) -> str:
+        return f"{epoch}.{seq}"
+
+    def feed_page(self, since: str | None, limit: int) -> Page:
+        epoch = self.meta("feed_epoch") or ""
+        head = int(self.meta("feed_seq") or 0)
+        pruned = int(self.meta("feed_pruned") or 0)
+        found_epoch, _, raw = (since or "").partition(".")
+        after = int(raw) if found_epoch == epoch and raw.isdigit() else None
+        if after is None or after > head or after < pruned:
+            return Page(self.feed_cursor(epoch, head), True, [])
+        rows = self.db.execute(
+            "SELECT key, seq, 'write' AS action, version FROM notes WHERE seq > ?"
+            " UNION ALL SELECT key, seq, action, NULL AS version FROM feed_marks WHERE seq > ?"
+            " ORDER BY seq LIMIT ?",
+            (after, after, limit + 1),
+        ).fetchall()
+        changed = [Changed(row["key"], row["action"], row["version"], row["seq"]) for row in rows]
+        return page_of(changed, limit, head, lambda seq: self.feed_cursor(epoch, seq))
+
+    def _insert(self, db: sqlite3.Connection, note: Note, body: str, text: str, seq: int) -> None:
+        db.execute(
+            f"INSERT INTO notes ({NOTE_COLUMNS}, seq) VALUES ({', '.join('?' * 23)})",
             (
                 note.key,
                 note.version,
@@ -367,6 +446,7 @@ class Index:
                 note.source,
                 note.claim,
                 json.dumps(note.repos),
+                seq,
             ),
         )
         db.execute(
@@ -390,7 +470,24 @@ class Index:
 
     def remove(self, key: str) -> None:
         with self._transaction() as db:
+            known = db.execute("SELECT 1 FROM notes WHERE key = ?", (key,)).fetchone() is not None
             self._delete(db, key)
+            if known:
+                self._mark(db, key, "delete")
+
+    def _note_schema(self, version: str) -> None:
+        if self.meta("feed_schema") == version:
+            return
+        with self._transaction() as db:
+            seen = self._meta_in(db, "feed_schema")
+            if seen == version:
+                return
+            db.execute(
+                "INSERT INTO meta(k, v) VALUES('feed_schema', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+                (version,),
+            )
+            if seen is not None:
+                self._mark(db, SCHEMA_KEY, "schema")
 
     def note(self, key: str) -> Note | None:
         row = self.db.execute(f"SELECT {NOTE_COLUMNS} FROM notes WHERE key = ?", (key,)).fetchone()
@@ -453,6 +550,7 @@ class Index:
             return 0
         listing = self.backend.list()
         self.schema_version = next((entry.version for entry in listing if entry.key == SCHEMA_KEY), "")
+        self._note_schema(self.schema_version)
         entries = [entry for entry in listing if entry.key.endswith(".md")]
         known = self._versions()
         seen = {entry.key for entry in entries}

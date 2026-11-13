@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import sys
+import time
 from collections.abc import Awaitable, Callable
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from datetime import date
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Protocol, TypeVar
 
+import anyio
 from anyio.from_thread import BlockingPortal, start_blocking_portal
 
-from mindin import changelog, credentials, notes, tasks, views
-from mindin.config import cache_dir, vault_id
+from mindin import changelog, credentials, feed, notes, tasks, views
+from mindin.config import ConfigError, cache_dir, vault_id
+from mindin.frontmatter import dump, parse
 from mindin.git import current_branch, in_main_checkout, main_checkout, repo_name, repo_root
 from mindin.remote import Remote, RemoteError, connect, refused, signed_in_key
 from mindin.schema import NoHome, Schema
@@ -23,6 +28,9 @@ T = TypeVar("T")
 CHANGELOG_META = "changelog_ran_on"
 ASKED_LIMIT = 200
 REMOTE_BACKLOG_LIMIT = 10000
+FIRST_PAUSE = 1.0
+LONGEST_PAUSE = 60.0
+Emit = Callable[[dict], None]
 
 
 class AskedPrompts:
@@ -71,6 +79,8 @@ class VaultClient(Protocol):
     def log_append(self, args: Any) -> dict: ...
     def log_path(self, args: Any) -> dict: ...
     def snapshot(self, args: Any) -> dict: ...
+    def changes(self, args: Any) -> dict: ...
+    def watch(self, args: Any, emit: Emit) -> None: ...
 
 
 def open_client(vectors: Vectoring = "off") -> LocalClient | RemoteClient:
@@ -187,6 +197,13 @@ class LocalClient:
     def read(self, path: str) -> str:
         return notes.read(self.vault, path).partition("\n")[2]
 
+    def read_stored(self, path: str) -> dict:
+        text, version = self.vault.backend.get(notes.note_key(path, readable=True))
+        return {"text": text, "etag": version}
+
+    def write_note(self, path: str, content: str, etag: str | None) -> dict:
+        return written(notes.write(self.synced(), path, content, expected_etag=etag))
+
     def task_open(self, args: Any) -> dict:
         if args.note:
             return tasks.claim_task(self.synced(), args.note, args.cwd)
@@ -222,6 +239,21 @@ class LocalClient:
 
     def snapshot(self, args: Any) -> dict:
         return build_snapshot(self.synced(), since=args.since)
+
+    def opened(self) -> nullcontext[Vault]:
+        return nullcontext(self.vault)
+
+    def changes(self, args: Any) -> dict:
+        found = feed.changes(self.opened, args.since, args.limit, args.wait, included(args), longest=args.wait or 0)
+        return asyncio.run(found)
+
+    def watch(self, args: Any, emit: Emit) -> None:
+        async def follow(at: dict[str, str | None]) -> None:
+            async for found in feed.follow(self.opened, at["cursor"], included(args), args.limit):
+                emit(found)
+                at["cursor"] = found["cursor"]
+
+        asyncio.run(again_and_again(follow, args.since, "the vault"))
 
 
 class LocalState:
@@ -377,6 +409,13 @@ class RemoteClient:
     def read(self, path: str) -> str:
         return self._on(lambda remote: remote.read(path))
 
+    def read_stored(self, path: str) -> dict:
+        first, _, text = self.tool_text("read_file", path=path).partition("\n")
+        return {"text": without_superseded_warning(text), "etag": first.removeprefix("etag:").strip()}
+
+    def write_note(self, path: str, content: str, etag: str | None) -> dict:
+        return written(self.tool_text("write_file", path=path, content=content, expected_etag=etag))
+
     def task_open(self, args: Any) -> dict:
         self.remember_repo(args.cwd)
         schema = self.schema()
@@ -434,3 +473,76 @@ class RemoteClient:
 
     def snapshot(self, args: Any) -> dict:
         return json.loads(self.tool_text("snapshot", since=args.since))
+
+    def changes(self, args: Any) -> dict:
+        deadline = time.monotonic() + (args.wait or 0)
+        since = args.since
+        while True:
+            remaining = max(deadline - time.monotonic(), 0.0)
+            wait = min(remaining, feed.MAX_WAIT_SECONDS)
+            arguments = {"since": since, "limit": args.limit, "wait": wait or None, "include": included(args)}
+            found = json.loads(self.tool_text("changes", **arguments))
+            if feed.settled(found) or remaining <= wait:
+                return found
+            since = found["cursor"]
+
+    def watch(self, args: Any, emit: Emit) -> None:
+        key = self.key or signed_in_key(self.url)
+
+        async def follow(at: dict[str, str | None]) -> None:
+            first = True
+            async with connect(self.url, key) as remote:
+                while True:
+                    arguments = {"since": at["cursor"], "limit": args.limit, "include": included(args)}
+                    found = json.loads(await remote.call("changes", wait=feed.MAX_WAIT_SECONDS, **arguments))
+                    if first or feed.settled(found):
+                        emit(found)
+                        first = False
+                    at["cursor"] = found["cursor"]
+
+        anyio.run(again_and_again, follow, args.since, self.url)
+
+
+def written(answer: str) -> dict:
+    head, _, tail = answer.partition("\n")
+    return {"path": head.removeprefix("Written:").strip(), "etag": tail.removeprefix("etag:").strip()}
+
+
+def without_superseded_warning(text: str) -> str:
+    frontmatter, body = parse(text)
+    warning = f"> [!warning] Superseded by {frontmatter.get('superseded_by')}\n\n"
+    if frontmatter.get("superseded_by") and body.startswith(warning):
+        return dump(frontmatter, body.removeprefix(warning))
+    return text
+
+
+def included(args: Any) -> str:
+    return "body" if getattr(args, "body", False) else "frontmatter"
+
+
+def lasting(error: BaseException) -> bool:
+    return isinstance(error, ConfigError) or any(
+        sign in str(error) for sign in ("refused the stored key", "Unknown tool", "include is one of")
+    )
+
+
+async def again_and_again(
+    follow: Callable[[dict[str, str | None]], Awaitable[None]], since: str | None, where: str
+) -> None:
+    at, pause = {"cursor": since}, FIRST_PAUSE
+    while True:
+        started = time.monotonic()
+        try:
+            await follow(at)
+        except Exception as exc:
+            error = refused(exc, where)
+            if lasting(error):
+                raise error from None
+            if time.monotonic() - started > LONGEST_PAUSE:
+                pause = FIRST_PAUSE
+            print(
+                f"mindin: watch lost {where} ({str(error).splitlines()[0][:200]}); again in {pause:.0f}s",
+                file=sys.stderr,
+            )
+            await anyio.sleep(pause)
+            pause = min(pause * 2, LONGEST_PAUSE)

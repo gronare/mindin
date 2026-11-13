@@ -56,6 +56,7 @@ from mindin.hosted.accounts.reach import ACCOUNT_REACH, AccountReach
 from mindin.hosted.accounts.store import Account, ApiKeyCredentials, HostedStore
 from mindin.hosted.accounts.vaults import Vault, vault_resource_url
 from mindin.hosted.config import READ_SCOPE, SCOPES, WRITE_SCOPE, AuthConfig, auth_dir
+from mindin.hosted.feed import ChangeFeed
 from mindin.hosted.orgs.pages import OrganisationPages
 from mindin.hosted.pages.account import SelfDeletion, SupportDesk
 from mindin.hosted.pages.vaults import VaultPages
@@ -597,6 +598,7 @@ def build_hosted_app(
     sealed = SealedVaults(store, keys, vaults.prefix)
     sealed.quotas = Quotas(store, extensions, lambda vault_id: sealed.facts(vault_id).size)
     vaults.use_backends(sealed, identify=sealed.identifier)
+    vaults.use_feed(ChangeFeed(store, lambda vault_id: sealed.for_vault(vault_id)[0]))
     if auth.index_snapshots:
         vaults.use_snapshots(IndexSnapshots(sealed), auth.snapshot_minutes * 60.0)
     vaults.use_sweep(sealed.live_identifiers)

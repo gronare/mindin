@@ -10,6 +10,7 @@ from mindin.vault import Vault
 
 TOOL_NAMES = {
     "search",
+    "changes",
     "read_file",
     "write_file",
     "append_file",

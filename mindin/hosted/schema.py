@@ -422,6 +422,28 @@ def to_default_vaults(connection: sqlite3.Connection) -> None:
     connection.execute("DROP TABLE IF EXISTS vault_search_off")
 
 
+FEED_TABLES = (
+    """CREATE TABLE IF NOT EXISTS vault_feed_heads (
+    vault_id TEXT PRIMARY KEY REFERENCES vaults(id),
+    seq INTEGER NOT NULL,
+    pruned_through INTEGER NOT NULL DEFAULT 0
+)""",
+    """CREATE TABLE IF NOT EXISTS vault_feed (
+    vault_id TEXT NOT NULL REFERENCES vaults(id),
+    seq INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('write', 'delete', 'schema')),
+    version TEXT,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (vault_id, seq)
+)""",
+)
+
+
+def to_change_feed(connection: sqlite3.Connection) -> None:
+    run(connection, FEED_TABLES)
+
+
 STEPS = (
     to_vaults,
     to_shared,
@@ -432,4 +454,5 @@ STEPS = (
     to_account_reach,
     to_search_defaults,
     to_default_vaults,
+    to_change_feed,
 )

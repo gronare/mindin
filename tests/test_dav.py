@@ -267,7 +267,7 @@ async def test_a_remotely_save_walk_lists_the_storage_once(
     async with dav_client(app) as client:
         for path in ("Areas/a.md", "Projects/b.md", "Projects/Deep/c.md"):
             await client.put(f"/dav/vault/{path}", content=b"x", headers=basic(secret))
-        inner = vaults.for_subject(vault_id).backend.inner
+        inner = vaults.for_subject(vault_id).backend.inner.inner
         listings: list[str] = []
         real = inner.list_all
         monkeypatch.setattr(inner, "list_all", lambda prefix="": listings.append(prefix) or real(prefix))

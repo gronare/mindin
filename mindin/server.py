@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from typing import Any
 
 from mcp.server.auth.middleware.auth_context import get_access_token
@@ -10,7 +11,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import Tool as MCPTool
 
-from mindin import changelog, note_templates, notes, provision, repo_pages, tasks, views
+from mindin import changelog, feed, note_templates, notes, provision, repo_pages, tasks, views
 from mindin.backends import VaultError
 from mindin.dav import DavCredentials
 from mindin.frontmatter import FrontmatterError
@@ -518,6 +519,33 @@ def build_server(
                 expected=(*EXPECTED_FAILURES, ValueError),
                 shared_refuses="changelog" if write else None,
             )
+
+    @server.tool(
+        name="changes",
+        description=(
+            "CHEAP — for tools that follow a vault, such as a board: the notes written, deleted or moved since cursor, "
+            'each once in its latest state, with its frontmatter and, with include "body", its body. Answers JSON '
+            '{"cursor", "reset", "more", "changes": [{"key", "action": write|delete|schema, "version", "note"}]}. '
+            "Without cursor, or when the cursor is too old to follow, reset is true: read the whole vault, then "
+            "follow from the cursor. more means call again at once. wait holds the answer up to "
+            f"{int(feed.MAX_WAIT_SECONDS)} seconds until something changes." + vault_note
+        ),
+    )
+    async def changes_tool(
+        since: str | None = None,
+        limit: int = feed.DEFAULT_LIMIT,
+        wait: float = 0,
+        include: str = "frontmatter",
+        vault: str | None = None,
+    ) -> str:
+        def opened() -> AbstractContextManager[Vault]:
+            return resolver.using() if vault is None else resolver.using_named(vault)
+
+        try:
+            found = await feed.changes(opened, since=since, limit=limit, wait=wait, include=include)
+        except (*EXPECTED_FAILURES, ValueError) as exc:
+            raise ToolError(str(exc)) from exc
+        return json.dumps(found, ensure_ascii=False)
 
     @server.tool(
         name="template",

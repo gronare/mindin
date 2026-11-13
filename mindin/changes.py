@@ -3,11 +3,12 @@ from __future__ import annotations
 import logging
 import queue
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from mindin.backends import Entry, VaultBackend, delete_checked
+from mindin.feed import Written, action_of
 
 Kind = Literal["write", "schema", "gone", "all"]
 Listener = Callable[["Change"], None]
@@ -111,17 +112,24 @@ class Publisher:
 
 
 class Announcing:
-    """A vault's backend that calls `changed` after every write that went through."""
+    """A vault's backend that calls `changed` with what it wrote after every write that went through."""
 
-    def __init__(self, inner: VaultBackend, changed: Callable[[], None]) -> None:
+    def __init__(self, inner: VaultBackend, changed: Callable[[Sequence[Written]], None]) -> None:
         self.inner = inner
         self._changed = changed
 
-    def changed(self) -> None:
+    def __getattr__(self, name: str) -> object:
+        return getattr(self.inner, name)
+
+    def changed(self, *writes: Written) -> None:
         try:
-            self._changed()
+            self._changed(writes)
         except Exception:
             log.exception("mindin: could not announce a write")
+
+    def wrote(self, key: str, version: str | None) -> str | None:
+        self.changed(Written(key, action_of(key, "write"), version))
+        return version
 
     def list(self) -> list[Entry]:
         return self.inner.list()
@@ -137,12 +145,12 @@ class Announcing:
 
     def put(self, key: str, text: str, expected_version: str | None = None) -> str:
         version = self.inner.put(key, text, expected_version)
-        self.changed()
+        self.wrote(key, version)
         return version
 
     def put_bytes(self, key: str, data: bytes, content_type: str | None = None) -> str:
         version = self.inner.put_bytes(key, data, content_type)
-        self.changed()
+        self.wrote(key, version)
         return version
 
     def put_checked(
@@ -153,24 +161,24 @@ class Announcing:
             version = put_checked(key, data, expected_version)
         else:
             version = put_checked(key, data, expected_version, content_type)
-        self.changed()
+        self.wrote(key, version)
         return version
 
     def delete(self, key: str) -> None:
         self.inner.delete(key)
-        self.changed()
+        self.changed(Written(key, "delete"))
 
     def delete_checked(self, key: str, expected_version: str) -> None:
         delete_checked(self.inner, key, expected_version)
-        self.changed()
+        self.changed(Written(key, "delete"))
 
     def move(self, src: str, dst: str) -> None:
         self.inner.move(src, dst)
-        self.changed()
+        self.changed(Written(src, "delete"), Written(dst, action_of(dst, "write")))
 
     def mkdir(self, key: str) -> None:
         self.inner.mkdir(key)
-        self.changed()
+        self.changed(Written(key, "write"))
 
     def forget_listing(self) -> None:
         forget_listing(self.inner)

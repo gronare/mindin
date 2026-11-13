@@ -42,7 +42,7 @@ Keeping a vault tidy:
 - [Configuration](reference/configuration.md): every environment variable.
 - [MCP tools](reference/tools.md)
 - [Command line](reference/command-line.md)
-- [Agent commands](reference/agent-commands.md): `task`, `log`, `snapshot` and `status`, JSON out.
+- [Agent commands](reference/agent-commands.md): `task`, `log`, `snapshot`, `changes`, `watch` and `status`, JSON out.
 - [Hooks](reference/hooks.md): `session-start` and `stop`.
 - [The schema file](reference/schema.md): `.vault/schema.yml`.
 - [Device flow](reference/device-flow.md): signing a tool in without a browser.

@@ -1,6 +1,6 @@
 # Command line
 
-`mindin --help` and `mindin <command> --help` print every option. The commands for tools that drive agents (`task`, `log`, `snapshot`, `status`) are in [Agent commands](agent-commands.md).
+`mindin --help` and `mindin <command> --help` print every option. The commands for tools that drive agents (`task`, `log`, `snapshot`, `changes`, `watch`, `read --json`, `write`, `status`) are in [Agent commands](agent-commands.md).
 
 ## Setting up a machine
 
@@ -33,7 +33,8 @@ mindin sync [--rebuild]                 # refresh the index; --rebuild reads eve
 mindin embed-worker [--listen 127.0.0.1:7400] [--model <name>]  # the model in its own process
 mindin search "bokning" --limit 5       # the same ranking, from a shell
 mindin context [--path ~/projects/myapp] # what a session in this repo starts with
-mindin read Projects/myapp-idea.md [--body] [--raw]
+mindin read Projects/myapp-idea.md [--body] [--raw] [--json]
+mindin write Projects/myapp-idea.md [--etag ETAG] < note.md
 mindin lint [--kind orphans] [--write Log/lint.md] [--park-stale]
 mindin schema check [schema.yml] [--json]  # the schema's problems and what its layout supports
 mindin backlog [--area myapp] [--priority high] [--paths] [--all]

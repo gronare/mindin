@@ -22,7 +22,7 @@ def test_about_answers_the_contract_kebbie_reads(capsys):
         "name": "mindin",
         "version": cli.package_version(),
         "contract": 1,
-        "capabilities": ["tasks", "claims", "log", "snapshot", "read", "templates"],
+        "capabilities": ["tasks", "claims", "log", "snapshot", "changes", "watch", "read", "write", "templates"],
         "former_names": ["notes-vault-mcp"],
     }
 
@@ -31,9 +31,11 @@ def test_about_lists_only_the_commands_the_parser_has():
     parser = build_parser()
     commands = parser._subparsers._group_actions[0].choices
     del commands["snapshot"]
+    del commands["watch"]
+    del commands["write"]
     del commands["template"]
     del commands["task"]._subparsers._group_actions[0].choices["claim"]
-    assert about(parser)["capabilities"] == ["tasks", "log", "read"]
+    assert about(parser)["capabilities"] == ["tasks", "log", "changes", "read"]
 
 
 def test_the_former_name_runs_mindins_command():

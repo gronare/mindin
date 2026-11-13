@@ -57,7 +57,7 @@ def provision_vault(sealed: SealedVaults, vault: Vault, preset: str, dav_url: st
 
 
 def switch_layout(vaults: SubjectVaults, vault: Vault, preset: str, start_from: str | None = None) -> str:
-    backend = vaults.backend_factory(vault.id)[0]
+    backend = vaults.announced(vault.id, vaults.backend_factory(vault.id)[0])
     current = provision.named_preset(provision.stored(backend, SCHEMA_KEY))
     if current == BUILT_IN:
         raise LayoutKept("The built-in layout is kept; it is switched from the CLI only.")

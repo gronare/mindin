@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +16,7 @@ from mindin.backends import VaultBackend, VaultError, make_backend, make_subject
 from mindin.changes import NULL_BUS, Announcing, Change, ChangeBus, Kind, Publisher, forget_listing
 from mindin.config import cache_dir, env
 from mindin.embedding import Embedder, configured_embedder
+from mindin.feed import Feed, IndexFeed, Recorder, StoreFeed, Wakers, Written, in_feed
 from mindin.index import Index, remove_index
 from mindin.schema import Schema, deep_merge, default_schema_data, load_schema
 from mindin.shared import SharedRules, shared_backend
@@ -51,6 +52,7 @@ class Vault:
         self.background = background
         self.rules: SharedRules | None = None
         self._index = index
+        self._feed: Feed | None = None
         self._stale = False
         self._schema_changed = False
         self._catching_up = threading.Lock()
@@ -69,6 +71,16 @@ class Vault:
                 on_settled=self.settled,
             )
         return self._index
+
+    @property
+    def feed(self) -> Feed:
+        if self._feed is None:
+            self._feed = IndexFeed(self)
+        return self._feed
+
+    @feed.setter
+    def feed(self, feed: Feed) -> None:
+        self._feed = feed
 
     @property
     def index_opened(self) -> bool:
@@ -261,9 +273,10 @@ class Unconfigured:
 
 
 class VaultChanges:
-    def __init__(self, open_vaults: VaultCache, gone: Callable[[str], None]) -> None:
+    def __init__(self, open_vaults: VaultCache, gone: Callable[[str], None], waking: Wakers | None = None) -> None:
         self.open_vaults = open_vaults
         self.gone = gone
+        self.waking = waking or Wakers()
         self.origin = secrets.token_hex(8)
         self.bus: ChangeBus = NULL_BUS
         self._publisher: Publisher | None = None
@@ -283,6 +296,10 @@ class VaultChanges:
             self._publisher.drain()
 
     def apply(self, change: Change) -> None:
+        if change.kind == "all":
+            self.waking.wake_all()
+        else:
+            self.waking.wake(change.vault_id)
         if change.origin == self.origin:
             return
         if change.kind == "all":
@@ -376,7 +393,9 @@ class SubjectVaults:
         self.backend_factory: BackendFactory = self.plain_backend
         self.identify: Callable[[str], str] = lambda subject: self.plain_backend(subject)[1]
         self.open_vaults = VaultCache(idle_seconds, clock, self._leave)
-        self.changes = VaultChanges(self.open_vaults, self._gone)
+        self.waking = Wakers()
+        self.feed: Recorder | None = None
+        self.changes = VaultChanges(self.open_vaults, self._gone, self.waking)
         self.snapshotting: SnapshotSchedule | None = None
         self.sweeping = IndexSweep(self.cache, self._opened_identifiers)
         self.resolver = TokenResolver(self.using_subject, self.for_subject)
@@ -422,6 +441,26 @@ class SubjectVaults:
 
     def use_bus(self, bus: ChangeBus) -> None:
         self.changes.use(bus)
+
+    def use_feed(self, feed: Recorder) -> None:
+        with self.open_vaults.lock:
+            if not self.open_vaults.empty:
+                raise VaultError("the change feed of subject vaults is chosen once, before any vault opens")
+            self.feed = feed
+
+    def announced(self, subject: str, backend: VaultBackend) -> VaultBackend:
+        if self.bus is NULL_BUS and self.feed is None:
+            return backend
+        return Announcing(backend, lambda writes: self.wrote_through(subject, writes))
+
+    def wrote_through(self, subject: str, writes: Sequence[Written]) -> None:
+        recorded = [written for written in writes if in_feed(written.key)]
+        try:
+            if self.feed is not None and recorded:
+                self.feed.record(subject, recorded)
+                self.waking.wake(subject)
+        finally:
+            self.publish(subject, "write")
 
     def use_reach(self, reach: Reach) -> None:
         self.resolver.reach = reach
@@ -507,7 +546,7 @@ class SubjectVaults:
             provision.initialize(shared.inner, preset=shared.layout)
         elif provision.is_empty(backend):
             provision.initialize(backend, schema_template=self.schema_template, welcome={"DAV_URL": self.dav_url})
-        announced = backend if self.bus is NULL_BUS else Announcing(backend, lambda: self.publish(subject, "write"))
+        announced = self.announced(subject, backend)
         index_path = self.cache / f"{identifier}.sqlite"
         schedule = self.snapshotting
         if schedule is not None:
@@ -521,6 +560,8 @@ class SubjectVaults:
             settled=None if schedule is None else lambda: schedule.later(subject, index_path),
         )
         vault.rules = shared.rules if shared is not None else None
+        if self.feed is not None:
+            vault.feed = StoreFeed(self.feed, subject, self.waking)
         return vault
 
     def discard(self, subject: str) -> None:

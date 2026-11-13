@@ -143,7 +143,7 @@ async def test_writes_through_mcp_and_webdav_leave_no_plaintext_in_storage(
 @pytest.mark.anyio
 async def test_a_hosted_vault_is_always_sealed_and_cannot_be_switched_to_plain(site: Hosted, vaults: SubjectVaults):
     await site.member("ann@example.com", sub="sub-ann")
-    assert isinstance(vaults.for_subject(site.vault_of("ann@example.com")).backend, SealedBackend)
+    assert isinstance(vaults.for_subject(site.vault_of("ann@example.com")).backend.inner, SealedBackend)
     with pytest.raises(VaultError):
         vaults.use_backends(vaults.plain_backend)
 

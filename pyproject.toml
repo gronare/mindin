@@ -26,6 +26,7 @@ dependencies = [
     "webauthn>=3.0.1",
     "cryptography>=50.0.2",
     "dnspython>=2.7",
+    "watchdog>=6.0",
 ]
 
 [project.optional-dependencies]

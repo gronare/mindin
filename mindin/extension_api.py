@@ -21,6 +21,8 @@ from mindin.extensions import (
     VaultSection,
     installed,
 )
+from mindin.feed import Written
+from mindin.feed import changes as feed_changes
 from mindin.hosted.accounts.access import RequestRefused, SupportAccess, SupportRequest, ask_for_support
 from mindin.hosted.accounts.deletion import delete_departed
 from mindin.hosted.accounts.history import History
@@ -32,6 +34,7 @@ from mindin.hosted.accounts.vaults import SHARED, Vault, rewrite_slugs
 from mindin.hosted.app import build_hosted_app, passes
 from mindin.hosted.config import MACHINE_KEY_PURPOSE, AuthConfig, GithubConfig, OidcConfig, SmtpConfig, auth_dir
 from mindin.hosted.database import Connection, Database, account_tables, has_table
+from mindin.hosted.feed import ChangeFeed
 from mindin.hosted.orgs.organisations import Organisation, OrganisationError, Organisations
 from mindin.hosted.pages.account import SelfDeletion
 from mindin.hosted.pages.html import esc
@@ -69,6 +72,7 @@ __all__ = [
     "Browser",
     "Change",
     "ChangeBus",
+    "ChangeFeed",
     "ConfigError",
     "Connection",
     "Database",
@@ -115,6 +119,7 @@ __all__ = [
     "VaultKeys",
     "VaultSection",
     "VersionConflict",
+    "Written",
     "account_of",
     "account_tables",
     "ask_for_support",
@@ -125,6 +130,7 @@ __all__ = [
     "delete_departed",
     "digest",
     "env",
+    "feed_changes",
     "esc",
     "has_table",
     "honours_conditions",

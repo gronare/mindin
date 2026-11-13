@@ -20,7 +20,7 @@ from mindin import (
     provision,
     setup,
 )
-from mindin.backends import NotFound
+from mindin.backends import NotFound, VersionConflict
 from mindin.client import open_client
 from mindin.config import FORMER_NAMES, NO_VAULT_YET, ConfigError, cache_dir, env, local_root, s3_settings
 from mindin.embedding import keep_warm
@@ -332,6 +332,38 @@ def json_command(action: str) -> Callable[[argparse.Namespace], int]:
     return run
 
 
+def command_watch(args: argparse.Namespace) -> int:
+    def emit(found: dict) -> None:
+        print(json.dumps(found, ensure_ascii=False), flush=True)
+
+    try:
+        adopt_config()
+        with open_client() as client:
+            client.watch(args, emit)
+    except KeyboardInterrupt:
+        return 0
+    except Exception as exc:
+        print(one_line(exc), file=sys.stderr)
+        return 1
+    return 0
+
+
+def command_write(args: argparse.Namespace) -> int:
+    content = sys.stdin.read()
+    try:
+        adopt_config()
+        with open_client() as client:
+            found = client.write_note(args.path, content, args.etag)
+    except Exception as exc:
+        message = one_line(exc)
+        if args.etag and (isinstance(exc, VersionConflict) or "changed since it was read" in message):
+            message = f"mindin: the etag {args.etag} no longer matches {args.path}; it changed since it was read"
+        print(message, file=sys.stderr)
+        return 1
+    print(json.dumps(found, ensure_ascii=False))
+    return 0
+
+
 def read_note(path: str) -> str:
     with open_client() as client:
         return client.read(path)
@@ -340,6 +372,10 @@ def read_note(path: str) -> str:
 def command_read(args: argparse.Namespace) -> int:
     try:
         adopt_config()
+        if args.json:
+            with open_client() as client:
+                print(json.dumps(client.read_stored(args.path), ensure_ascii=False))
+            return 0
         text = read_note(args.path)
     except Exception as exc:
         print(one_line(exc), file=sys.stderr)
@@ -517,7 +553,10 @@ CAPABILITIES = {
     "claims": ("task", "claim"),
     "log": ("log",),
     "snapshot": ("snapshot",),
+    "changes": ("changes",),
+    "watch": ("watch",),
     "read": ("read",),
+    "write": ("write",),
     "templates": ("template",),
 }
 
@@ -566,6 +605,13 @@ def command_move(args: argparse.Namespace) -> int:
     from mindin import move
 
     return move.command_move(args)
+
+
+def add_feed_arguments(parser: argparse.ArgumentParser, since: str) -> None:
+    parser.add_argument("--json", action="store_true", help="answer JSON, the only output there is")
+    parser.add_argument("--since", metavar="CURSOR", help=since)
+    parser.add_argument("--body", action="store_true", help="each note's body too, besides its frontmatter")
+    parser.add_argument("--limit", type=int, help="the most notes in one answer (default 100)")
 
 
 def add_plain(parser: argparse.ArgumentParser) -> None:
@@ -660,8 +706,20 @@ def build_parser() -> argparse.ArgumentParser:
     printing.add_argument("path", help="the note's vault path, e.g. Projects/export.md")
     printing.add_argument("--body", action="store_true", help="only the text after the frontmatter")
     printing.add_argument("--raw", action="store_true", help="print the file exactly as stored")
+    printing.add_argument(
+        "--json", action="store_true", help='answer {"text": the whole note, "etag": its version} for a later write'
+    )
     add_plain(printing)
     printing.set_defaults(func=command_read)
+
+    writing = sub.add_parser(
+        "write", help="write one note from stdin through the same checks as write_file (JSON out: path and etag)"
+    )
+    writing.add_argument("path", help="the note's vault path, e.g. Projects/export.md")
+    writing.add_argument(
+        "--etag", help="write only over this version, from read --json; * creates a note that must not exist yet"
+    )
+    writing.set_defaults(func=command_write)
 
     find = sub.add_parser("search", help="search the index from the shell")
     find.add_argument("query")
@@ -746,6 +804,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--since", metavar="ETAG", help='answer only {"unchanged": true, "etag": ...} while the etag still holds'
     )
     board.set_defaults(func=json_command("snapshot"))
+
+    following = sub.add_parser(
+        "changes",
+        help="the notes changed since a cursor, each once in its latest state, and the next cursor (JSON out)",
+    )
+    add_feed_arguments(
+        following,
+        "the cursor of the previous answer; without it, reset is true and the answer carries the cursor to follow from",
+    )
+    following.add_argument(
+        "--wait", type=float, default=0, metavar="SECONDS", help="hold the answer until something changes or this ends"
+    )
+    following.set_defaults(func=json_command("changes"))
+    watching = sub.add_parser(
+        "watch", help="follow the vault: one JSON line now with the cursor, then one per batch of changes"
+    )
+    add_feed_arguments(watching, "the cursor to follow from; without it, the first line has reset true")
+    watching.set_defaults(func=command_watch)
 
     signing_in = sub.add_parser("login", help="sign this machine in to a vault server and store its key")
     signing_in.add_argument("url", nargs="?", help="the server, e.g. https://vault.example.com; VAULT_SERVER_URL")

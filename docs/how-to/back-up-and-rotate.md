@@ -7,6 +7,8 @@ A server's vaults are read with two things together, and with neither alone:
 - The master key in `VAULT_HOSTED_MASTER_KEY`. Keep it outside the bucket and outside the server's machine.
 - `hosted.sqlite` under `VAULT_AUTH_DIR` (`/data/auth` in the image), which holds every vault's key sealed by the master key, and the accounts, ways in, hashed keys and tokens, and registered clients.
 
+Copy `hosted.sqlite` with the server stopped, or with SQLite's own backup (`sqlite3 hosted.sqlite ".backup copy.sqlite"`) while it runs: a running server keeps its latest writes in `hosted.sqlite-wal` beside it, and a plain copy of the one file can miss them.
+
 Back up the vaults' storage as well: the folder in `VAULT_PATH` or the bucket. The search indexes under `VAULT_CACHE_DIR` are rebuilt from the vaults and need no backup.
 
 Each person can also download a personal vault as a zip from its page at any time.

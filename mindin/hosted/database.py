@@ -6,6 +6,8 @@ from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import Any, Protocol
 
+BUSY_TIMEOUT_SECONDS = 5.0
+
 
 class Connection(Protocol):
     """One open connection: qmark parameters, rows readable by column name and by index."""
@@ -58,8 +60,10 @@ class SqliteDatabase:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.path)
+        connection = sqlite3.connect(self.path, timeout=BUSY_TIMEOUT_SECONDS)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA synchronous = NORMAL")
         connection.execute("PRAGMA foreign_keys = ON")
         try:
             yield connection
@@ -74,7 +78,7 @@ class SqliteDatabase:
         return columns(connection, table)
 
     def migrate(self, steps: Sequence[Step]) -> int:
-        connection = sqlite3.connect(self.path, isolation_level=None)
+        connection = sqlite3.connect(self.path, timeout=BUSY_TIMEOUT_SECONDS, isolation_level=None)
         connection.row_factory = sqlite3.Row
         try:
             connection.execute("BEGIN IMMEDIATE")

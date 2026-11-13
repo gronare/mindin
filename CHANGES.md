@@ -22,6 +22,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 
 ### Fixed
 - A hosted server shutting down ends open requests within five seconds, so a restart no longer waits on them.
+- The hosted server no longer answers "database is locked" when one request writes while another reads.
 
 ## 0.17.0
 

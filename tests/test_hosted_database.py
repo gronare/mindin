@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -131,3 +131,17 @@ def test_two_removals_racing_for_the_last_two_ways_in_leave_one(tmp_path: Path):
         account_id = two_ways_in(store)
         assert sorted(race(store, account_id, [("oidc", "sub-ann"), ("github", "5")])) == ["last", "removed"]
         assert len(Identities(store).ways_in(account_id)) == 1
+
+
+def test_a_write_commits_while_another_connection_is_reading(tmp_path: Path):
+    database = SqliteDatabase(tmp_path / "hosted.sqlite")
+    with database.connect() as connection:
+        connection.execute("CREATE TABLE notes (body TEXT)")
+    with closing(sqlite3.connect(database.path, isolation_level=None)) as reader:
+        reader.execute("BEGIN")
+        assert reader.execute("SELECT COUNT(*) FROM notes").fetchone()[0] == 0
+        with database.connect() as writer:
+            writer.execute("INSERT INTO notes VALUES ('written')")
+        assert reader.execute("SELECT COUNT(*) FROM notes").fetchone()[0] == 0
+        reader.execute("COMMIT")
+        assert reader.execute("SELECT COUNT(*) FROM notes").fetchone()[0] == 1

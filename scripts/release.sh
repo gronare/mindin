@@ -12,7 +12,7 @@ esac
 tag="v$version"
 image=ghcr.io/gronare/mindin
 former=notes-vault-mcp
-pinned="deploy/k8s/deployment.yaml deploy/docker/compose.yml docs/install/semantic-search.md"
+pinned="deploy/k8s/deployment.yaml deploy/docker/compose.yml docs/install/semantic-search.md docs/install/kubernetes.md"
 plugin="plugin/.claude-plugin/plugin.json plugin/.mcp.json plugin/hooks/hooks.json plugin/commands/login.md"
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"
@@ -54,7 +54,7 @@ expect mindin/server.py "VERSION = \"$version\"" 1
 expect server.json "\"version\": \"$version\"" 2
 expect docs/reference/agent-commands.md "\"version\": \"$version\"" 3
 expect docs/install/semantic-search.md "$image:$tag-semantic" 1
-for file in deploy/k8s/deployment.yaml deploy/docker/compose.yml; do expect "$file" "$image:$tag" 1; done
+for file in deploy/k8s/deployment.yaml deploy/docker/compose.yml docs/install/kubernetes.md; do expect "$file" "$image:$tag" 1; done
 expect plugin/.claude-plugin/plugin.json "\"version\": \"$version\"" 1
 expect plugin/.mcp.json "==$version\"" 1
 expect plugin/hooks/hooks.json "==$version hook" 2

@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 from test_cli_hooks import make_repo
 
+from mindin.backends import StorageError
+from mindin.backends.local import LocalBackend
 from mindin.cli import main
 from mindin.config import plugin_options
 from mindin.frontmatter import parse
@@ -189,7 +191,44 @@ def test_status_without_config_is_unconfigured_and_exits_zero(capsys):
     status = run(capsys, "status")
     assert status["configured"] is False and status["writable"] is None and status["backend"] is None
     assert status["version"]
-    assert run(capsys, "status", "--probe")["writable"] is False
+    probed = run(capsys, "status", "--probe")
+    assert probed["writable"] is False and probed["reason"] == "no vault is configured; run `mindin setup`"
+
+
+def test_status_says_why_a_vault_is_not_writable(configured: Path, capsys, monkeypatch: pytest.MonkeyPatch):
+    def denied(self: LocalBackend, key: str, text: str, expected_version: str | None = None) -> str:
+        raise StorageError("the bucket notes answered AccessDenied: Access Denied", "AccessDenied")
+
+    monkeypatch.setattr(LocalBackend, "put", denied)
+    status = run(capsys, "status", "--probe")
+    assert status["writable"] is False
+    assert status["reason"] == "the bucket notes answered AccessDenied: Access Denied"
+
+
+def test_status_names_an_s3_endpoint_that_is_no_address(capsys, monkeypatch: pytest.MonkeyPatch):
+    settings = {"S3_ENDPOINT": "not a url", "S3_ACCESS_KEY": "a", "S3_SECRET_KEY": "b", "S3_BUCKET": "notes"}
+    for name, value in settings.items():
+        monkeypatch.setenv(name, value)
+    status = run(capsys, "status", "--probe")
+    assert status["backend"] == "s3" and status["writable"] is False
+    assert status["reason"] == "the bucket notes cannot be set up: Invalid endpoint: not a url"
+
+
+def test_status_gives_no_reason_when_the_vault_is_writable_or_not_probed(configured: Path, capsys):
+    assert "reason" not in run(capsys, "status", "--probe")
+    assert "reason" not in run(capsys, "status")
+
+
+@pytest.mark.parametrize(("failure", "reason"), [(RuntimeError("a bug"), "a bug"), (KeyError(), "KeyError")])
+def test_status_answers_with_the_reason_whatever_the_probe_raises(
+    configured: Path, capsys, monkeypatch: pytest.MonkeyPatch, failure: Exception, reason: str
+):
+    def broken(self: LocalBackend, key: str, text: str, expected_version: str | None = None) -> str:
+        raise failure
+
+    monkeypatch.setattr(LocalBackend, "put", broken)
+    status = run(capsys, "status", "--probe")
+    assert status["writable"] is False and status["reason"] == reason
 
 
 def test_status_reports_a_writable_local_vault(configured: Path, capsys):

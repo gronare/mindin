@@ -20,6 +20,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - `mindin migrate` brings the account store up to the release and exits, for an upgrade step before the server starts.
 - The server refuses to start on an account store a newer release wrote.
 - `lint` reads notes from the index instead of fetching each one from storage.
+- `mindin status --probe` says why a vault is not writable, in `reason`.
 
 ### Fixed
 - A hosted server shutting down ends open requests within five seconds, so a restart no longer waits on them.

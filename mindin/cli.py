@@ -404,13 +404,21 @@ def command_read(args: argparse.Namespace) -> int:
     return 0
 
 
-def is_writable(vault: Vault) -> bool:
+def write_refusal(vault: Vault) -> str | None:
     try:
         vault.backend.put(WRITE_PROBE_KEY, "")
         vault.backend.delete(WRITE_PROBE_KEY)
-    except Exception:
-        return False
-    return True
+    except Exception as exc:
+        return said(exc)
+    return None
+
+
+def said(exc: Exception) -> str:
+    return " ".join(str(exc).split()).removeprefix("mindin: ") or type(exc).__name__
+
+
+def because(reason: str | None) -> dict:
+    return {} if reason is None else {"reason": reason}
 
 
 def remote_status(url: str, probe: bool, source: str | None = None) -> dict:
@@ -419,23 +427,34 @@ def remote_status(url: str, probe: bool, source: str | None = None) -> dict:
     vault, entry = credentials.chosen(url)
     signed_in = entry is not None
     writable: bool | None = None
+    reason: str | None = None
     found: dict = {}
     if probe:
         try:
-            found = remote.whoami(url) if signed_in else {}
-            writable = bool(found["write"]) if signed_in else False
-        except Exception:
-            writable = False
-    return {
-        "configured": signed_in,
-        "version": package_version(),
-        "backend": "server",
-        "source": source,
-        "writable": writable,
-        "server": url,
-        "vault": vault,
-        "signed_in": signed_in,
-    } | vault_kind(found)
+            if not signed_in:
+                raise remote.NotSignedIn(url, vault)
+            found = remote.whoami(url)
+            if "write" not in found:
+                reason = f"{url} did not say whether this machine may write"
+            elif not found["write"]:
+                reason = f"this machine's key for {url} may only read; sign in again with `mindin login {url}`"
+        except Exception as exc:
+            reason = said(exc)
+        writable = reason is None
+    return (
+        because(reason)
+        | {
+            "configured": signed_in,
+            "version": package_version(),
+            "backend": "server",
+            "source": source,
+            "writable": writable,
+            "server": url,
+            "vault": vault,
+            "signed_in": signed_in,
+        }
+        | vault_kind(found)
+    )
 
 
 def vault_kind(found: dict) -> dict:
@@ -451,6 +470,19 @@ def signals_status() -> dict:
     return {"signals": shown, "signals_source": decided, "signals_change": install_signal.CHANGE}
 
 
+def local_refusal(backend: str | None) -> str | None:
+    if backend is None:
+        return "no vault is configured; run `mindin setup`"
+    try:
+        vault = open_vault()
+        try:
+            return write_refusal(vault)
+        finally:
+            vault.close()
+    except Exception as exc:
+        return said(exc)
+
+
 def command_status(args: argparse.Namespace) -> int:
     found = adopt_config()
     source = found if found != "none" else None
@@ -462,17 +494,9 @@ def command_status(args: argparse.Namespace) -> int:
         print(json.dumps(remote_status(url, args.probe, source) | signals_status()))
         return 0
     backend = "local" if local_root() is not None else "s3" if s3_settings() is not None else None
-    writable: bool | None = None if not args.probe else False
-    if backend is not None and args.probe:
-        try:
-            vault = open_vault()
-            try:
-                writable = is_writable(vault)
-            finally:
-                vault.close()
-        except Exception:
-            writable = False
-    status = {
+    reason = local_refusal(backend) if args.probe else None
+    writable = reason is None if args.probe else None
+    status = because(reason) | {
         "configured": backend is not None,
         "version": package_version(),
         "backend": backend,

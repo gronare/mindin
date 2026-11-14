@@ -98,7 +98,7 @@ How a wait learns of a change depends on where the vault is:
 
 ## status
 
-`status` never fails: with no vault configured it prints `"configured": false, "backend": null, "source": null` and exits 0. `source` names what decided where the vault is: `env`, `config` (mindin's own, from `setup`) or `plugin` ([Where commands find the vault](command-line.md#where-commands-find-the-vault)). Through a server it answers `"backend": "server"` with the `server` and whether this machine is `signed_in`. It is read-only and leaves `writable` null; `--probe` measures it by writing and deleting `.vault/write-probe`. `signals` is `on`, `off` or `not asked` for the [install signal](configuration.md#install-signal), `signals_source` names what decided it, `env` or `config` (`null` while not asked), and `signals_change` is the command that changes it.
+`status` never fails, with or without `--probe`: with no vault configured it prints `"configured": false, "backend": null, "source": null` and exits 0. `source` names what decided where the vault is: `env`, `config` (mindin's own, from `setup`) or `plugin` ([Where commands find the vault](command-line.md#where-commands-find-the-vault)). Through a server it answers `"backend": "server"` with the `server` and whether this machine is `signed_in`. It is read-only and leaves `writable` null; `--probe` measures it by writing and deleting `.vault/write-probe`, and when that fails adds `reason` with what the storage or the server answered. `signals` is `on`, `off` or `not asked` for the [install signal](configuration.md#install-signal), `signals_source` names what decided it, `env` or `config` (`null` while not asked), and `signals_change` is the command that changes it.
 
 ## about
 

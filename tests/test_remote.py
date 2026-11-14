@@ -339,8 +339,51 @@ def test_a_read_only_key_is_refused_writes_clearly(served: Served, monkeypatch, 
     assert "may only read the vault; writing needs the vault:write scope" in capsys.readouterr().err
     assert main(["log", "append", "--cwd", str(repo), "--line", "x"]) == 1
     assert "may only read the vault" in capsys.readouterr().err
-    assert run_json(capsys, "status", "--probe")["writable"] is False
+    status = run_json(capsys, "status", "--probe")
+    assert status["writable"] is False
+    assert (
+        status["reason"]
+        == f"this machine's key for {served.url} may only read; sign in again with `mindin login {served.url}`"
+    )
     assert run_json(capsys, "whoami")["write"] is False
+
+
+def test_status_says_why_a_server_does_not_take_this_machines_writes(served: Served, monkeypatch, capsys):
+    credentials.save(served.url, {"key": "nvm_not-a-key-the-server-knows", "scope": "vault:write", "name": "laptop"})
+    monkeypatch.setenv("VAULT_SERVER_URL", served.url)
+    status = run_json(capsys, "status", "--probe")
+    assert status["writable"] is False
+    assert "refused the stored key (401)" in status["reason"]
+
+
+def test_status_answers_when_the_server_says_something_that_is_no_answer(remote: Served, monkeypatch, capsys):
+    from mindin import remote as client
+
+    monkeypatch.setattr(client, "tool_text", lambda url, tool, **arguments: "<html>a proxy's error page</html>")
+    status = run_json(capsys, "status", "--probe")
+    assert status["writable"] is False and status["reason"]
+
+
+def test_status_says_a_machine_is_not_signed_in(served: Served, monkeypatch, capsys):
+    monkeypatch.setenv("VAULT_SERVER_URL", served.url)
+    status = run_json(capsys, "status", "--probe")
+    assert status["signed_in"] is False and status["writable"] is False
+    assert status["reason"] == f"not signed in to {served.url}; run `mindin login {served.url}`"
+    assert "reason" not in run_json(capsys, "status")
+
+
+def test_status_says_when_a_server_does_not_tell_whether_the_key_may_write(remote: Served, monkeypatch, capsys):
+    from mindin import remote as client
+
+    monkeypatch.setattr(client, "whoami", lambda url: {})
+    status = run_json(capsys, "status", "--probe")
+    assert status["writable"] is False
+    assert status["reason"] == f"{remote.url} did not say whether this machine may write"
+
+
+def test_a_signed_in_machine_with_a_write_key_is_writable_without_a_reason(remote: Served, capsys):
+    status = run_json(capsys, "status", "--probe")
+    assert status["writable"] is True and "reason" not in status
 
 
 def test_status_names_the_server(remote: Served, capsys):

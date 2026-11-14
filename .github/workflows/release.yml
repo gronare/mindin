@@ -242,3 +242,21 @@ jobs:
             exit 0
           fi
           gh workflow run deploy.yml --repo gronare/mindin-site --ref main || echo "::warning::mindin.dev's deploy did not start; run it from gronare/mindin-site's Actions tab"
+
+  deploy:
+    needs: [release]
+    if: vars.DEPLOY_REPO != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start the deploy of this version to the server the repo variables name
+        env:
+          GH_TOKEN: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
+          DEPLOY_REPO: ${{ vars.DEPLOY_REPO }}
+          DEPLOY_WORKFLOW: ${{ vars.DEPLOY_WORKFLOW || 'deploy.yml' }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::DEPLOY_DISPATCH_TOKEN is not set, so no deploy was started"
+            exit 0
+          fi
+          gh workflow run "$DEPLOY_WORKFLOW" --repo "$DEPLOY_REPO" --ref main -f mindin="${GITHUB_REF_NAME#v}"
+          echo "Started the deploy of ${GITHUB_REF_NAME#v}" >> "$GITHUB_STEP_SUMMARY"

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from mindin import credentials
 from mindin.client import CHANGELOG_META, AskedPrompts, VaultClient, open_client
+from mindin.config import env
 from mindin.git import git, main_checkout, repo_name, repo_root
 from mindin.index import expand_home
 
@@ -257,11 +258,11 @@ def unsaved_prompts(found: Transcript, last_asked: str | None) -> list[str]:
 
 
 def _switched_off(name: str) -> bool:
-    return (os.environ.get(name) or "").lower() == "off"
+    return (env(name) or "").lower() == "off"
 
 
 def prompt_threshold() -> int:
-    raw = (os.environ.get("VAULT_STOP_HOOK_PROMPTS") or "").strip().lower()
+    raw = (env("VAULT_STOP_HOOK_PROMPTS") or "").strip().lower()
     if raw == "off":
         return 0
     try:

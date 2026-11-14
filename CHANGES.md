@@ -31,6 +31,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - `search` and `backlog` with a negative `limit` answer no notes instead of all but the last few.
 - A search setting that would break search is reported and falls back to its default, and the vault keeps its layout.
 - WebDAV refuses a path with a NUL character.
+- The stop hook's settings also apply when set as plugin options.
 
 ## 0.17.0
 

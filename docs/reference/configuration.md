@@ -1,6 +1,6 @@
 # Configuration
 
-Every setting is an environment variable. Settings read through the server's settings reader are also read from `CLAUDE_PLUGIN_OPTION_<NAME>`, which is how the Claude Code plugin passes them; the bare name wins when both are set. The [hook switches](#hooks) and the [terminal settings](#terminal-and-claude-code) are read by their bare name only.
+Every setting is an environment variable. Settings read through the server's settings reader are also read from `CLAUDE_PLUGIN_OPTION_<NAME>`, which is how the Claude Code plugin passes them; the bare name wins when both are set. The [terminal settings](#terminal-and-claude-code) are read by their bare name only.
 
 **Required** says when a setting must be present:
 
@@ -111,7 +111,7 @@ A domain an organisation adds is verified by a TXT record at `_mindin-verify.<do
 
 ## Hooks
 
-Read by their bare name only. [Hooks](hooks.md) describes the checks.
+Also read from `CLAUDE_PLUGIN_OPTION_<NAME>`, like the server's settings. [Hooks](hooks.md) describes the checks.
 
 | Variable | Required | Default | Meaning |
 | --- | --- | --- | --- |

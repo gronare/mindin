@@ -662,3 +662,17 @@ def test_the_stop_hook_stays_quiet_while_the_log_cannot_be_read(
     feed(monkeypatch, {"cwd": str(repo)})
     assert main(["hook", "stop"]) == 0
     assert capsys.readouterr().out.strip() == ""
+
+
+@pytest.mark.parametrize("prefix", ["", "CLAUDE_PLUGIN_OPTION_"])
+def test_the_stop_hook_settings_are_read_in_either_form(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, prefix: str):
+    payload = json.dumps({"cwd": str(tmp_path)})
+    monkeypatch.setenv(f"{prefix}VAULT_STOP_HOOK_PROMPTS", "off")
+    assert hooks.prompt_threshold() == 0
+    monkeypatch.setattr(hooks, "repo_root", lambda cwd: tmp_path)
+    monkeypatch.setenv(f"{prefix}VAULT_STOP_HOOK_COMMITS", "off")
+    assert hooks.stop_target(payload) is None
+    monkeypatch.delenv(f"{prefix}VAULT_STOP_HOOK_COMMITS")
+    assert hooks.stop_target(payload) is not None
+    monkeypatch.setenv(f"{prefix}VAULT_STOP_HOOK", "off")
+    assert hooks.stop_target(payload) is None

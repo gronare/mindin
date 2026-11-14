@@ -36,9 +36,17 @@ class Database(Protocol):
 
     def columns(self, connection: Connection, table: str) -> list[str]: ...
 
-    def migrate(self, steps: Sequence[Step]) -> None:
-        """Run, in one transaction, the upgrade steps numbered from 1 that this database has not run yet."""
+    def migrate(self, steps: Sequence[Step]) -> int | None:
+        """Run the steps from 1 not run yet in one transaction; return the version found, refuse one past them."""
         ...
+
+
+class NewerStore(RuntimeError):
+    def __init__(self, found: int, known: int) -> None:
+        super().__init__(
+            f"the account store is at version {found}, and this mindin knows versions up to {known};"
+            " run the release that wrote it, or restore a backup taken before it"
+        )
 
 
 class SqliteDatabase:
@@ -65,19 +73,22 @@ class SqliteDatabase:
     def columns(self, connection: sqlite3.Connection, table: str) -> list[str]:
         return columns(connection, table)
 
-    def migrate(self, steps: Sequence[Step]) -> None:
+    def migrate(self, steps: Sequence[Step]) -> int:
         connection = sqlite3.connect(self.path, isolation_level=None)
         connection.row_factory = sqlite3.Row
         try:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+                if version > len(steps):
+                    raise NewerStore(version, len(steps))
                 for number, step in enumerate(steps, start=1):
                     if version < number:
                         step(connection)
                 if version < len(steps):
                     connection.execute(f"PRAGMA user_version = {len(steps)}")
                 connection.execute("COMMIT")
+                return version
             except BaseException:
                 connection.execute("ROLLBACK")
                 raise

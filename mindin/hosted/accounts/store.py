@@ -206,7 +206,7 @@ class HostedStore:
         self.database = (
             database or supplied_database(chosen, directory) or SqliteDatabase(private_dir(directory) / "hosted.sqlite")
         )
-        self.database.migrate(STEPS)
+        self.migrated_from = self.database.migrate(STEPS)
         with self.connect() as connection:
             for extension in chosen:
                 extension.migrate(connection)

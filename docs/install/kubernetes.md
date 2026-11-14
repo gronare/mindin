@@ -22,6 +22,25 @@
 
 4. Open `VAULT_PUBLIC_URL/account` and sign in.
 
+## Upgrade
+
+Set the new release's image and apply the Deployment. The server brings the account store up to its release when it starts, and refuses to start on a store a newer release wrote. To have the pod start the server only on a migrated store, and see a failed step as a failed init container, add an init container that runs `mindin migrate` with the server's image, settings and volume:
+
+```yaml
+      initContainers:
+        - name: migrate
+          image: ghcr.io/gronare/mindin:v0.17.0
+          args: ["migrate"]
+          envFrom:
+            - secretRef:
+                name: notes-vault-mcp
+          volumeMounts:
+            - name: data
+              mountPath: /data
+```
+
+Back up `/data/auth` before the upgrade: going back to the earlier image means restoring that copy into `/data/auth`.
+
 ## Notes
 
 - The Deployment runs one pod with the `Recreate` strategy. Its probes hit `/.well-known/oauth-protected-resource/mcp`; with a path in `VAULT_PUBLIC_URL`, such as `/vault`, that is `/.well-known/oauth-protected-resource/vault/mcp`.

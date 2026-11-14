@@ -72,7 +72,10 @@ mindin support requests | withdraw <account>
 mindin support files <account> [--vault <slug>] --operator <name> --reason <text>
 mindin support read <account> <path> [--vault <slug>] --operator <name> --reason <text>
 mindin master-key generate | status | rewrap
+mindin migrate
 ```
+
+`migrate` brings the account store up to this release, runs the same steps the server runs when it starts, prints `store at version N (was M)` and exits. A store already at this release is left as it is. It exits 1 and changes nothing when a step fails or when a newer release wrote the store. It opens the store the way `serve` does, `hosted.sqlite` under `VAULT_AUTH_DIR` or the database an extension supplies, and never touches the vaults.
 
 ### Organisations
 

@@ -114,6 +114,8 @@ curl -fsSL -O https://github.com/gronare/mindin/releases/latest/download/compose
 docker compose up -d
 ```
 
+The server brings the account store in `/data/auth` up to the new release when it starts, and refuses to start on a store a newer release wrote. Back up `/data/auth` first, so going back to the earlier image is restoring that copy; see [Back up and rotate keys](../how-to/back-up-and-rotate.md). To migrate before the server starts, run `docker compose run --rm vault migrate`.
+
 This overwrites `compose.yml`, so keep your own changes in a `compose.override.yml` beside it, which Compose reads on top. [Search by meaning](semantic-search.md) is set up that way.
 
 ## Another reverse proxy

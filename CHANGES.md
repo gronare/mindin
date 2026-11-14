@@ -17,6 +17,8 @@ What each mindin release brings, one line per change, as you would tell someone 
 - `mindin watch` follows a vault as JSON lines, one per batch of changes.
 - `mindin read --json` gives a note with its etag, and `mindin write --etag` writes it back only over that version.
 - The stop hook's feedback is the single word `vault`; the vault-workflow skill, or the CLAUDE.md snippet `init` prints, tells the agent how to find what is behind and save it.
+- `mindin migrate` brings the account store up to the release and exits, for an upgrade step before the server starts.
+- The server refuses to start on an account store a newer release wrote.
 
 ### Fixed
 - A hosted server shutting down ends open requests within five seconds, so a restart no longer waits on them.

@@ -7,34 +7,26 @@ What each mindin release brings, one line per change, as you would tell someone 
 ### What's new
 - Search and session start cover a connection's main vault and your organisations' vaults; name any other vault with `vault`.
 - Make default on a vault's page picks the vault the approval page preselects for a new connection.
-- New task and system notes follow a template, and `write_file` names what a note lacks. A vault made earlier keeps task headings it changed, and otherwise takes the new task template.
-- A note without `kind` in a folder that has a template is written, with a warning naming the headings it lacks, and `lint` lists it.
-- `lint` lists the notes that do not follow their kind's template yet.
+- New task and system notes follow their kind's template, and `write_file` names what a note lacks.
 - The `template` tool and `mindin template --json` give a kind's headings, required sections and a skeleton.
-- `backlog_add` takes the task template's `sections`, or one line that files a draft to write out.
-- `task open` writes the task template's headings, and `task check` checks its required sections by default.
-- `mindin changes` and the `changes` tool answer only the notes changed since a cursor, and can wait for the next change.
-- `mindin watch` follows a vault as JSON lines, one per batch of changes.
+- `backlog_add`, `task open` and `task check` follow the task template, and `backlog_add` also takes a one-line draft.
+- `lint` lists the notes that do not follow their kind's template yet.
+- `mindin changes`, `mindin watch` and the `changes` tool give the notes changed since a cursor, and can wait for the next change.
 - `mindin read --json` gives a note with its etag, and `mindin write --etag` writes it back only over that version.
-- The stop hook's feedback is the single word `vault`; the vault-workflow skill, or the CLAUDE.md snippet `init` prints, tells the agent how to find what is behind and save it.
-- `mindin migrate` brings the account store up to the release and exits, for an upgrade step before the server starts.
-- The server refuses to start on an account store a newer release wrote.
-- `lint` reads notes from the index instead of fetching each one from storage.
-- `mindin status --probe` says why a vault is not writable, in `reason`.
+- The stop hook says only `vault`; without the plugin, paste the CLAUDE.md snippet `mindin init` prints again so the agent knows what to save.
+- `mindin migrate` brings the account store up to the release and exits, so a deploy can migrate before the server starts.
+- The server refuses to start on an account store a newer release wrote, so back up `/data/auth` before you upgrade.
+- `mindin status --probe` says why a vault is not writable.
 
 ### Fixed
-- A hosted server shutting down ends open requests within five seconds, so a restart no longer waits on them.
-- The hosted server no longer answers "database is locked" when one request writes while another reads.
-- The hosted server keeps answering other requests while one waits on its account database.
+- A hosted server that restarts ends open requests within five seconds.
+- The hosted server keeps answering while another request writes to or waits on its account database.
 - A vault whose schema cannot be read reports the error instead of switching to the default layout.
-- Session start names a note it could not read instead of leaving it out without a word.
-- The stop hook stays quiet during a storage outage instead of asking to log every commit.
-- Sync logs each note it could not fetch, and fetches it again on the next sync.
-- `search` and `backlog` with a negative `limit` answer no notes instead of all but the last few.
-- A search setting that would break search is reported and falls back to its default, and the vault keeps its layout.
-- WebDAV refuses a path with a NUL character.
-- The stop hook's settings also apply when set as plugin options.
-- When an S3 bucket fails, the tools answer with the bucket's own reason instead of an internal error.
+- Session start names a note or organisation vault it could not read.
+- The stop hook stays quiet during a storage outage, and its settings also work as plugin options.
+- Sync logs a note it could not fetch and fetches it again on the next sync.
+- A search setting that would break search is reported and falls back to its default.
+- When an S3 bucket fails, the tools answer with the bucket's own reason.
 
 ## 0.17.0
 

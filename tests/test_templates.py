@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from mcp.client import Client
 
-from mindin import note_templates, notes, provision
+from mindin import note_templates, notes, provision, tasks
 from mindin.backends.local import LocalBackend
 from mindin.cli import main
 from mindin.frontmatter import parse
@@ -338,3 +338,29 @@ def test_the_template_command_answers_the_same_json(configured: Path, capsys):
     assert capsys.readouterr().out.splitlines()[1].startswith("system: ## What it does*, ## The objects")
     assert main(["template", "--json", "--kind", "poem"]) == 1
     assert "kind 'poem' is not one of" in capsys.readouterr().err
+
+
+SHIPPED_EN = (
+    "en: { problem: Problem, solution: Solution, decisions: Decisions, tests: Test decisions, scope: Out of scope }"
+)
+SHIPPED_SV = "sv: { problem: Problem, solution: Lösning, decisions: Beslut, tests: Testbeslut, scope: Utanför ramen }"
+STORED_BEFORE_TEMPLATES = {
+    "default": f"task:\n  sections:\n    {SHIPPED_EN}\n    {SHIPPED_SV}\n",
+    "simple": f"preset: simple\ntask:\n  sections:\n    {SHIPPED_EN}\n",
+    "para": "preset: para\ntask:\n  sections:\n"
+    "    en: { problem: Outcome, solution: Plan, decisions: Decisions, tests: Done when, scope: Out of scope }\n",
+}
+
+
+@pytest.mark.parametrize("layout", sorted(STORED_BEFORE_TEMPLATES))
+def test_a_vault_holding_its_layouts_shipped_task_sections_takes_the_task_template(layout: str):
+    schema = schema_from_text(STORED_BEFORE_TEMPLATES[layout])
+    assert schema.problems == ()
+    assert schema.template("task").keys == Schema(preset_data(layout)).template("task").keys
+    assert schema.template("task").keys[0] == "background"
+
+
+def test_task_check_counts_the_backlog_draft_mark_as_empty(vault: Vault, tmp_path: Path):
+    key = notes.backlog_add(vault, "Prune", "orchard", "The beds need light.", priority="low", source="a walk")
+    text = (tmp_path / "vault" / key).read_text(encoding="utf-8")
+    assert tasks.missing_in(vault.schema, text, ["background", "goal", "source"]) == ["background", "goal"]

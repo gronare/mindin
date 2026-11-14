@@ -326,6 +326,13 @@ LEGACY_SECTIONS = {
 }
 
 
+SHIPPED_TASK_SECTIONS = (
+    LEGACY_SECTIONS,
+    {"en": LEGACY_SECTIONS["en"]},
+    {"en": {**LEGACY_SECTIONS["en"], "problem": "Outcome", "solution": "Plan", "tests": "Done when"}},
+)
+
+
 def legacy_task_template(by_language: dict[str, Any]) -> dict[str, Any]:
     keys: list[str] = []
     for headings in by_language.values():
@@ -351,7 +358,7 @@ def settled_templates(merged: dict[str, Any], override: dict[str, Any]) -> dict[
     task = override.get("task") if isinstance(override.get("task"), dict) else {}
     legacy = task.get("sections")
     readable = isinstance(legacy, dict) and all(isinstance(headings, dict) for headings in legacy.values())
-    if readable and legacy and "task" not in named:
+    if readable and legacy and legacy not in SHIPPED_TASK_SECTIONS and "task" not in named:
         templates = {**templates, "task": legacy_task_template(deep_merge(LEGACY_SECTIONS, legacy))}
     return {**merged, "templates": templates}
 

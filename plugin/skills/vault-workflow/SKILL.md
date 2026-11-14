@@ -1,6 +1,6 @@
 ---
 name: vault-workflow
-description: How to work with the `vault` MCP server (mindin) as persistent memory across sessions - session-start context, the area gate before editing, the repo log line at the end, closing notes, and search that hides the archive. Load at the start of any session where the vault server is connected, and whenever you are about to write a note.
+description: How to work with the `vault` MCP server (mindin) as persistent memory across sessions - session-start context, the area gate before editing, the repo log line at the end, closing notes, and search that hides the archive. Load at the start of any session where the vault server is connected, whenever you are about to write a note, and when the Stop hook's feedback is `vault`.
 ---
 
 # Vault workflow
@@ -17,8 +17,8 @@ The vault is a folder of markdown notes (an Obsidian vault) reached through the 
 
 The `stop` hook's whole message is `vault`: this session left the vault behind. Find what is behind, save it, then stop:
 
-- **Messages.** The user's messages since your last vault write: save each decision, deferral or idea in them (a task note, a Decisions line, `backlog_add`).
-- **Commits.** In a git repo, the session's commits (`git log --oneline --since='1 day ago' --author="$(git config user.name)"`) that the repo log lacks (its last lines come from `context`, or `read_file` the log): `log_append` with the repo, the branch, one line and those shas.
+- **Messages.** The user's messages since your last vault write: save each decision, deferral or idea in them (a task note, a line in its system or task note, `backlog_add`).
+- **Commits.** In a git repo, the commits made in this checkout in the last 24 hours (`git log --oneline --since='24 hours ago'`, kept to those `git reflog` shows were committed here, whoever the author) whose short sha appears nowhere in the repo log (`read_file` the whole log; `context` shows only its last lines): `log_append` with the repo, the branch, one line and those shas.
 - **Stale notes.** Task notes you read or wrote this session that `context` lists under `triage`: `close` each one that is done; `append_file` a dated line saying what is still open to the rest.
 
 With nothing to save, stop again; the hook asks once. Your reply to the user names what you saved, in one line, or says nothing about the vault.

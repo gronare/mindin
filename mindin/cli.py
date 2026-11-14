@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -21,7 +22,7 @@ from mindin import (
     setup,
 )
 from mindin.backends import NotFound, VersionConflict
-from mindin.client import open_client
+from mindin.client import ReaderGone, open_client
 from mindin.config import FORMER_NAMES, NO_VAULT_YET, ConfigError, cache_dir, env, local_root, s3_settings
 from mindin.embedding import keep_warm
 from mindin.extensions import installed
@@ -332,15 +333,26 @@ def json_command(action: str) -> Callable[[argparse.Namespace], int]:
     return run
 
 
+def quiet_stdout() -> None:
+    with contextlib.suppress(OSError, ValueError):
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+
+
 def command_watch(args: argparse.Namespace) -> int:
     def emit(found: dict) -> None:
-        print(json.dumps(found, ensure_ascii=False), flush=True)
+        try:
+            print(json.dumps(found, ensure_ascii=False), flush=True)
+        except OSError as exc:
+            raise ReaderGone(str(exc)) from exc
 
     try:
         adopt_config()
         with open_client() as client:
             client.watch(args, emit)
     except KeyboardInterrupt:
+        return 0
+    except ReaderGone:
+        quiet_stdout()
         return 0
     except Exception as exc:
         print(one_line(exc), file=sys.stderr)

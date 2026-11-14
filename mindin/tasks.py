@@ -225,7 +225,7 @@ def missing_in(schema: Schema, text: str, need: list[str]) -> list[str]:
     if template is None:
         return []
     _, body = parse(text)
-    filled = note_templates.filled_headings(body)
+    filled = note_templates.filled_headings(body.replace(note_templates.DRAFT_MARKER, ""))
     return [key for key in need if not note_templates.section_state(template.section(key), filled)]
 
 

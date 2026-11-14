@@ -33,6 +33,10 @@ LONGEST_PAUSE = 60.0
 Emit = Callable[[dict], None]
 
 
+class ReaderGone(Exception):
+    pass
+
+
 class AskedPrompts:
     def __init__(self, data: dict, save: Callable[[], None]) -> None:
         self.data = data
@@ -536,7 +540,7 @@ async def again_and_again(
             await follow(at)
         except Exception as exc:
             error = refused(exc, where)
-            if lasting(error):
+            if isinstance(error, ReaderGone) or lasting(error):
                 raise error from None
             if time.monotonic() - started > LONGEST_PAUSE:
                 pause = FIRST_PAUSE

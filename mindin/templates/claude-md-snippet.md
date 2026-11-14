@@ -18,5 +18,9 @@ Never write markdown documentation into a git repo; it goes in the vault.
   backlog note is a decision to build something later; the system note's remaining-work section
   describes what is missing today.
 - **Session end** — `log_append` one line per repo, with the commits it produced.
+- **Stop hook `vault`** — this session left the vault behind: save the decisions in the user's messages
+  since your last vault write, `log_append` this checkout's commits from the last 24 hours that the
+  repo log lacks, and `close` or `append_file` the task notes you touched that `context` lists under
+  `triage`. Then stop.
 - **Finishing** — `close` the note in the same pass as the last commit of that work.
 - **Never report vault bookkeeping** — filenames, statuses and folders mean nothing to the reader.

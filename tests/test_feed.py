@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import threading
 import time
@@ -401,3 +402,79 @@ async def test_watch_connects_again_with_a_growing_pause_from_its_last_cursor(mo
         await client.again_and_again(follow, "3", "https://vault.example.test")
     assert seen == ["3", "7", "7", "7"]
     assert pauses == [1.0, 2.0, 4.0]
+
+
+def test_a_note_that_does_not_read_comes_with_its_error_and_the_rest_still_come(vault: Vault, vault_dir: Path):
+    (vault_dir / "Areas" / "latin.md").write_bytes("---\ntitle: Café\n---\n".encode("latin-1"))
+    (vault_dir / "Areas" / "quince.md").write_text(note("Quince"), encoding="utf-8")
+    changed = [feed.Changed("Areas/latin.md", "write", "v1", 1), feed.Changed("Areas/quince.md", "write", "v2", 2)]
+    found = feed.answer(vault, feed.Page("c.2", False, changed), "frontmatter")
+    unread, good = found["changes"]
+    assert unread["action"] == "write" and unread["version"] == "v1"
+    assert unread["note"]["frontmatter"] == {} and "could not read" in unread["note"]["error"]
+    assert good["note"]["frontmatter"]["title"] == "Quince"
+
+
+def test_notes_an_older_mindin_wrote_without_a_sequence_reset_the_feed_and_are_numbered(vault: Vault, vault_dir: Path):
+    (vault_dir / "Areas" / "quince.md").write_text(note("Quince"), encoding="utf-8")
+    since = cursor_now(vault)
+    with vault.index._transaction() as db:
+        db.execute("UPDATE notes SET seq = NULL WHERE key = 'Areas/quince.md'")
+    found = changes_of(vault, since)
+    assert found["reset"] is True and found["cursor"].split(".")[0] != since.split(".")[0]
+    assert vault.index.db.execute("SELECT seq FROM notes WHERE key = 'Areas/quince.md'").fetchone()["seq"]
+    assert changes_of(vault, found["cursor"])["reset"] is False
+
+
+@pytest.mark.anyio
+async def test_watch_ends_at_once_when_its_reader_is_gone(monkeypatch: pytest.MonkeyPatch):
+    from mindin import client
+
+    pauses: list[float] = []
+
+    async def pause(seconds: float) -> None:
+        pauses.append(seconds)
+
+    async def follow(at: dict) -> None:
+        raise client.ReaderGone("Broken pipe")
+
+    monkeypatch.setattr(client.anyio, "sleep", pause)
+    with pytest.raises(client.ReaderGone):
+        await client.again_and_again(follow, None, "the vault")
+    assert pauses == []
+
+
+def test_mindin_watch_exits_0_when_the_pipe_it_writes_to_closes(monkeypatch: pytest.MonkeyPatch):
+    from mindin import cli, client
+
+    class ClosedPipe:
+        def write(self, text: str) -> int:
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def flush(self) -> None:
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def fileno(self) -> int:
+            raise io.UnsupportedOperation("fileno")
+
+    class Following:
+        def __enter__(self) -> Following:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+        def watch(self, args: object, emit: client.Emit) -> None:
+            async def follow(at: dict) -> None:
+                emit({"cursor": "1", "reset": True, "changes": []})
+
+            asyncio.run(client.again_and_again(follow, None, "the vault"))
+
+    async def no_pause(seconds: float) -> None:
+        raise AssertionError("watch retried after its reader was gone")
+
+    monkeypatch.setattr(client.anyio, "sleep", no_pause)
+    monkeypatch.setattr(cli, "adopt_config", lambda: None)
+    monkeypatch.setattr(cli, "open_client", Following)
+    monkeypatch.setattr(cli.sys, "stdout", ClosedPipe())
+    assert cli.command_watch(SimpleNamespace(since=None, body=False, limit=None)) == 0

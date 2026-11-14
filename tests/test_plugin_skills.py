@@ -34,3 +34,20 @@ async def test_the_team_wiki_skill_calls_only_tools_the_server_has(vault: Vault)
     named = set(re.findall(r"`(\w+)(?:\(|`| with)", text)) & {"rules", "search", "read_file", "write_file", "context"}
     assert named == {"rules", "search", "read_file", "write_file"} and named <= tools
     assert "explicit yes" in text and "Projects/" in text and "Incidents/" in text
+
+
+def test_the_vault_workflow_skill_loads_on_the_stop_hooks_word_and_finds_commits_as_the_hook_does():
+    from mindin import hooks
+
+    text = (SKILLS / "vault-workflow" / "SKILL.md").read_text(encoding="utf-8")
+    description = frontmatter(SKILLS / "vault-workflow" / "SKILL.md")["description"]
+    assert "Stop hook" in description and f"`{hooks.STOP_REASON}`" in description
+    assert "--author" not in text and f"--since='{hooks.RECENT}'" in text and "the whole log" in text
+    assert "Decisions line" not in text
+
+
+def test_the_claude_md_snippet_says_what_the_stop_hooks_word_asks_for():
+    from mindin import hooks
+    from mindin.presets import template
+
+    assert f"**Stop hook `{hooks.STOP_REASON}`**" in template("claude-md-snippet.md")

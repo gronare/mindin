@@ -165,7 +165,7 @@ A heading counts in any of its languages, so a vault that writes `## Vad det gö
 
 The server lists each template in its instructions and in the `rules` tool, one line per kind with the required sections marked. The `template` tool and `mindin template --json` answer it as JSON; see [Agent commands](agent-commands.md#template).
 
-A schema that still sets the earlier `task.sections` (headings by language, such as `sv: { problem: Varför }`) keeps working: its keys `problem`, `solution`, `decisions`, `tests` and `scope` become the task template, with `problem`, `solution` and `decisions` required, unless the schema also sets `templates.task`.
+A vault made before templates holds its layout's earlier `task.sections` in `.vault/schema.yml`; while those are the layout's own headings, the vault takes its layout's task template. A schema whose `task.sections` were changed (headings by language, such as `sv: { problem: Varför }`) keeps them: its keys `problem`, `solution`, `decisions`, `tests` and `scope` become the task template, with `problem`, `solution` and `decisions` required, unless the schema also sets `templates.task`.
 
 ## When the schema does not hold
 

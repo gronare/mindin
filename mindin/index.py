@@ -403,7 +403,16 @@ class Index:
     def feed_cursor(self, epoch: str, seq: int) -> str:
         return f"{epoch}.{seq}"
 
+    def _adopt_unsequenced(self) -> None:
+        if self.db.execute("SELECT 1 FROM notes WHERE seq IS NULL LIMIT 1").fetchone() is None:
+            return
+        with self._transaction() as db:
+            for row in db.execute("SELECT key FROM notes WHERE seq IS NULL").fetchall():
+                db.execute("UPDATE notes SET seq = ? WHERE key = ?", (self._next_seq(db), row["key"]))
+            db.execute("UPDATE meta SET v = ? WHERE k = 'feed_epoch'", (secrets.token_hex(4),))
+
     def feed_page(self, since: str | None, limit: int) -> Page:
+        self._adopt_unsequenced()
         epoch = self.meta("feed_epoch") or ""
         head = int(self.meta("feed_seq") or 0)
         pruned = int(self.meta("feed_pruned") or 0)

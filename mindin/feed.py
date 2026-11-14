@@ -71,10 +71,16 @@ def page_of(rows: Sequence[Changed], limit: int, head: int, cursor: Callable[[in
 class Waiter:
     """One waiting request: woken from any thread, awaited on its event loop."""
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, closed: Callable[[Waiter], None] | None = None) -> None:
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        closed: Callable[[Waiter], None] | None = None,
+        ending: Callable[[], bool] = lambda: False,
+    ) -> None:
         self.loop = loop
         self._event = asyncio.Event()
         self._closed = closed
+        self.ending = ending
 
     def wake(self) -> None:
         with contextlib.suppress(RuntimeError):
@@ -108,9 +114,10 @@ class Wakers:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._waiting: dict[str, set[Waiter]] = {}
+        self.closing = False
 
     def waiter(self, key: str, loop: asyncio.AbstractEventLoop) -> Waiter:
-        waiter = Waiter(loop, lambda done: self._drop(key, done))
+        waiter = Waiter(loop, lambda done: self._drop(key, done), lambda: self.closing)
         with self._lock:
             self._waiting.setdefault(key, set()).add(waiter)
         return waiter
@@ -134,6 +141,10 @@ class Wakers:
             found = [waiter for waiters in self._waiting.values() for waiter in waiters]
         for waiter in found:
             waiter.wake()
+
+    def close(self) -> None:
+        self.closing = True
+        self.wake_all()
 
     def count(self, key: str | None = None) -> int:
         with self._lock:
@@ -338,7 +349,7 @@ async def changes(
     waiter = await anyio.to_thread.run_sync(registered, opened, loop)
     try:
         found = await anyio.to_thread.run_sync(read, opened, since, limit, include)
-        while not settled(found) and loop.time() < deadline:
+        while not settled(found) and not waiter.ending() and loop.time() < deadline:
             await waiter.wait(deadline - loop.time())
             found = await anyio.to_thread.run_sync(read, opened, since, limit, include)
         return found

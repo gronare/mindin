@@ -509,7 +509,9 @@ class RemoteClient:
 
 def written(answer: str) -> dict:
     head, _, tail = answer.partition("\n")
-    return {"path": head.removeprefix("Written:").strip(), "etag": tail.removeprefix("etag:").strip()}
+    etag, _, warning = tail.partition("\n")
+    found = {"path": head.removeprefix("Written:").strip(), "etag": etag.removeprefix("etag:").strip()}
+    return {**found, "warning": warning} if warning else found
 
 
 def without_superseded_warning(text: str) -> str:

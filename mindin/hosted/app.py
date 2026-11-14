@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import logging
 import secrets
+import sys
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -12,6 +14,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 import anyio
 import httpx2
+import uvicorn
 from mcp.server.auth.handlers.authorize import AuthorizationHandler
 from mcp.server.auth.handlers.register import RegistrationHandler
 from mcp.server.auth.handlers.revoke import RevocationHandler
@@ -42,6 +45,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import BaseRoute, Mount, Route, request_response
 from starlette.types import ASGIApp, Receive, Scope, Send
+from uvicorn.main import STARTUP_FAILURE
 
 from mindin.changes import NULL_BUS
 from mindin.config import ConfigError
@@ -753,19 +757,42 @@ class WithoutQuery(logging.Filter):
         return True
 
 
+SHUTDOWN_SECONDS = 5
+
+
+class ClosingServer(uvicorn.Server):
+    """Ends open waits as shutdown begins, since uvicorn holds the lifespan's own shutdown until requests finish."""
+
+    def __init__(self, config: uvicorn.Config, on_closing: Callable[[], None]) -> None:
+        super().__init__(config)
+        self.on_closing = on_closing
+
+    async def shutdown(self, sockets: list[Any] | None = None) -> None:
+        self.on_closing()
+        await super().shutdown(sockets)
+
+
 def uvicorn_options(auth: AuthConfig) -> dict[str, Any]:
     from uvicorn.config import LOGGING_CONFIG
 
     log_config = copy.deepcopy(LOGGING_CONFIG)
     log_config["filters"] = {"without_query": {"()": WithoutQuery}}
     log_config["handlers"]["access"]["filters"] = ["without_query"]
-    options: dict[str, Any] = {"log_level": "info", "log_config": log_config, "proxy_headers": True}
+    options: dict[str, Any] = {
+        "log_level": "info",
+        "log_config": log_config,
+        "proxy_headers": True,
+        "timeout_graceful_shutdown": SHUTDOWN_SECONDS,
+    }
     if auth.forwarded_allow_ips:
         options["forwarded_allow_ips"] = list(auth.forwarded_allow_ips)
     return options
 
 
 def run_http(vaults: SubjectVaults, host: str, port: int, auth: AuthConfig) -> None:
-    import uvicorn
-
-    uvicorn.run(build_hosted_app(vaults, auth, host), host=host, port=port, **uvicorn_options(auth))
+    config = uvicorn.Config(build_hosted_app(vaults, auth, host), host=host, port=port, **uvicorn_options(auth))
+    server = ClosingServer(config, vaults.closing)
+    with contextlib.suppress(KeyboardInterrupt):
+        server.run()
+    if not server.started:
+        sys.exit(STARTUP_FAILURE)

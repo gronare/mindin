@@ -11,6 +11,7 @@ from mcp.client import Client
 from mindin import note_templates, notes, provision, tasks
 from mindin.backends.local import LocalBackend
 from mindin.cli import main
+from mindin.client import written
 from mindin.frontmatter import parse
 from mindin.presets import preset_data
 from mindin.schema import Schema, instructions, load_schema, schema_from_text, schema_problems
@@ -238,6 +239,25 @@ def test_lint_lists_open_notes_that_do_not_follow_their_template(vault: Vault, t
     vault.index.sync(force=True)
     assert notes.lint(vault).as_dict()["off_template"] == [
         "Areas/old.md: does not follow the system template: missing headings: ## What it does, "
+        "## The objects that hold the truth, ## Flows, ## Limits, ## Exceptions, ## Traps, ## Left, ## History"
+    ]
+
+
+def test_a_kindless_note_in_a_templated_folder_is_written_with_a_warning_and_linted(vault: Vault):
+    kindless = SYSTEM.format(body="It grows pears.\n").replace("kind: system\n", "")
+    answer = notes.write(vault, "Areas/orchard.md", kindless)
+    lines = answer.splitlines()
+    assert lines[0] == "Written: Areas/orchard.md" and lines[1].startswith("etag: ")
+    assert lines[2] == "Warning: Areas/orchard.md has no kind, and notes in Areas follow the system template:"
+    assert lines[3] == (
+        "- missing headings: ## What it does, ## The objects that hold the truth, ## Flows, ## Limits, "
+        "## Exceptions, ## Traps, ## Left, ## History"
+    )
+    assert written(answer)["etag"] == lines[1].removeprefix("etag: ")
+    assert notes.write(vault, "pears.md", kindless).count("\n") == 1
+    vault.index.sync(force=True)
+    assert notes.lint(vault).as_dict()["off_template"] == [
+        "Areas/orchard.md: does not follow the system template: missing headings: ## What it does, "
         "## The objects that hold the truth, ## Flows, ## Limits, ## Exceptions, ## Traps, ## Left, ## History"
     ]
 

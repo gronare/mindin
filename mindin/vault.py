@@ -591,7 +591,11 @@ class SubjectVaults:
             self._instruction_schema = Schema(deep_merge(default_schema_data(), override))
         return self._instruction_schema
 
+    def closing(self) -> None:
+        self.waking.close()
+
     def close(self) -> None:
+        self.closing()
         self._leave(self.open_vaults.clear())
         self.sweeping.close()
         if self.snapshotting is not None:

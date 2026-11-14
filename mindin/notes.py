@@ -210,11 +210,14 @@ def _with_claim(frontmatter: dict, claim: dict[str, str] | None) -> dict:
 def write(vault: Vault, path: str, content: str, expected_etag: str | None = None) -> str:
     key = note_key(path)
     frontmatter, body = parse(content)
+    warnings: list[str] = []
 
     def written(existing: str | None) -> str:
         stamped = _with_dates(_with_claim(frontmatter, _claim_in(existing)))
         _require_valid(vault, stamped, key, "is not a valid note")
         _require_template(vault, key, stamped, body, existing)
+        kept_kind = existing is not None and _kind_in(existing) is not None
+        warnings[:] = [] if kept_kind else [note_templates.kindless_warning(vault.schema, key, stamped, body)]
         return _require_clean(vault, key, dump(stamped, body))
 
     if expected_etag is None:
@@ -225,7 +228,7 @@ def write(vault: Vault, path: str, content: str, expected_etag: str | None = Non
         text = written(_stored_text(vault, key))
         version = vault.backend.put(key, text, expected_version=expected_etag)
         _reindex(vault, key, text, version)
-    return f"Written: {key}\netag: {version}"
+    return "\n".join([f"Written: {key}\netag: {version}", *filter(None, warnings)])
 
 
 def append(vault: Vault, path: str, content: str) -> str:
@@ -871,9 +874,10 @@ def _lint_frontmatter(vault: Vault, note: Note, findings: Findings) -> None:
         findings.add("broken_frontmatter", f"{note.key}: {exc}")
         return
     archive = [vault.schema.archive_folder] if vault.schema.archive_folder else []
-    off = [] if vault.schema.under(note.key, archive) else note_templates.problems(vault.schema, frontmatter, body)
+    kind = note_templates.template_kind(vault.schema, note.key, frontmatter)
+    checked = {**frontmatter, "kind": kind}
+    off = [] if vault.schema.under(note.key, archive) else note_templates.problems(vault.schema, checked, body)
     if off:
-        kind = frontmatter.get("kind")
         findings.add("off_template", f"{note.key}: does not follow the {kind} template: {'; '.join(off)}")
     for problem in validate(frontmatter, note.key, vault.schema):
         if problem.startswith("missing required field: "):

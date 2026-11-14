@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import socket
 import threading
 import time
+import urllib.request
 from collections.abc import Iterator
 from contextlib import nullcontext
 from pathlib import Path
@@ -12,6 +14,7 @@ from types import SimpleNamespace
 
 import boto3
 import pytest
+import uvicorn
 from hosted_support import call_tool, hosted, text_of
 from mcp.client import Client
 from moto import mock_aws
@@ -22,6 +25,8 @@ from mindin.backends.s3 import S3Backend
 from mindin.changes import LocalBus
 from mindin.client import LocalClient
 from mindin.hosted.accounts.keys import SealedVaults
+from mindin.hosted.app import SHUTDOWN_SECONDS, ClosingServer, uvicorn_options
+from mindin.hosted.config import AuthConfig
 from mindin.hosted.feed import ChangeFeed
 from mindin.schema import load_schema
 from mindin.server import build_server
@@ -362,6 +367,110 @@ async def test_a_wait_on_one_server_returns_when_another_server_writes(
     assert time.monotonic() - started < 5
     first.close()
     second.close()
+
+
+def failing(times: int, real):
+    left = [times]
+
+    def attempt(*args):
+        if left[0] > 0:
+            left[0] -= 1
+            raise OSError("no pooled connection within the timeout")
+        return real(*args)
+
+    return attempt
+
+
+class DownStore:
+    def __init__(self, store) -> None:
+        self.store = store
+        self.down = True
+
+    def connect(self):
+        if self.down:
+            raise OSError("the database is gone")
+        return self.store.connect()
+
+
+def test_a_hosted_write_whose_feed_row_fails_once_is_recorded_on_the_retry(
+    served: SubjectVaults, vault_id: str, monkeypatch: pytest.MonkeyPatch
+):
+    since = hosted_changes(served, vault_id, None)["cursor"]
+    monkeypatch.setattr(served.feed, "write_rows", failing(1, served.feed.write_rows))
+    served.for_subject(vault_id).backend.put("Areas/quince.md", note("Quince"))
+    found = hosted_changes(served, vault_id, since)
+    assert found["reset"] is False and keys(found) == [("Areas/quince.md", "write")]
+
+
+def test_a_hosted_write_the_feed_cannot_record_answers_reset_to_a_cursor_taken_before_it(
+    served: SubjectVaults, vault_id: str, monkeypatch: pytest.MonkeyPatch
+):
+    since = hosted_changes(served, vault_id, None)["cursor"]
+    monkeypatch.setattr(served.feed, "write_rows", failing(2, served.feed.write_rows))
+    served.for_subject(vault_id).backend.put("Areas/quince.md", note("Quince"))
+    found = hosted_changes(served, vault_id, since)
+    assert found["reset"] is True and found["changes"] == []
+    served.for_subject(vault_id).backend.put("Areas/medlar.md", note("Medlar"))
+    assert keys(hosted_changes(served, vault_id, found["cursor"])) == [("Areas/medlar.md", "write")]
+
+
+def test_a_lost_feed_row_whose_reset_mark_fails_too_answers_reset_once_the_store_is_back(
+    served: SubjectVaults, sealed: SealedVaults, vault_id: str, monkeypatch: pytest.MonkeyPatch
+):
+    since = hosted_changes(served, vault_id, None)["cursor"]
+    down = DownStore(sealed.store)
+    monkeypatch.setattr(served.feed, "store", down)
+    served.for_subject(vault_id).backend.put("Areas/quince.md", note("Quince"))
+    down.down = False
+    assert hosted_changes(served, vault_id, since)["reset"] is True
+
+
+@pytest.mark.anyio
+async def test_an_open_hosted_wait_returns_at_once_when_the_server_starts_closing(served: SubjectVaults, vault_id: str):
+    opened = lambda: served.using_subject(vault_id)  # noqa: E731
+    since = (await feed.changes(opened, None))["cursor"]
+    later(0.3, served.closing)
+    started = time.monotonic()
+    found = await feed.changes(opened, since, wait=30)
+    assert found["changes"] == [] and time.monotonic() - started < 3
+    assert served.waking.count() == 0
+
+
+def test_the_server_ends_open_waits_before_it_waits_for_requests_to_finish():
+    wakers = feed.Wakers()
+    entered = threading.Event()
+
+    async def waiting(scope, receive, send):
+        if scope["type"] != "http":
+            return
+        waiter = wakers.waiter("vault", asyncio.get_running_loop())
+        entered.set()
+        await waiter.wait(30)
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"closing" if waiter.ending() else b"woken"})
+
+    listening = socket.socket()
+    listening.bind(("127.0.0.1", 0))
+    port = listening.getsockname()[1]
+    config = uvicorn.Config(waiting, lifespan="off", log_level="warning", timeout_graceful_shutdown=SHUTDOWN_SECONDS)
+    server = ClosingServer(config, wakers.close)
+    serving = threading.Thread(target=server.run, kwargs={"sockets": [listening]})
+    serving.start()
+    answers: list[bytes] = []
+    asking = threading.Thread(
+        target=lambda: answers.append(urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=30).read())
+    )
+    asking.start()
+    assert entered.wait(10)
+    started = time.monotonic()
+    server.should_exit = True
+    serving.join(10)
+    asking.join(10)
+    assert answers == [b"closing"] and time.monotonic() - started < 3
+
+
+def test_the_hosted_server_gives_open_requests_a_short_grace_on_shutdown():
+    assert uvicorn_options(AuthConfig())["timeout_graceful_shutdown"] == SHUTDOWN_SECONDS
 
 
 @pytest.mark.anyio

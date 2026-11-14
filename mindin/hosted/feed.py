@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import threading
 import time
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -13,6 +15,8 @@ from mindin.hosted.accounts.store import HostedStore
 KEEP_ROWS = 10_000
 KEEP_SECONDS = 30 * 86400
 PRUNE_EVERY = 100
+
+log = logging.getLogger(__name__)
 
 
 class ChangeFeed:
@@ -31,11 +35,43 @@ class ChangeFeed:
         self.clock = clock
         self.keep_rows = keep_rows
         self.keep_seconds = keep_seconds
+        self._lost: set[str] = set()
+        self._lost_lock = threading.Lock()
 
-    # The head row's lock holds a vault's writers in line, so a sequence number commits only after every lower one.
     def record(self, vault_id: str, writes: Sequence[Written]) -> None:
         if not writes:
             return
+        for attempt in (1, 2):
+            try:
+                self.reset_if_lost(vault_id)
+                self.write_rows(vault_id, writes)
+                return
+            except Exception:
+                log.exception("mindin: could not record a write in the change feed (attempt %d)", attempt)
+        with self._lost_lock:
+            self._lost.add(vault_id)
+        try:
+            self.reset_if_lost(vault_id)
+        except Exception:
+            log.exception("mindin: could not mark the change feed for a reset; the next page marks it")
+
+    # Pruning through head + 1, not head, is what makes a cursor taken at the head before the lost write answer reset.
+    def reset_if_lost(self, vault_id: str) -> None:
+        with self._lost_lock:
+            if vault_id not in self._lost:
+                return
+        with self.store.connect() as connection:
+            connection.execute(
+                "INSERT INTO vault_feed_heads(vault_id, seq, pruned_through) VALUES(?, 1, 1)"
+                " ON CONFLICT (vault_id) DO UPDATE"
+                " SET seq = vault_feed_heads.seq + 1, pruned_through = vault_feed_heads.seq + 1",
+                (vault_id,),
+            )
+        with self._lost_lock:
+            self._lost.discard(vault_id)
+
+    # The head row's lock holds a vault's writers in line, so a sequence number commits only after every lower one.
+    def write_rows(self, vault_id: str, writes: Sequence[Written]) -> None:
         sealer = self.names(vault_id)
         at = int(self.clock())
         with self.store.connect() as connection:
@@ -76,6 +112,7 @@ class ChangeFeed:
         return cut
 
     def page(self, vault_id: str, since: str | None, limit: int) -> Page:
+        self.reset_if_lost(vault_id)
         with self.store.connect() as connection:
             head_row = connection.execute(
                 "SELECT seq, pruned_through FROM vault_feed_heads WHERE vault_id = ?", (vault_id,)

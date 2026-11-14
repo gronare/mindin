@@ -8,6 +8,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - Search and session start cover a connection's main vault and your organisations' vaults; name any other vault with `vault`.
 - Make default on a vault's page picks the vault the approval page preselects for a new connection.
 - New task and system notes follow a template, and `write_file` names what a note lacks. A vault made earlier keeps task headings it changed, and otherwise takes the new task template.
+- A note without `kind` in a folder that has a template is written, with a warning naming the headings it lacks, and `lint` lists it.
 - `lint` lists the notes that do not follow their kind's template yet.
 - The `template` tool and `mindin template --json` give a kind's headings, required sections and a skeleton.
 - `backlog_add` takes the task template's `sections`, or one line that files a draft to write out.
@@ -18,6 +19,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - The stop hook's feedback is the single word `vault`; the vault-workflow skill, or the CLAUDE.md snippet `init` prints, tells the agent how to find what is behind and save it.
 
 ### Fixed
+- A hosted server shutting down ends open requests within five seconds, so a restart no longer waits on them.
 
 ## 0.17.0
 

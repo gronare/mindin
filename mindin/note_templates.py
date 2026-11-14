@@ -78,6 +78,30 @@ def problems(schema: Schema, frontmatter: dict[str, Any], body: str) -> list[str
     return found
 
 
+def folder_kind(schema: Schema, key: str) -> str | None:
+    found = schema.folders.get(schema.folder_of(key))
+    return found.kind if found is not None and schema.template(found.kind) is not None else None
+
+
+def template_kind(schema: Schema, key: str, frontmatter: dict[str, Any]) -> str | None:
+    kind = frontmatter.get("kind")
+    return str(kind) if kind else folder_kind(schema, key)
+
+
+def kindless_warning(schema: Schema, key: str, frontmatter: dict[str, Any], body: str) -> str:
+    kind = None if frontmatter.get("kind") else folder_kind(schema, key)
+    found = [] if kind is None else problems(schema, {**frontmatter, "kind": kind}, body)
+    if not found:
+        return ""
+    return "\n".join(
+        [
+            f"Warning: {key} has no kind, and notes in {schema.folder_of(key)} follow the {kind} template:",
+            *[f"- {problem}" for problem in found],
+            f"Add kind: {kind} and the template's headings; `template` with kind {kind} gives a skeleton.",
+        ]
+    )
+
+
 def refusal(schema: Schema, key: str, frontmatter: dict[str, Any], body: str) -> str:
     found = problems(schema, frontmatter, body)
     if not found:

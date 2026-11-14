@@ -352,10 +352,15 @@ class RemoteClient:
 
     def log_text(self, repo: str) -> str | None:
         try:
-            return self.read(self.schema().log_key(repo))
+            key = self.schema().log_key(repo)
         except NoHome:
             return None
+        try:
+            return self.read(key)
         except RemoteError:
+            # A tool error carries only text: the listing tells a missing log from one that could not be read.
+            if key in self.tool_text("list_files", prefix=key).splitlines():
+                raise
             return ""
 
     def write_pages(self, repos: list[tuple[str, str]], periods: list[str]) -> list[str]:

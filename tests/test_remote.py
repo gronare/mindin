@@ -15,14 +15,16 @@ from mcp import Client, StdioServerParameters
 from remote_support import EMAIL, Served, serve
 from test_cli_hooks import feed, head_sha, make_repo
 
-from mindin import cli, credentials, login, provision
-from mindin.backends import NotFound
+from mindin import cli, credentials, login, notes, provision
+from mindin.backends import NotFound, VaultError
 from mindin.backends.local import LocalBackend
 from mindin.cli import main
+from mindin.client import open_client
 from mindin.config import ConfigError
 from mindin.frontmatter import parse
 from mindin.proxy import Upstream, build_proxy, build_signed_out
-from mindin.vault import SubjectVaults
+from mindin.remote import RemoteError
+from mindin.vault import SubjectVaults, Vault
 
 FAKE_KEY = "nvm_fake-key-for-tests"
 RFC_8628 = "https://www.rfc-editor.org/rfc/rfc8628"
@@ -211,6 +213,30 @@ def test_a_layout_without_a_home_answers_in_one_line_through_the_server(
     assert main(["log", "append", "--cwd", str(repo), "--line", "x"]) == 1
     logged = capsys.readouterr().err
     assert "has no" in logged and len(logged.strip().splitlines()) == 1
+    feed(monkeypatch, {"cwd": str(repo)})
+    assert main(["hook", "stop"]) == 0
+    assert capsys.readouterr().out.strip() == ""
+
+
+def test_a_log_that_is_missing_on_the_server_reads_as_empty(remote: Served):
+    with open_client() as client:
+        assert client.log_text("nowhere") == ""
+
+
+def test_a_log_the_server_could_not_read_is_an_error_and_the_stop_hook_stays_quiet(
+    remote: Served, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    read = notes.read
+
+    def down(vault: Vault, path: str) -> str:
+        if path == "Log/orchard-log.md":
+            raise VaultError("storage is down")
+        return read(vault, path)
+
+    monkeypatch.setattr(notes, "read", down)
+    with open_client() as client, pytest.raises(RemoteError, match="storage is down"):
+        client.log_text("orchard")
+    repo = make_repo(tmp_path / "repos", "orchard")
     feed(monkeypatch, {"cwd": str(repo)})
     assert main(["hook", "stop"]) == 0
     assert capsys.readouterr().out.strip() == ""

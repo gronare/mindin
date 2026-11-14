@@ -634,6 +634,12 @@ def command_about(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_launch(args: argparse.Namespace) -> int:
+    from mindin.launch import launch
+
+    return launch(args.rest, package_version(), main)
+
+
 def command_setup(args: argparse.Namespace) -> int:
     return setup.command_setup(args)
 
@@ -905,6 +911,13 @@ def build_parser() -> argparse.ArgumentParser:
     telling = sub.add_parser("about", help="the name, version and commands for tools of this mindin")
     telling.add_argument("--json", action="store_true", help="answer JSON, for tools that read it")
     telling.set_defaults(func=command_about)
+
+    following_server = sub.add_parser(
+        "launch",
+        help="run a mindin command in the version the configured vault server runs, when it is older than this one",
+    )
+    following_server.add_argument("rest", nargs=argparse.REMAINDER, help="the command, e.g. serve or hook stop")
+    following_server.set_defaults(func=command_launch)
 
     status = sub.add_parser("status", help="whether a vault is configured (JSON out, never fails, never writes)")
     status.add_argument(

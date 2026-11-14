@@ -56,6 +56,18 @@ mindin vault list [--url <url>] | use <slug> [--dir <folder>] [--url <url>] | dr
 
 Without `<url>` or `--url` they take `VAULT_SERVER_URL`. See [Sign a machine in](../how-to/sign-in-a-machine.md).
 
+## Following the server's version
+
+```sh
+mindin launch serve                     # how the plugin starts the MCP server
+mindin launch hook session-start | stop # and the hooks
+mindin launch <command> [<options>]     # any command, in the server's version
+```
+
+`launch` runs the command in the version of mindin the vault server runs when that is older than the mindin running `launch`, through `uvx mindin==<version>`, and in its own version otherwise. It asks the server with the machine's key and remembers the answer for ten minutes. A server it cannot reach, or a machine not signed in, gets the version the server last answered, or else the one running `launch`. With a folder or a bucket, `launch` runs the command as it is.
+
+A server older than 0.14.0 gets one line saying so instead of the command: on stdout with exit 0 for `hook`, on stderr with exit 1 otherwise. So does an older server on a machine without `uvx`.
+
 ## On the server's machine
 
 ```sh

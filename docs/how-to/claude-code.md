@@ -19,6 +19,8 @@ claude plugin install vault@gronare --config vault_server_url=https://vault.exam
 
 Run `/vault:login` (or [`mindin login`](sign-in-a-machine.md)), then reconnect with `/mcp`, plugin:vault:vault, Reconnect. The hooks use the same key.
 
+The MCP server and the hooks start through [`mindin launch`](../reference/command-line.md#following-the-servers-version), so a signed-in machine runs the mindin version its server runs whenever that is older than the plugin's own, and the plugin's version otherwise. A plugin update that comes before the server's upgrade keeps working, on your own server too. With a folder or a bucket, the plugin runs its own version.
+
 ## Without the plugin
 
 Add the server, here for a local folder:

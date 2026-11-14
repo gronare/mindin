@@ -5,6 +5,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+- The plugin runs the mindin version your vault server runs whenever the server is older.
 
 ### Fixed
 

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import anyio
 
-from mindin.backends import FETCH_WORKERS, SCHEMA_KEY, NotFound, VaultBackend, VaultError, is_vault_key
+from mindin.backends import FETCH_WORKERS, SCHEMA_KEY, NotFound, StorageError, VaultBackend, VaultError, is_vault_key
 from mindin.frontmatter import FrontmatterError, parse
 
 if TYPE_CHECKING:
@@ -286,6 +286,9 @@ def entry(backend: VaultBackend, changed: Changed, include: str) -> dict:
         text, version = backend.get(changed.key)
     except NotFound:
         return {"key": changed.key, "action": "delete", "version": None, "note": None}
+    except StorageError:
+        # An outage fails the page, so the follower asks again from the same cursor and misses no note.
+        raise
     except (VaultError, UnicodeDecodeError) as exc:
         unread = {"frontmatter": {}, "error": f"could not read: {exc}"}
         return {"key": changed.key, "action": "write", "version": changed.version, "note": unread}

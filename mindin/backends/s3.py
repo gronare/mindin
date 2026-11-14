@@ -4,12 +4,22 @@ import logging
 import mimetypes
 import threading
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import boto3
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
-from mindin.backends import FETCH_WORKERS, MUST_NOT_EXIST, Entry, NotFound, VersionConflict, is_vault_key
+from mindin.backends import (
+    FETCH_WORKERS,
+    MUST_NOT_EXIST,
+    Entry,
+    NotFound,
+    StorageError,
+    VersionConflict,
+    is_vault_key,
+)
 
 MISSING_CODES = frozenset({"NoSuchKey", "404", "NotFound"})
 CONFLICT_CODES = frozenset({"PreconditionFailed", "412", "ConditionalRequestConflict", "409"})
@@ -23,6 +33,19 @@ _probe_lock = threading.Lock()
 
 def _etag(raw: str | None) -> str:
     return (raw or "").strip('"')
+
+
+@contextmanager
+def storage_errors(bucket: str) -> Iterator[None]:
+    try:
+        yield
+    except ClientError as exc:
+        error = exc.response.get("Error", {})
+        code = str(error.get("Code") or "")
+        said = f"{code}: {error.get('Message')}" if error.get("Message") else code or str(exc)
+        raise StorageError(f"the bucket {bucket} answered {said}", code) from exc
+    except BotoCoreError as exc:
+        raise StorageError(f"the bucket {bucket} could not be reached: {exc}") from exc
 
 
 class S3Backend:
@@ -39,14 +62,17 @@ class S3Backend:
         self.conditional_puts = True
         self.conditional_deletes = True
         self.prefix = prefix.strip("/") + "/" if prefix.strip("/") else ""
-        self.client = boto3.client(
-            "s3",
-            endpoint_url=endpoint or None,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            region_name=region,
-            config=Config(signature_version="s3v4", max_pool_connections=FETCH_WORKERS),
-        )
+        try:
+            self.client = boto3.client(
+                "s3",
+                endpoint_url=endpoint or None,
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+                region_name=region,
+                config=Config(signature_version="s3v4", max_pool_connections=FETCH_WORKERS),
+            )
+        except (ValueError, BotoCoreError) as exc:
+            raise StorageError(f"the bucket {bucket} cannot be set up: {exc}") from exc
 
     def _object_key(self, key: str) -> str:
         return self.prefix + key
@@ -56,33 +82,29 @@ class S3Backend:
 
     def list(self) -> list[Entry]:
         entries: list[Entry] = []
-        paginator = self.client.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=self.bucket, Prefix=self.prefix):
-            for obj in page.get("Contents", []):
-                key = self._vault_key(obj["Key"])
-                if not is_vault_key(key):
-                    continue
-                entries.append(
-                    Entry(
-                        key=key,
-                        version=_etag(obj.get("ETag")),
-                        mtime=obj["LastModified"],
-                        size=obj.get("Size", 0),
-                    )
-                )
+        for obj in self._objects(self.prefix):
+            key = self._vault_key(obj["Key"])
+            if not is_vault_key(key):
+                continue
+            entries.append(
+                Entry(key=key, version=_etag(obj.get("ETag")), mtime=obj["LastModified"], size=obj.get("Size", 0))
+            )
         return sorted(entries, key=lambda entry: entry.key)
+
+    def _objects(self, prefix: str) -> list[dict]:
+        with storage_errors(self.bucket):
+            pages = self.client.get_paginator("list_objects_v2").paginate(Bucket=self.bucket, Prefix=prefix)
+            return [obj for page in pages for obj in page.get("Contents", [])]
 
     def list_all(self, prefix: str = "") -> list[Entry]:
         entries: list[Entry] = []
-        paginator = self.client.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=self.bucket, Prefix=self.prefix + prefix):
-            for obj in page.get("Contents", []):
-                key = self._vault_key(obj["Key"])
-                if not key or key.startswith(PROBE_FOLDER):
-                    continue
-                entries.append(
-                    Entry(key=key, version=_etag(obj.get("ETag")), mtime=obj["LastModified"], size=obj.get("Size", 0))
-                )
+        for obj in self._objects(self.prefix + prefix):
+            key = self._vault_key(obj["Key"])
+            if not key or key.startswith(PROBE_FOLDER):
+                continue
+            entries.append(
+                Entry(key=key, version=_etag(obj.get("ETag")), mtime=obj["LastModified"], size=obj.get("Size", 0))
+            )
         return sorted(entries, key=lambda entry: entry.key)
 
     def get(self, key: str) -> tuple[str, str]:
@@ -91,18 +113,20 @@ class S3Backend:
 
     def get_bytes(self, key: str) -> tuple[bytes, str]:
         try:
-            response = self.client.get_object(Bucket=self.bucket, Key=self._object_key(key))
-        except ClientError as exc:
-            if exc.response["Error"]["Code"] in MISSING_CODES:
+            with storage_errors(self.bucket):
+                response = self.client.get_object(Bucket=self.bucket, Key=self._object_key(key))
+                return response["Body"].read(), _etag(response.get("ETag"))
+        except StorageError as exc:
+            if exc.code in MISSING_CODES:
                 raise NotFound(key) from exc
             raise
-        return response["Body"].read(), _etag(response.get("ETag"))
 
     def current_version(self, key: str) -> str | None:
         try:
-            response = self.client.head_object(Bucket=self.bucket, Key=self._object_key(key))
-        except ClientError as exc:
-            if exc.response["Error"]["Code"] in MISSING_CODES:
+            with storage_errors(self.bucket):
+                response = self.client.head_object(Bucket=self.bucket, Key=self._object_key(key))
+        except StorageError as exc:
+            if exc.code in MISSING_CODES:
                 return None
             raise
         return _etag(response.get("ETag"))
@@ -121,8 +145,8 @@ class S3Backend:
             )
             try:
                 return self.put_bytes(key, data, content_type, condition)
-            except ClientError as exc:
-                code = exc.response["Error"]["Code"]
+            except StorageError as exc:
+                code = exc.code
                 if code in CONFLICT_CODES or (code in MISSING_CODES and expected_version != MUST_NOT_EXIST):
                     raise VersionConflict(f"{key} changed since it was read (expected {expected_version})") from exc
                 if code not in UNSUPPORTED_CODES:
@@ -135,29 +159,33 @@ class S3Backend:
         return self.put_bytes(key, data, content_type)
 
     def put_bytes(self, key: str, data: bytes, content_type: str | None = None, condition: dict | None = None) -> str:
-        response = self.client.put_object(
-            Bucket=self.bucket,
-            Key=self._object_key(key),
-            Body=data,
-            ContentType=content_type or mimetypes.guess_type(key)[0] or "application/octet-stream",
-            **(condition or {}),
-        )
+        with storage_errors(self.bucket):
+            response = self.client.put_object(
+                Bucket=self.bucket,
+                Key=self._object_key(key),
+                Body=data,
+                ContentType=content_type or mimetypes.guess_type(key)[0] or "application/octet-stream",
+                **(condition or {}),
+            )
         return _etag(response.get("ETag"))
 
     def mkdir(self, key: str) -> None:
-        self.client.put_object(Bucket=self.bucket, Key=self._object_key(key.rstrip("/") + "/"), Body=b"")
+        with storage_errors(self.bucket):
+            self.client.put_object(Bucket=self.bucket, Key=self._object_key(key.rstrip("/") + "/"), Body=b"")
 
     def delete(self, key: str) -> None:
-        self.client.delete_object(Bucket=self.bucket, Key=self._object_key(key))
+        with storage_errors(self.bucket):
+            self.client.delete_object(Bucket=self.bucket, Key=self._object_key(key))
 
     def delete_checked(self, key: str, expected_version: str) -> None:
         if self.conditional_deletes and self._honours_conditional_deletes():
             try:
                 key_name = self._object_key(key)
-                self.client.delete_object(Bucket=self.bucket, Key=key_name, IfMatch=f'"{expected_version}"')
+                with storage_errors(self.bucket):
+                    self.client.delete_object(Bucket=self.bucket, Key=key_name, IfMatch=f'"{expected_version}"')
                 return
-            except ClientError as exc:
-                code = exc.response["Error"]["Code"]
+            except StorageError as exc:
+                code = exc.code
                 if code in CONFLICT_CODES or code in MISSING_CODES:
                     raise VersionConflict(f"{key} changed since it was read (expected {expected_version})") from exc
                 if code not in UNSUPPORTED_CODES:
@@ -213,13 +241,14 @@ class S3Backend:
 
     def move(self, src: str, dst: str) -> None:
         try:
-            self.client.copy_object(
-                Bucket=self.bucket,
-                Key=self._object_key(dst),
-                CopySource={"Bucket": self.bucket, "Key": self._object_key(src)},
-            )
-        except ClientError as exc:
-            if exc.response["Error"]["Code"] in MISSING_CODES:
+            with storage_errors(self.bucket):
+                self.client.copy_object(
+                    Bucket=self.bucket,
+                    Key=self._object_key(dst),
+                    CopySource={"Bucket": self.bucket, "Key": self._object_key(src)},
+                )
+        except StorageError as exc:
+            if exc.code in MISSING_CODES:
                 raise NotFound(src) from exc
             raise
         self.delete(src)

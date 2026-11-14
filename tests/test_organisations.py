@@ -12,7 +12,7 @@ from hosted_support import INITIALIZE, Hosted, call_tool, csrf_of, hosted, open_
 from template_support import filled
 
 from mindin import provision
-from mindin.backends import SCHEMA_KEY
+from mindin.backends import SCHEMA_KEY, StorageError
 from mindin.backends.local import LocalBackend
 from mindin.cli import main
 from mindin.context import ORGANISATION_PAGE_RULE
@@ -28,7 +28,7 @@ from mindin.hosted.signin.identities import Identities, Proof
 from mindin.presets import preset_data
 from mindin.schema import Schema
 from mindin.shared import Actor, SharedBackend, SharedRefusal, SharedRules, acting_as
-from mindin.vault import SubjectVaults
+from mindin.vault import SubjectVaults, Vault
 
 FRONT = "date: 2026-11-01\nupdated: 2026-11-01\nstatus: active\n"
 DEPLOY = f'---\ntitle: Deploys\n{FRONT}tags: [ops]\nkind: howto\narea: "[[ops]]"\n---\n\nShip from main.\n'
@@ -946,6 +946,32 @@ async def test_a_search_across_vaults_with_a_negative_limit_answers_no_rows(site
         spanning = cli_key(site, "bea@acme.test", spans=True)
         found = await call_tool(bea, spanning, "search", {"query": "klarna", "limit": -1})
     assert "Resources/klarna" not in text_of(found), text_of(found)
+
+
+@pytest.mark.anyio
+async def test_a_search_across_vaults_skips_a_vault_whose_storage_is_down(site: Hosted, monkeypatch):
+    ada, bea = await company(site)
+    sync = Vault.sync
+
+    def down(self: Vault, force: bool = False) -> int:
+        if self.schema.preset == "shared":
+            raise StorageError("the bucket wiki answered SlowDown: Please reduce your request rate", "SlowDown")
+        return sync(self, force)
+
+    async with ada, bea:
+        own = DEPLOY.replace("title: Deploys", "title: Klarna at home")
+        assert not (await write(bea, key(site, "bea@acme.test", "notes"), "Resources/klarna.md", own, "notes")).get(
+            "isError"
+        )
+        monkeypatch.setattr(Vault, "sync", down)
+        spanning = cli_key(site, "bea@acme.test", spans=True)
+        found = await call_tool(bea, spanning, "search", {"query": "klarna"})
+        started = await call_tool(bea, spanning, "context", {"path": "/src/payments", "repo": "payments"})
+    text = text_of(found)
+    assert not found.get("isError"), text
+    assert "not searched: the bucket wiki answered SlowDown" in text and "Resources/klarna.md" in text
+    assert not started.get("isError"), text_of(started)
+    assert "pages are left out, the vault could not be read: the bucket wiki answered SlowDown" in text_of(started)
 
 
 @pytest.mark.anyio

@@ -23,6 +23,12 @@ class VersionConflict(VaultError):
     pass
 
 
+class StorageError(VaultError):
+    def __init__(self, message: str, code: str = "") -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class LimitReached(VaultError):
     def __init__(self, message: str, status: int, key: str = "") -> None:
         super().__init__(message)

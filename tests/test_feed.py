@@ -20,7 +20,7 @@ from mcp.client import Client
 from moto import mock_aws
 
 from mindin import feed, index
-from mindin.backends import SCHEMA_KEY
+from mindin.backends import SCHEMA_KEY, StorageError
 from mindin.backends.s3 import S3Backend
 from mindin.changes import LocalBus
 from mindin.client import LocalClient
@@ -511,6 +511,19 @@ async def test_watch_connects_again_with_a_growing_pause_from_its_last_cursor(mo
         await client.again_and_again(follow, "3", "https://vault.example.test")
     assert seen == ["3", "7", "7", "7"]
     assert pauses == [1.0, 2.0, 4.0]
+
+
+def test_a_storage_outage_fails_the_page_instead_of_answering_the_note_as_unreadable(
+    vault: Vault, vault_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    (vault_dir / "Areas" / "quince.md").write_text(note("Quince"), encoding="utf-8")
+
+    def down(key: str) -> tuple[str, str]:
+        raise StorageError("the bucket notes answered SlowDown: Please reduce your request rate", "SlowDown")
+
+    monkeypatch.setattr(vault.backend, "get", down)
+    with pytest.raises(StorageError, match="SlowDown"):
+        feed.answer(vault, feed.Page("c.1", False, [feed.Changed("Areas/quince.md", "write", "v1", 1)]), "frontmatter")
 
 
 def test_a_note_that_does_not_read_comes_with_its_error_and_the_rest_still_come(vault: Vault, vault_dir: Path):

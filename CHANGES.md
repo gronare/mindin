@@ -33,6 +33,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 - A search setting that would break search is reported and falls back to its default, and the vault keeps its layout.
 - WebDAV refuses a path with a NUL character.
 - The stop hook's settings also apply when set as plugin options.
+- When an S3 bucket fails, the tools answer with the bucket's own reason instead of an internal error.
 
 ## 0.17.0
 

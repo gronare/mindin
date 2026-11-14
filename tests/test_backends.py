@@ -9,14 +9,26 @@ from pathlib import Path
 
 import boto3
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
+from mcp.client import Client
 from moto import mock_aws
 
-from mindin.backends import FETCH_WORKERS, MUST_NOT_EXIST, NotFound, VersionConflict, delete_checked
+from mindin.backends import (
+    FETCH_WORKERS,
+    MUST_NOT_EXIST,
+    NotFound,
+    StorageError,
+    VaultError,
+    VersionConflict,
+    delete_checked,
+)
 from mindin.backends.local import LocalBackend
 from mindin.backends.s3 import PROBE_FOLDER, S3Backend
 from mindin.backends.sealed import SealedBackend
 from mindin.hosted.accounts.import_export import export_zip
+from mindin.schema import Schema, default_schema_data
+from mindin.server import build_server
+from mindin.vault import Vault
 
 BUCKET = "vault-test"
 ENDPOINT = "https://s3.amazonaws.com"
@@ -509,3 +521,65 @@ def test_a_leftover_probe_object_never_shows_in_listings_sealed_listings_or_expo
     with caplog.at_level("WARNING"):
         assert [entry.key for entry in sealed.list_all()] == ["Areas/sealed.md"]
     assert not any("do not decrypt" in record.message for record in caplog.records)
+
+
+DENIED = ClientError({"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}, "Operation")
+
+
+@pytest.mark.parametrize(
+    ("operation", "call"),
+    [
+        ("get_object", lambda backend: backend.get("Areas/orchard.md")),
+        ("put_object", lambda backend: backend.put("Areas/new.md", "text")),
+        ("put_object", lambda backend: backend.mkdir("Areas/sub")),
+        ("delete_object", lambda backend: backend.delete("Areas/orchard.md")),
+        ("head_object", lambda backend: backend.current_version("Areas/orchard.md")),
+        ("copy_object", lambda backend: backend.move("Areas/orchard.md", "Areas/moved.md")),
+        ("get_paginator", lambda backend: backend.list()),
+        ("get_paginator", lambda backend: backend.list_all()),
+    ],
+)
+def test_an_s3_failure_is_a_storage_error_carrying_the_s3_code(s3_backend: S3Backend, monkeypatch, operation, call):
+    def denied(*args, **kwargs):
+        raise DENIED
+
+    monkeypatch.setattr(s3_backend.client, operation, denied)
+    with pytest.raises(StorageError, match="the bucket vault-test answered AccessDenied: Access Denied") as raised:
+        call(s3_backend)
+    assert isinstance(raised.value, VaultError) and raised.value.code == "AccessDenied"
+
+
+def test_an_s3_server_that_cannot_be_reached_is_a_storage_error(s3_backend: S3Backend, monkeypatch):
+    def unreachable(**kwargs):
+        raise EndpointConnectionError(endpoint_url="https://nowhere.example")
+
+    monkeypatch.setattr(s3_backend.client, "get_object", unreachable)
+    with pytest.raises(StorageError, match="the bucket vault-test could not be reached: .*nowhere.example"):
+        s3_backend.get("Areas/orchard.md")
+
+
+def test_a_missing_s3_object_is_still_not_found(s3_backend: S3Backend):
+    with pytest.raises(NotFound):
+        s3_backend.get("Areas/nope.md")
+
+
+def test_an_s3_endpoint_that_is_no_address_is_a_storage_error():
+    with pytest.raises(StorageError, match="the bucket notes cannot be set up: Invalid endpoint: not a url"):
+        S3Backend(endpoint="not a url", access_key="a", secret_key="b", bucket="notes")
+
+
+@pytest.mark.anyio
+async def test_a_tool_answers_with_the_buckets_reason_when_s3_fails(s3_backend: S3Backend, tmp_path: Path, monkeypatch):
+    vault = Vault(s3_backend, Schema(default_schema_data()), index_path=tmp_path / "index.sqlite")
+
+    def denied(**kwargs):
+        raise DENIED
+
+    try:
+        async with Client(build_server(vault)) as client:
+            monkeypatch.setattr(s3_backend.client, "get_object", denied)
+            answer = await client.call_tool("read_file", {"path": "Areas/orchard.md"})
+    finally:
+        vault.close()
+    said = "".join(block.text for block in answer.content if getattr(block, "text", None))
+    assert answer.is_error and said.endswith("read_file: the bucket vault-test answered AccessDenied: Access Denied")

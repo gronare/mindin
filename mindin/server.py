@@ -405,8 +405,8 @@ def build_server(
                         continue
                     vault.sync()
                     found += repo_pages.pages_for(vault, item.slug, path, repo, remote, areas)
-            except VaultError:
-                continue
+            except VaultError as exc:
+                bundle.notices.append(f"{item.name}'s pages are left out, the vault could not be read: {exc}")
         return repo_pages.strongest(found)
 
     if machine_tools:

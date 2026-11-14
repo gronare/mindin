@@ -5,8 +5,8 @@ import time
 from dataclasses import dataclass, field
 
 from mindin import note_templates
-from mindin.backends import SCHEMA_KEY
-from mindin.frontmatter import dump, parse, validate
+from mindin.backends import SCHEMA_KEY, NotFound
+from mindin.frontmatter import FrontmatterError, dump, parse, validate
 from mindin.index import Note
 from mindin.notes import OPEN_STATUSES, fetch, note_key, park_stale, reindex, stamp, today
 from mindin.search import age_days, humanize_age
@@ -51,14 +51,22 @@ class Findings:
 FINDINGS_HEADING_RE = re.compile(r"^## (\w+) \(\d+\)$")
 
 
-def _lint_frontmatter(vault: Vault, note: Note, findings: Findings) -> None:
+def _stored(vault: Vault, note: Note) -> str | None:
+    try:
+        return fetch(vault, note.key)[0] if note.valid else None
+    except NotFound:
+        return None
+
+
+def _lint_frontmatter(vault: Vault, note: Note, text: str | None, findings: Findings) -> None:
     if not note.valid:
         findings.add("broken_frontmatter", f"{note.key}: {note.error}")
         return
+    if text is None:
+        return
     try:
-        text, _ = fetch(vault, note.key)
         frontmatter, body = parse(text)
-    except Exception as exc:
+    except FrontmatterError as exc:
         findings.add("broken_frontmatter", f"{note.key}: {exc}")
         return
     archive = [vault.schema.archive_folder] if vault.schema.archive_folder else []
@@ -129,8 +137,9 @@ def lint(vault: Vault) -> Findings:
     for problem in (*vault.schema.notices, *vault.schema.problems):
         findings.add("schema", f"{SCHEMA_KEY}: {problem}")
     notes = vault.index.all_notes()
+    texts = vault.index.note_texts()
     for note in notes:
-        _lint_frontmatter(vault, note, findings)
+        _lint_frontmatter(vault, note, texts.get(note.key) or _stored(vault, note), findings)
     _lint_links(vault, [note for note in notes if note.valid], findings)
     _lint_lifecycle(vault, [note for note in notes if note.valid], findings)
     return findings

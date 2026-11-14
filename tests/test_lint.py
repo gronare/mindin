@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from mindin.cli import main
 from mindin.frontmatter import parse
 from mindin.lint import lint, lint_note_text
@@ -101,3 +103,36 @@ def test_lint_park_stale_moves_old_open_notes_and_reports_them(vault: Vault, vau
     assert "stale_active" not in out
     frontmatter, _ = parse((vault_dir / "Projects/workshop-stale.md").read_text(encoding="utf-8"))
     assert frontmatter["status"] == "backlog"
+
+
+def test_lint_reads_no_note_from_storage_and_lists_the_vault_once(vault: Vault, monkeypatch: pytest.MonkeyPatch):
+    expected = lint(vault).as_dict()
+    listing = vault.backend.list
+    listed: list[int] = []
+
+    def unread(key: str) -> tuple[str, str]:
+        raise AssertionError(f"lint read {key} from storage")
+
+    def counted() -> list:
+        listed.append(1)
+        return listing()
+
+    monkeypatch.setattr(vault.backend, "get", unread)
+    monkeypatch.setattr(vault.backend, "list", counted)
+    assert lint(vault).as_dict() == expected
+    assert len(listed) == 1
+
+
+def test_lint_reports_frontmatter_broken_by_the_time_of_the_last_sync(vault: Vault):
+    path = vault.backend.root / "Areas" / "orchard.md"
+    path.write_text("---\ntitle: [unclosed\n---\nbody\n", encoding="utf-8")
+    vault.index.sync(force=True)
+    assert any(entry.startswith("Areas/orchard.md:") for entry in lint(vault).groups["broken_frontmatter"])
+
+
+def test_lint_reads_a_note_from_storage_when_its_index_row_predates_the_frontmatter_column(vault: Vault):
+    expected = lint(vault).as_dict()
+    vault.index.db.execute("UPDATE notes SET frontmatter = NULL WHERE key = 'Areas/orchard.md'")
+    vault.index.db.commit()
+    assert vault.index.note_texts()["Areas/orchard.md"] is None
+    assert lint(vault).as_dict() == expected

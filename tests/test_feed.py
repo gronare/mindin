@@ -451,21 +451,26 @@ def test_the_server_ends_open_waits_before_it_waits_for_requests_to_finish():
 
     listening = socket.socket()
     listening.bind(("127.0.0.1", 0))
+    # Listening before either thread starts queues a request that connects before uvicorn accepts.
+    listening.listen()
     port = listening.getsockname()[1]
     config = uvicorn.Config(waiting, lifespan="off", log_level="warning", timeout_graceful_shutdown=SHUTDOWN_SECONDS)
     server = ClosingServer(config, wakers.close)
-    serving = threading.Thread(target=server.run, kwargs={"sockets": [listening]})
-    serving.start()
+    serving = threading.Thread(target=server.run, kwargs={"sockets": [listening]}, daemon=True)
     answers: list[bytes] = []
     asking = threading.Thread(
-        target=lambda: answers.append(urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=30).read())
+        target=lambda: answers.append(urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=30).read()),
+        daemon=True,
     )
+    serving.start()
     asking.start()
-    assert entered.wait(10)
-    started = time.monotonic()
-    server.should_exit = True
-    serving.join(10)
-    asking.join(10)
+    try:
+        assert entered.wait(10)
+        started = time.monotonic()
+    finally:
+        server.should_exit = True
+        serving.join(10)
+        asking.join(10)
     assert answers == [b"closing"] and time.monotonic() - started < 3
 
 

@@ -57,7 +57,7 @@ expect docs/install/semantic-search.md "$image:$tag-semantic" 1
 for file in deploy/k8s/deployment.yaml deploy/docker/compose.yml docs/install/kubernetes.md; do expect "$file" "$image:$tag" 1; done
 expect plugin/.claude-plugin/plugin.json "\"version\": \"$version\"" 1
 expect plugin/.mcp.json "==$version\"" 1
-expect plugin/hooks/hooks.json "==$version hook" 2
+expect plugin/hooks/hooks.json "==$version launch hook" 2
 expect plugin/commands/login.md "mindin==$version login" 2
 stale=$(grep -rnE "$image:v[0-9]|\"version\": \"[0-9]" README.md docs deploy | grep -vF -e "$image:$tag" -e "\"version\": \"$version\"" || true)
 [ -z "$stale" ] || fail "the bump did not reach: $stale"

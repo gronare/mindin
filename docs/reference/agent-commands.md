@@ -33,11 +33,11 @@ mindin write Projects/myapp-idea.md --etag 9b2f… < note.md
 mindin template --json --kind task
 # {"kind": "task", "language": "en", "sections": [{"key": "background", "heading": "Background", "required": true}, …], "questions": "questions", "skeleton": "## Background\n\n## Goal\n…"}
 mindin status
-# {"configured": true, "version": "0.18.0", "backend": "s3", "source": "config", "writable": null, "signals": "on", "signals_source": "config", "signals_change": "mindin setup --signals yes|no"}
+# {"configured": true, "version": "0.19.0", "backend": "s3", "source": "config", "writable": null, "signals": "on", "signals_source": "config", "signals_change": "mindin setup --signals yes|no"}
 mindin status --probe
-# {"configured": true, "version": "0.18.0", "backend": "s3", "source": "config", "writable": true, "signals": "on", "signals_source": "config", "signals_change": "mindin setup --signals yes|no"}
+# {"configured": true, "version": "0.19.0", "backend": "s3", "source": "config", "writable": true, "signals": "on", "signals_source": "config", "signals_change": "mindin setup --signals yes|no"}
 mindin about --json
-# {"name": "mindin", "version": "0.18.0", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "changes", "watch", "read", "write", "templates"], "former_names": ["notes-vault-mcp"]}
+# {"name": "mindin", "version": "0.19.0", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "changes", "watch", "read", "write", "templates"], "former_names": ["notes-vault-mcp"]}
 ```
 
 ## task open

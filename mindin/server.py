@@ -31,7 +31,7 @@ from mindin.vault import (
     open_vault,
 )
 
-VERSION = "0.18.0"
+VERSION = "0.19.0"
 
 EXPECTED_FAILURES = (VaultError, FrontmatterError, notes.ValidationError, ScopeError, QueryError, NoHome)
 

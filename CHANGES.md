@@ -5,6 +5,12 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+
+### Fixed
+
+## 0.19.0
+
+### What's new
 - The plugin runs the mindin version your vault server runs whenever the server is older.
 - `mindin accounts add-key` gives an active account an API key, written to a file, before anyone signs in.
 - A vault's page marks a key the operator made as made by the operator.

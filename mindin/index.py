@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from mindin.backends import FETCH_WORKERS, SCHEMA_KEY, Entry, NotFound, VaultBackend
 from mindin.feed import Action, Changed, Page, page_of
-from mindin.frontmatter import CLAIM_KEY, FrontmatterError, claim_fields, folder_of, parse, tags_of
+from mindin.frontmatter import CLAIM_KEY, FRONTMATTER_RE, FrontmatterError, claim_fields, folder_of, parse, tags_of
 from mindin.stemming import algorithms_of, stemmed
 
 if TYPE_CHECKING:
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS notes (
   key TEXT PRIMARY KEY, version TEXT, mtime REAL, folder TEXT, stem TEXT,
   title TEXT, summary TEXT, status TEXT, kind TEXT, area TEXT,
   tags TEXT, paths TEXT, date TEXT, updated TEXT, superseded_by TEXT,
-  valid INT, error TEXT, size INT, priority TEXT, source TEXT, claim TEXT, repos TEXT
+  valid INT, error TEXT, size INT, priority TEXT, source TEXT, claim TEXT, repos TEXT, frontmatter TEXT
 );
 CREATE INDEX IF NOT EXISTS notes_folder ON notes(folder);
 CREATE INDEX IF NOT EXISTS notes_stem ON notes(stem);
@@ -68,7 +68,7 @@ NOTE_COLUMNS = (
     "key, version, mtime, folder, stem, title, summary, status, kind, area, "
     "tags, paths, date, updated, superseded_by, valid, error, size, priority, source, claim, repos"
 )
-ADDED_COLUMNS = ("priority", "source", "claim", "repos")
+ADDED_COLUMNS = ("priority", "source", "claim", "repos", "frontmatter")
 FTS_COLUMNS = {"stem", "stemmed"}
 
 
@@ -146,6 +146,16 @@ def _as_text(value: Any) -> str:
     if isinstance(value, (list, tuple)):
         return ", ".join(str(item) for item in value)[:FIELD_TEXT_MAX]
     return str(value)[:FIELD_TEXT_MAX]
+
+
+def frontmatter_block(text: str) -> str:
+    match = FRONTMATTER_RE.match(text)
+    return match.group(1) if match else ""
+
+
+# A NULL block is a row a release from before the column wrote: its text is unknown, never "no frontmatter".
+def note_text(frontmatter: str | None, body: str) -> str | None:
+    return None if frontmatter is None else f"---\n{frontmatter}\n---\n{body}"
 
 
 def broken_note(key: str, version: str, mtime: float, size: int, error: str) -> Note:
@@ -434,7 +444,7 @@ class Index:
 
     def _insert(self, db: sqlite3.Connection, note: Note, body: str, text: str, seq: int) -> None:
         db.execute(
-            f"INSERT INTO notes ({NOTE_COLUMNS}, seq) VALUES ({', '.join('?' * 23)})",
+            f"INSERT INTO notes ({NOTE_COLUMNS}, seq, frontmatter) VALUES ({', '.join('?' * 24)})",
             (
                 note.key,
                 note.version,
@@ -459,6 +469,7 @@ class Index:
                 note.claim,
                 json.dumps(note.repos),
                 seq,
+                frontmatter_block(text),
             ),
         )
         db.execute(
@@ -521,6 +532,13 @@ class Index:
         marks = ", ".join("?" * len(keys))
         rows = self.db.execute(f"SELECT key, body FROM notes_fts WHERE key IN ({marks})", keys).fetchall()
         return {row["key"]: row["body"] or "" for row in rows}
+
+    def note_texts(self) -> dict[str, str | None]:
+        rows = self.db.execute(
+            "SELECT notes.key AS key, notes.frontmatter AS frontmatter, notes_fts.body AS body "
+            "FROM notes JOIN notes_fts ON notes_fts.key = notes.key"
+        ).fetchall()
+        return {row["key"]: note_text(row["frontmatter"], row["body"] or "") for row in rows}
 
     def stems(self) -> set[str]:
         return {row["stem"].lower() for row in self.db.execute("SELECT stem FROM notes")}

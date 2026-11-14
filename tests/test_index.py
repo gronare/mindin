@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
 from mindin.backends import NotFound
+from mindin.frontmatter import parse
 from mindin.index import Index, link_targets, path_list, shas_in
 from mindin.search import search
 from mindin.vault import Vault
@@ -228,3 +230,29 @@ def test_sync_says_nothing_about_a_note_deleted_while_it_ran(
     with caplog.at_level(logging.WARNING, logger="mindin.index"):
         vault.index.sync(force=True)
     assert "quince" not in caplog.text
+
+
+def test_the_index_gives_back_each_notes_text_as_lint_parses_it(vault: Vault):
+    texts = vault.index.note_texts()
+    valid = [note for note in vault.index.all_notes() if note.valid]
+    assert valid and set(texts) >= {note.key for note in valid}
+    for note in valid:
+        assert parse(texts[note.key]) == parse(vault.backend.get(note.key)[0]), note.key
+
+
+def test_an_index_built_before_the_frontmatter_column_is_cleared_and_fetched_again(vault: Vault, tmp_path: Path):
+    path = tmp_path / "old" / "index.sqlite"
+    path.parent.mkdir()
+    built = Index(path, vault.index.backend)
+    built.sync(force=True)
+    built.close()
+    with closing(sqlite3.connect(path)) as old:
+        old.execute("ALTER TABLE notes DROP COLUMN frontmatter")
+        old.commit()
+    index = Index(path, vault.index.backend)
+    try:
+        assert index.all_notes() == []
+        index.sync(force=True)
+        assert parse(index.note_texts()["Areas/orchard.md"])[0]["title"]
+    finally:
+        index.close()

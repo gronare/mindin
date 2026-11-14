@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -14,10 +15,18 @@ from mindin.hosted.accounts.import_export import BadArchive, backend_source, imp
 from mindin.hosted.accounts.keys import StillShared, delete_account, sealed_vaults_from_env
 from mindin.hosted.accounts.limits import Quotas
 from mindin.hosted.accounts.members import Invitations, shared_vault
-from mindin.hosted.accounts.store import AccountStatus, HostedStore, MembershipError, VaultNameError
+from mindin.hosted.accounts.store import (
+    OPERATOR_MADE,
+    AccountStatus,
+    HostedStore,
+    MembershipError,
+    VaultNameError,
+    key_id_of,
+    scope_label,
+)
 from mindin.hosted.accounts.vaults import PERSONAL, SHARED
 from mindin.hosted.commands.support import add_operator
-from mindin.hosted.config import auth_config, auth_dir
+from mindin.hosted.config import READ_SCOPE, WRITE_SCOPE, auth_config, auth_dir
 from mindin.hosted.feed import ChangeFeed, recording
 from mindin.hosted.pages.templates import stamp
 from mindin.presets import PERSONAL_LAYOUTS
@@ -90,6 +99,64 @@ def command_vaults(store: HostedStore, args: argparse.Namespace) -> int:
         keys = len(store.keys(account.id, vault.id))
         kind = f"shared, {store.role(vault, account.id)}" if vault.shared else vault.kind
         print(f"{vault.slug}  {vault.name}  {kind}  {vault.id}  {facts.notes} notes  {facts.files} files  {keys} keys")
+    return 0
+
+
+def command_add_key(args: argparse.Namespace) -> int:
+    store = HostedStore(auth_dir())
+    account = store.account(args.account)
+    if account is None:
+        print(f"mindin: no account {args.account!r}", file=sys.stderr)
+        return 1
+    if not account.active:
+        print(f"mindin: {account.email} is {account.status}; a key works only for an active account", file=sys.stderr)
+        return 1
+    vault = store.reachable_vault(account.id, args.vault) if args.vault else store.default_vault(account.id)
+    if vault is None:
+        print(f"mindin: {account.email} has no vault {args.vault!r}", file=sys.stderr)
+        return 1
+    out = Path(args.out).expanduser()
+    try:
+        descriptor = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        print(f"mindin: {out} exists; name a new file with --out", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"mindin: cannot write {out}: {exc.strerror}", file=sys.stderr)
+        return 1
+    scopes = [READ_SCOPE, WRITE_SCOPE] if args.write else [READ_SCOPE]
+    try:
+        with os.fdopen(descriptor, "w") as file:
+            os.fchmod(file.fileno(), 0o600)
+            key = store.create_key(account.id, args.name, scopes, vault_id=vault.id, made_by=OPERATOR_MADE)
+            file.write(key + "\n")
+    except BaseException:
+        out.unlink(missing_ok=True)
+        raise
+    print(
+        f"mindin: made the key {key_id_of(key)} {args.name.strip()[:64]!r} for {account.email}'s {vault.slug},"
+        f" {scope_label(' '.join(scopes))}; its value is in {out}"
+    )
+    return 0
+
+
+def command_remove_key(args: argparse.Namespace) -> int:
+    store = HostedStore(auth_dir())
+    account = store.account(args.account)
+    if account is None:
+        print(f"mindin: no account {args.account!r}", file=sys.stderr)
+        return 1
+    found = [key for key in store.keys(account.id) if args.key in (key["id"], key["name"])]
+    if not found:
+        print(f"mindin: {account.email} has no key {args.key!r}", file=sys.stderr)
+        return 1
+    if len(found) > 1:
+        ids = ", ".join(key["id"] for key in found)
+        print(f"mindin: {account.email} has several keys named {args.key!r}; name one by id: {ids}", file=sys.stderr)
+        return 2
+    key = found[0]
+    store.revoke_key(account.id, key["id"])
+    print(f"mindin: revoked the key {key['id']} {key['name']!r} of {account.email}")
     return 0
 
 
@@ -265,6 +332,19 @@ def add_commands(sub: Any) -> None:
         "--shared", action="store_true", help="a shared vault: the account and the members it invites, current notes"
     )
     adding.set_defaults(func=command_accounts)
+    adding_key = accounts_sub.add_parser(
+        "add-key", help="make an API key for an active account and write its value to a new file"
+    )
+    adding_key.add_argument("account", help="the account's email or id")
+    adding_key.add_argument("name", help="the key's name, as the account's vault page lists it")
+    adding_key.add_argument("--vault", help="the vault's slug; defaults to the account's default vault")
+    adding_key.add_argument("--write", action="store_true", help="let the key write as well as read")
+    adding_key.add_argument("--out", required=True, help="a new file for the key's value, made readable by you only")
+    adding_key.set_defaults(func=command_add_key)
+    removing_key = accounts_sub.add_parser("remove-key", help="revoke one of the account's API keys")
+    removing_key.add_argument("account", help="the account's email or id")
+    removing_key.add_argument("key", help="the key's name or id")
+    removing_key.set_defaults(func=command_remove_key)
     members = accounts_sub.add_parser("members", help="list a shared vault's owner, members and open invitations")
     members.add_argument("account", help="the owner's email or id")
     members.add_argument("vault", help="the vault's slug")

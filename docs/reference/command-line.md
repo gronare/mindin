@@ -76,6 +76,8 @@ mindin accounts delete <account> --yes
 mindin accounts vaults <account>
 mindin accounts add-vault <account> <name> [--slug <slug>] [--preset <layout> | --shared]
 mindin accounts rename-vault <account> <slug> [--name <name>] [--slug <slug>]
+mindin accounts add-key <account> <name> [--vault <slug>] [--write] --out <file>
+mindin accounts remove-key <account> <name or id>
 mindin accounts members <owner> <slug>
 mindin accounts add-member | remove-member <owner> <slug> <email>
 mindin accounts import <account> [--vault <slug>] (--from-path <dir> | --from-s3-bucket <bucket> [--from-s3-prefix <prefix>] [--from-s3-endpoint <url>] [--from-s3-region <region>]) [--dry-run] --operator <name> --reason <text>

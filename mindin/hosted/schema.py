@@ -444,6 +444,10 @@ def to_change_feed(connection: sqlite3.Connection) -> None:
     run(connection, FEED_TABLES)
 
 
+def to_key_makers(connection: sqlite3.Connection) -> None:
+    add_column(connection, "api_keys", "made_by", "TEXT NOT NULL DEFAULT 'account'")
+
+
 STEPS = (
     to_vaults,
     to_shared,
@@ -455,4 +459,5 @@ STEPS = (
     to_search_defaults,
     to_default_vaults,
     to_change_feed,
+    to_key_makers,
 )

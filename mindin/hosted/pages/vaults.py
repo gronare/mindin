@@ -37,7 +37,7 @@ from mindin.hosted.accounts.layout import (
     switch_layout,
 )
 from mindin.hosted.accounts.limits import LimitReached
-from mindin.hosted.accounts.store import Account, VaultNameError, scope_label
+from mindin.hosted.accounts.store import OPERATOR_MADE, Account, VaultNameError, scope_label
 from mindin.hosted.accounts.vaults import KINDS, NAME_MAX, PERSONAL, SHARED, Vault, Waiting, vault_resource_url
 from mindin.hosted.config import MACHINE_KEY_PURPOSE, READ_SCOPE, WRITE_SCOPE
 from mindin.hosted.pages.html import (
@@ -172,7 +172,7 @@ pick another.</p></div>
         for key in keys:
             kind, action = KIND_OF_PURPOSE.get(key["purpose"], ("Key", "Revoke"))
             rows.append(
-                f"<tr><td>{esc(key['name'])}</td><td>{kind}</td><td>{esc(scope_label(key['scopes']))}</td>"
+                f"<tr><td>{esc(key['name'])}{made_by(key['made_by'])}</td><td>{kind}</td><td>{esc(scope_label(key['scopes']))}</td>"
                 f'<td class="nowrap">{esc(ago(key["last_used_at"], now))}</td><td>'
                 f"{form_head(csrf, self.vault_url(vault, '/keys/revoke'))}{hidden_field('key', key['id'])}"
                 f"{button(action, 'btn secondary small', action + ' ' + key['name'])}</form></td></tr>"
@@ -524,6 +524,10 @@ references. Every change is kept with who made it.</span></label>
             Route(base + "/delete", endpoint=limited(self.delete), methods=["POST"]),
             *self.shared.routes(base, limited),
         ]
+
+
+def made_by(maker: str) -> str:
+    return ' <span class="small muted">made by the operator</span>' if maker == OPERATOR_MADE else ""
 
 
 def waiting_notice(waiting: list[Waiting]) -> str:

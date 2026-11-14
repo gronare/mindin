@@ -351,7 +351,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
         client: str = "",
         spans_account: bool = False,
     ) -> Verdict:
-        if not account.active or not account.sub:
+        if not account.active:
             return Verdict(None, 403, "account_suspended", "the account is not active")
         allowed = self.allowed(account, scopes)
         if not allowed:
@@ -658,7 +658,7 @@ def build_hosted_app(
     def answer_limits(secret: str) -> Response:
         grant = store.key_grant(secret) if secret else None
         owner = store.account_by_id(grant.vault.account_id) if grant else None
-        if grant is None or owner is None or not grant.account.active or not grant.account.sub:
+        if grant is None or owner is None or not grant.account.active:
             return JSONResponse({"error": "invalid_token"}, 401, {"WWW-Authenticate": "Bearer"})
         scopes = provider.allowed(grant.account, grant.scopes)
         if not scopes:

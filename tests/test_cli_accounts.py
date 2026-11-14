@@ -5,10 +5,17 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from hosted_support import call_tool, csrf_of, hosted, text_of
 
 from mindin.cli import main
 from mindin.hosted.accounts.store import HostedStore
 from mindin.hosted.signin.identities import Identities, Proof
+from mindin.vault import SubjectVaults
+
+PRUNING = (
+    "---\ntitle: Pruning\ndate: 2026-09-01\nupdated: 2026-09-01\nstatus: draft\ntags: [orchard]\nkind: system\n"
+    "---\n\nPrune the apple trees in March.\n"
+)
 
 
 @pytest.fixture
@@ -97,3 +104,123 @@ def test_columns_and_tables_the_store_does_not_know_are_left_as_they_are(tmp_pat
         things = connection.execute("SELECT id FROM extra_things").fetchall()
     assert [tuple(row) for row in rows] == [("new@example.com", "kept", None), ("old@example.com", "set", 42)]
     assert [tuple(row) for row in things] == [("thing",)]
+
+
+def test_add_key_writes_the_value_only_to_a_new_private_file(
+    store: HostedStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    account, _ = store.invite("ann@example.com")
+    store.set_status("ann@example.com", "active")
+    out = tmp_path / "ann.key"
+    assert main(["accounts", "add-key", "ann@example.com", "agent", "--write", "--out", str(out)]) == 0
+    printed = capsys.readouterr()
+    value = out.read_text().strip()
+    assert value.startswith("nvm_")
+    assert out.stat().st_mode & 0o777 == 0o600
+    assert value not in printed.out + printed.err
+    [key] = store.keys(account.id)
+    assert (key["name"], key["scopes"]) == ("agent", "vault:read vault:write")
+    vault = store.default_vault(account.id)
+    assert f"made the key {key['id']} 'agent' for ann@example.com's {vault.slug}, read and write" in printed.out
+    grant = store.key_grant(value)
+    assert grant is not None and grant.vault.id == vault.id
+
+
+def test_add_key_reads_only_without_write_and_takes_a_vault(store: HostedStore, tmp_path: Path):
+    account, _ = store.invite("ann@example.com")
+    store.set_status("ann@example.com", "active")
+    workshop = store.create_vault(account.id, "Workshop", "workshop")
+    out = tmp_path / "ann.key"
+    assert main(["accounts", "add-key", "ann@example.com", "reader", "--vault", "workshop", "--out", str(out)]) == 0
+    grant = store.key_grant(out.read_text().strip())
+    assert grant is not None and grant.vault.id == workshop.id and grant.scopes == ["vault:read"]
+    assert main(["accounts", "add-key", "ann@example.com", "x", "--vault", "nope", "--out", str(tmp_path / "x")]) == 1
+    assert not (tmp_path / "x").exists()
+
+
+@pytest.mark.parametrize("status", ["invited", "suspended"])
+def test_add_key_refuses_an_account_that_is_not_active(
+    store: HostedStore, tmp_path: Path, status: str, capsys: pytest.CaptureFixture[str]
+):
+    account, _ = store.invite("ann@example.com")
+    store.set_status("ann@example.com", status)  # type: ignore[arg-type]
+    out = tmp_path / "ann.key"
+    assert main(["accounts", "add-key", "ann@example.com", "agent", "--out", str(out)]) == 1
+    assert f"ann@example.com is {status}" in capsys.readouterr().err
+    assert not out.exists()
+    assert store.keys(account.id) == []
+
+
+def test_add_key_refuses_a_file_that_exists(store: HostedStore, tmp_path: Path, capsys: pytest.CaptureFixture[str]):
+    account, _ = store.invite("ann@example.com")
+    store.set_status("ann@example.com", "active")
+    out = tmp_path / "ann.key"
+    out.write_text("kept\n")
+    assert main(["accounts", "add-key", "ann@example.com", "agent", "--out", str(out)]) == 1
+    assert "exists" in capsys.readouterr().err
+    assert out.read_text() == "kept\n"
+    assert store.keys(account.id) == []
+
+
+def test_remove_key_revokes_a_key_by_name_or_id(store: HostedStore, capsys: pytest.CaptureFixture[str]):
+    account, _ = store.invite("ann@example.com")
+    store.set_status("ann@example.com", "active")
+    agent = store.create_key(account.id, "agent", ["vault:read"])
+    store.create_key(account.id, "twin", ["vault:read"])
+    twin = store.create_key(account.id, "twin", ["vault:read"])
+    assert main(["accounts", "remove-key", "ann@example.com", "agent"]) == 0
+    assert "revoked the key" in capsys.readouterr().out
+    assert store.key_grant(agent) is None
+    assert main(["accounts", "remove-key", "ann@example.com", "twin"]) == 2
+    assert "several keys named 'twin'" in capsys.readouterr().err
+    assert main(["accounts", "remove-key", "ann@example.com", twin[4:16]]) == 0
+    assert store.key_grant(twin) is None
+    assert main(["accounts", "remove-key", "ann@example.com", "agent"]) == 1
+    assert "has no key 'agent'" in capsys.readouterr().err
+
+
+@pytest.mark.anyio
+async def test_an_operator_key_for_an_account_that_never_signed_in_reaches_mcp(
+    vaults: SubjectVaults, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    async with hosted(vaults, tmp_path) as site:
+        monkeypatch.setenv("VAULT_AUTH_DIR", str(site.config.auth_dir))
+        out = tmp_path / "agent.key"
+        assert main(["accounts", "invite", "ann@example.com"]) == 0
+        assert main(["accounts", "activate", "ann@example.com"]) == 0
+        assert main(["accounts", "add-key", "ann@example.com", "agent", "--write", "--out", str(out)]) == 0
+        assert site.store.account("ann@example.com").last_login_at is None
+        key = out.read_text().strip()
+        async with site.browser() as http:
+            written = await call_tool(http, key, "write_file", {"path": "Areas/pruning.md", "content": PRUNING})
+            read = await call_tool(http, key, "read_file", {"path": "Areas/pruning.md"})
+            limits = await http.get("/api/vault/limits", headers={"Authorization": f"Bearer {key}"})
+    assert limits.status_code == 200 and limits.json()["write"] is True
+    assert not written.get("isError"), text_of(written)
+    assert "Prune the apple trees in March." in text_of(read)
+
+
+@pytest.mark.anyio
+async def test_the_owner_sees_and_removes_a_key_the_operator_made(
+    vaults: SubjectVaults, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    async with hosted(vaults, tmp_path) as site:
+        monkeypatch.setenv("VAULT_AUTH_DIR", str(site.config.auth_dir))
+        http = await site.member("ann@example.com")
+        out = tmp_path / "agent.key"
+        assert main(["accounts", "add-key", "ann@example.com", "agent", "--out", str(out)]) == 0
+        own = site.key_for("ann@example.com", name="laptop")
+        async with http:
+            page = await http.get("/account/vaults/notes")
+            rows = {row.split("</td>")[0] for row in page.text.split("<tr><td>")[1:]}
+            assert 'agent <span class="small muted">made by the operator</span>' in rows
+            assert "laptop" in rows
+            key_id = out.read_text().strip()[4:16]
+            revoked = await http.post(
+                "/account/vaults/notes/keys/revoke", data={"csrf": csrf_of(page.text), "key": key_id}
+            )
+            assert revoked.status_code == 303
+            after = await http.get("/account/vaults/notes")
+    assert "made by the operator" not in after.text and "laptop" in after.text
+    assert site.store.key_grant(out.read_text().strip()) is None
+    assert site.store.key_grant(own) is not None

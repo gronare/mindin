@@ -1,6 +1,6 @@
 {
  "fresh": {
-  "user_version": 10,
+  "user_version": 11,
   "objects": [
    [
     "index",
@@ -258,7 +258,7 @@
     "table",
     "api_keys",
     "api_keys",
-    "CREATE TABLE api_keys (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    key_hash TEXT NOT NULL,\n    scopes TEXT NOT NULL,\n    purpose TEXT NOT NULL DEFAULT 'api',\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    revoked_at INTEGER\n, vault_id TEXT REFERENCES vaults(id), spans_account INTEGER NOT NULL DEFAULT 0)"
+    "CREATE TABLE api_keys (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    key_hash TEXT NOT NULL,\n    scopes TEXT NOT NULL,\n    purpose TEXT NOT NULL DEFAULT 'api',\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    revoked_at INTEGER\n, vault_id TEXT REFERENCES vaults(id), spans_account INTEGER NOT NULL DEFAULT 0, made_by TEXT NOT NULL DEFAULT 'account')"
    ],
    [
     "table",
@@ -431,7 +431,7 @@
   ]
  },
  "migrated": {
-  "user_version": 10,
+  "user_version": 11,
   "objects": [
    [
     "index",
@@ -689,7 +689,7 @@
     "table",
     "api_keys",
     "api_keys",
-    "CREATE TABLE api_keys (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    key_hash TEXT NOT NULL,\n    scopes TEXT NOT NULL,\n    purpose TEXT NOT NULL DEFAULT 'api',\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    revoked_at INTEGER\n, vault_id TEXT REFERENCES vaults(id), spans_account INTEGER NOT NULL DEFAULT 0)"
+    "CREATE TABLE api_keys (\n    id TEXT PRIMARY KEY,\n    account_id TEXT NOT NULL REFERENCES accounts(id),\n    name TEXT NOT NULL,\n    key_hash TEXT NOT NULL,\n    scopes TEXT NOT NULL,\n    purpose TEXT NOT NULL DEFAULT 'api',\n    created_at INTEGER NOT NULL,\n    last_used_at INTEGER,\n    revoked_at INTEGER\n, vault_id TEXT REFERENCES vaults(id), spans_account INTEGER NOT NULL DEFAULT 0, made_by TEXT NOT NULL DEFAULT 'account')"
    ],
    [
     "table",

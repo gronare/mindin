@@ -35,6 +35,15 @@ mindin accounts rename-vault ann@example.com workshop --name "Shed" --slug shed
 
 A slug is one word of lowercase letters and digits, starting with a letter; without `--slug`, it is made from the name. `--preset` picks the vault's [layout](../explanation/notes-and-layouts.md#layouts). People make their own vaults on the Vaults page too.
 
+## Give an account a key
+
+```sh
+mindin accounts add-key ann@example.com agent --vault workshop --write --out ann-agent.key
+mindin accounts remove-key ann@example.com agent
+```
+
+`add-key` makes an API key for an active account, also one that has never signed in, and writes its value to a new file with mode 600, refusing a file that exists; it prints the key's id, name and vault, never the value. The key reads the vault, and writes too with `--write`. Without `--vault` it reaches the account's default vault. Hand the file to whoever runs the client, who sends the value as `Authorization: Bearer <key>`, see [Other clients](other-clients.md#clients-that-only-take-a-header). The vault's page lists the key as made by the operator, and the account can revoke it there like its own keys. `remove-key` revokes a key by name, or by id when two keys share a name.
+
 ## Share a vault
 
 ```sh

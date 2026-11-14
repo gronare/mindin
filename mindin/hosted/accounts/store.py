@@ -45,6 +45,8 @@ AccountStatus = Literal["invited", "active", "suspended"]
 STATUSES: tuple[AccountStatus, ...] = ("invited", "active", "suspended")
 KEY_PREFIX = "nvm_"
 KEY_ID_LENGTH = 12
+ACCOUNT_MADE = "account"
+OPERATOR_MADE = "operator"
 SESSION_TTL = 12 * 3600
 LOGIN_TTL = 600
 LAST_USED_RESOLUTION = 60
@@ -97,6 +99,10 @@ def pass_vault(connection: Any, vault: Vault, account_id: str) -> Vault:
 
 def now() -> int:
     return int(time.time())
+
+
+def key_id_of(key: str) -> str:
+    return key[len(KEY_PREFIX) : len(KEY_PREFIX) + KEY_ID_LENGTH]
 
 
 def scope_label(scopes: str) -> str:
@@ -462,6 +468,7 @@ class HostedStore:
         purpose: str = "api",
         vault_id: str | None = None,
         spans_account: bool = False,
+        made_by: str = ACCOUNT_MADE,
     ) -> str:
         vault = self.vault(vault_id) if vault_id else self.first_vault(account_id)
         if vault is None or not self.reaches(vault, account_id):
@@ -471,7 +478,7 @@ class HostedStore:
         with self.connect() as connection:
             connection.execute(
                 "INSERT INTO api_keys(id, account_id, vault_id, name, key_hash, scopes, purpose, created_at,"
-                " spans_account) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " spans_account, made_by) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     key_id,
                     account_id,
@@ -482,6 +489,7 @@ class HostedStore:
                     purpose,
                     now(),
                     1 if spans_account else 0,
+                    made_by,
                 ),
             )
         return key
@@ -489,7 +497,7 @@ class HostedStore:
     def key_grant(self, key: str) -> KeyGrant | None:
         if not key.startswith(KEY_PREFIX) or len(key) < len(KEY_PREFIX) + KEY_ID_LENGTH + 16:
             return None
-        key_id = key[len(KEY_PREFIX) : len(KEY_PREFIX) + KEY_ID_LENGTH]
+        key_id = key_id_of(key)
         with self.connect() as connection:
             row = connection.execute("SELECT * FROM api_keys WHERE id = ? AND revoked_at IS NULL", (key_id,)).fetchone()
             if row is None or not hmac.compare_digest(row["key_hash"], digest(key)):
@@ -516,7 +524,7 @@ class HostedStore:
     def keys(self, account_id: str, vault_id: str | None = None) -> list[Row]:
         with self.connect() as connection:
             return connection.execute(
-                "SELECT id, vault_id, name, scopes, purpose, created_at, last_used_at FROM api_keys"
+                "SELECT id, vault_id, name, scopes, purpose, made_by, created_at, last_used_at FROM api_keys"
                 " WHERE account_id = ? AND (? IS NULL OR vault_id = ?) AND revoked_at IS NULL"
                 " ORDER BY created_at, rowid",
                 (account_id, vault_id, vault_id),
@@ -770,7 +778,7 @@ class ApiKeyCredentials:
 
     def lookup(self, secret: str) -> tuple[str, bool] | None:
         grant = self.store.key_grant(secret)
-        if grant is None or not grant.account.active or not grant.account.sub:
+        if grant is None or not grant.account.active:
             return None
         scopes = self.allowed(grant.account, grant.scopes)
         return (grant.vault.id, WRITE_SCOPE in scopes) if scopes else None

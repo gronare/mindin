@@ -47,6 +47,18 @@ def test_migrate_runs_the_steps_an_older_store_lacks(auth: Path, capsys: pytest.
         assert connection.execute("SELECT name FROM sqlite_master WHERE name = 'vault_feed'").fetchone()
 
 
+def test_migrate_marks_the_keys_of_an_older_store_as_made_by_their_account(auth: Path):
+    path = stored_at(auth, len(STEPS) - 1)
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "INSERT INTO api_keys(id, account_id, vault_id, name, key_hash, scopes, created_at)"
+            " VALUES('k1', 'acc_ann', 'v1', 'laptop', 'hash', 'vault:read', 1)"
+        )
+    assert main(["migrate"]) == 0
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT made_by FROM api_keys WHERE id = 'k1'").fetchone() == ("account",)
+
+
 def test_a_second_migrate_changes_nothing(auth: Path, capsys: pytest.CaptureFixture[str]):
     assert main(["migrate"]) == 0
     path = auth / "hosted.sqlite"

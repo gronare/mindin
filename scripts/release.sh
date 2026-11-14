@@ -40,7 +40,7 @@ perl -pi -e 's/"mindin(\[semantic\])?==[^"]*"/"mindin$1=='"$version"'"/g' shim/p
 perl -pi -e 's/^VERSION = "[^"]*"/VERSION = "'"$version"'"/' mindin/server.py
 perl -pi -e 's/"version": "[^"]*"/"version": "'"$version"'"/' server.json
 perl -0pi -e 's/(\[\[package\]\]\nname = "mindin"\nversion = )"[^"]*"/$1"'"$version"'"/' uv.lock
-perl -pi -e 's/^(# \{.*?"version": )"[^"]*"/$1"'"$version"'"/' docs/reference/agent-commands.md
+perl -pi -e 'next if /"changes": \[/; s/^(# \{.*?"version": )"[^"]*"/$1"'"$version"'"/' docs/reference/agent-commands.md
 # shellcheck disable=SC2086
 perl -pi -e 's#(\Q'"$image"'\E):v[0-9][0-9.]*(-semantic)?$#$1:'"$tag"'$2#' $pinned
 perl -pi -e 's/"version": "[^"]*"/"version": "'"$version"'"/' plugin/.claude-plugin/plugin.json

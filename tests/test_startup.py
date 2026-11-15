@@ -26,9 +26,9 @@ def test_the_index_opens_at_once_while_another_process_writes(tmp_path: Path, va
     path = tmp_path / "shared.sqlite"
     Index(path, vault.backend).close()
     holder = hold_write_lock(path)
-    started = time.time()
+    started = time.monotonic()
     opened = Index(path, vault.backend)
-    assert time.time() - started < 1.0
+    assert time.monotonic() - started < index_module.BUSY_TIMEOUT_MS / 2000
     holder.execute("ROLLBACK")
     opened.close()
 
@@ -37,16 +37,19 @@ def test_a_write_waits_for_the_other_writer_instead_of_failing(tmp_path: Path, v
     path = tmp_path / "shared.sqlite"
     Index(path, vault.backend).close()
     holder = hold_write_lock(path)
+    writing = threading.Event()
 
     def release() -> None:
+        writing.wait(30)
         time.sleep(1.5)
         holder.execute("COMMIT")
 
     threading.Thread(target=release, daemon=True).start()
     opened = Index(path, vault.backend)
-    started = time.time()
+    started = time.monotonic()
+    writing.set()
     opened.upsert("Projects/probe.md", NOTE, "v1", 0.0, len(NOTE))
-    assert time.time() - started >= 1.0
+    assert time.monotonic() - started >= 1.5
     assert opened.note("Projects/probe.md") is not None
     opened.close()
 

@@ -381,14 +381,18 @@ def test_context_in_a_terminal_lists_the_commits_since_the_note(
     vault: Vault, vault_dir: Path, monkeypatch, tmp_path, capsys
 ):
     import subprocess
+    import time
 
+    from clock_support import committed_at
     from test_cli_hooks import head_sha, make_repo
 
     repo = make_repo(tmp_path / "repos", "frame")
     (repo / "rows.txt").write_text("north\n", encoding="utf-8")
     identity = ["-c", "user.email=t@example.com", "-c", "user.name=T"]
     subprocess.run(["git", "add", "rows.txt"], cwd=repo, check=True)
-    subprocess.run(["git", *identity, "commit", "-qm", "Prune the north row"], cwd=repo, check=True)
+    three_days_back = committed_at(time.time() - 3 * 86400)
+    prune = ["git", *identity, "commit", "-qm", "Prune the north row"]
+    subprocess.run(prune, cwd=repo, check=True, env=three_days_back)
     sha = head_sha(repo)
     (vault_dir / "Areas" / "frame.md").write_text(
         "---\ntitle: frame\ndate: 2020-01-01\nupdated: 2020-01-01\n"
@@ -403,4 +407,4 @@ def test_context_in_a_terminal_lists_the_commits_since_the_note(
     lines = run(capsys, "context", "--path", str(repo)).splitlines()
     at = lines.index("2 commits since the note")
     assert lines[at + 1].startswith("  ") and "First commit" in lines[at + 1]
-    assert lines[at + 2].startswith(f"  {sha}  Prune the north row") and lines[at + 2].endswith("today")
+    assert lines[at + 2].startswith(f"  {sha}  Prune the north row") and lines[at + 2].endswith("3 days")

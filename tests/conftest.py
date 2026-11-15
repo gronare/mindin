@@ -3,11 +3,12 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from clock_support import PinnedTime, pinned
 from forwarded_support import Proxy
 
 from mindin.backends import s3
@@ -56,6 +57,12 @@ def away_from_the_users_own_config(tmp_path_factory: pytest.TempPathFactory, mon
 @pytest.fixture(autouse=True)
 def no_remembered_delete_probes() -> None:
     s3._delete_probes.clear()
+
+
+@pytest.fixture(autouse=True)
+def pinned_time() -> Iterator[PinnedTime]:
+    with pinned() as clock:
+        yield clock
 
 
 @pytest.fixture

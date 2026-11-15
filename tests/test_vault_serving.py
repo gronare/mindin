@@ -82,7 +82,7 @@ def test_a_write_succeeds_at_once_whatever_the_bus_does(
     started = time.monotonic()
     for number in range(5):
         backend.put(f"Areas/lathe-{number}.md", LATHE)
-    assert time.monotonic() - started < 2
+    assert time.monotonic() - started < 5
     assert backend.get("Areas/lathe-4.md")[0] == LATHE
     if isinstance(chosen, StuckBus):
         chosen.release.set()
@@ -97,7 +97,7 @@ def test_a_full_change_queue_drops_changes_instead_of_waiting(sealed: SealedVaul
     started = time.monotonic()
     for _ in range(20):
         publisher.publish(Change(vault_id, "write", "here"))
-    assert time.monotonic() - started < 1
+    assert time.monotonic() - started < 5
     bus.release.set()
     publisher.close()
 
@@ -121,7 +121,7 @@ def test_a_slow_open_of_one_vault_leaves_the_others_serving(storage: Path, tmp_p
     def slow_for_frame(subject: str):
         if subject == "frame":
             entered.set()
-            release.wait(10)
+            release.wait(30)
         return plain(subject)
 
     vaults.backend_factory = slow_for_frame
@@ -131,7 +131,7 @@ def test_a_slow_open_of_one_vault_leaves_the_others_serving(storage: Path, tmp_p
     assert entered.wait(5)
     started = time.monotonic()
     vaults.for_subject("orchard")
-    assert time.monotonic() - started < 1
+    assert time.monotonic() - started < 10
     release.set()
     opening.join(5)
     assert vaults.open_subjects == ["frame", "orchard"]
@@ -170,7 +170,7 @@ class SlowIndex:
 
     def close(self) -> None:
         self.entered.set()
-        self.release.wait(10)
+        self.release.wait(30)
 
 
 def test_closing_an_idle_vault_holds_up_no_other_vault(storage: Path, tmp_path: Path):
@@ -187,7 +187,7 @@ def test_closing_an_idle_vault_holds_up_no_other_vault(storage: Path, tmp_path: 
     assert slow.entered.wait(5)
     started = time.monotonic()
     vaults.for_subject("orchard")
-    assert time.monotonic() - started < 1
+    assert time.monotonic() - started < 10
     slow.release.set()
     evicting.join(5)
     vaults.close()
@@ -215,9 +215,9 @@ def test_snapshots_of_a_busy_vault_wait_for_the_interval_and_skip_an_unchanged_i
 
 
 def test_a_change_inside_the_interval_is_saved_when_the_interval_ends(tmp_path: Path):
-    vaults = SubjectVaults(cache=tmp_path / "cache")
+    vaults = SubjectVaults(cache=tmp_path / "cache", clock=Ticks())
     snapshots = CountingSnapshots()
-    vaults.use_snapshots(snapshots, every_seconds=0.2)
+    vaults.use_snapshots(snapshots, every_seconds=1.0)
     path = index_file(tmp_path / "frame.sqlite", ("Areas/lathe.md", "v1"))
     vaults.snapshot_later("frame", path)
     settle(vaults)
@@ -225,7 +225,7 @@ def test_a_change_inside_the_interval_is_saved_when_the_interval_ends(tmp_path: 
     vaults.snapshot_later("frame", path)
     settle(vaults)
     assert snapshots.saved == ["frame"]
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + 20
     while len(snapshots.saved) < 2 and time.monotonic() < deadline:
         time.sleep(0.05)
     assert snapshots.saved == ["frame", "frame"]

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import secrets
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -140,10 +139,6 @@ class Removed:
     kept_at: int | None = None
 
 
-def now() -> int:
-    return int(time.time())
-
-
 def organisation_of(row: Any) -> Organisation | None:
     if row is None:
         return None
@@ -214,10 +209,10 @@ def is_member(connection: Any, organisation_id: str, account_id: str) -> bool:
     )
 
 
-def hand_to_an_admin(connection: Any, vault: Vault, admins: list[Account]) -> Vault:
+def hand_to_an_admin(connection: Any, vault: Vault, admins: list[Account], moment: int) -> Vault:
     for admin in admins:
         try:
-            return pass_vault(connection, vault, admin.id)
+            return pass_vault(connection, vault, admin.id, moment)
         except MembershipError:
             continue
     raise OrganisationError(
@@ -241,45 +236,49 @@ def drop_other_claims(connection: Any, organisation_id: str, domain: str) -> Non
     )
 
 
-def admit_to_vault(connection: Any, vault: Vault, account_id: str, email: str, organisation_id: str) -> None:
+def admit_to_vault(
+    connection: Any, vault: Vault, account_id: str, email: str, organisation_id: str, moment: int
+) -> None:
     if vault.account_id == account_id:
         return
     if clash(connection, [account_id], vault.slug, vault.id) is not None:
         connection.execute(
             "INSERT INTO vault_invitations(vault_id, email, invited_by, created_at) VALUES(?, ?, ?, ?)"
             " ON CONFLICT (vault_id, email) DO NOTHING",
-            (vault.id, email, organisation_id, now()),
+            (vault.id, email, organisation_id, moment),
         )
         return
     connection.execute(
         "INSERT INTO vault_members(vault_id, account_id, joined_at) VALUES(?, ?, ?)"
         " ON CONFLICT (vault_id, account_id) DO NOTHING",
-        (vault.id, account_id, now()),
+        (vault.id, account_id, moment),
     )
 
 
-def join(connection: Any, organisation_id: str, account_id: str, role: str = MEMBER, source: str = "domain") -> None:
+def join(
+    connection: Any, organisation_id: str, account_id: str, moment: int, role: str = MEMBER, source: str = "domain"
+) -> None:
     row = connection.execute("SELECT email FROM accounts WHERE id = ?", (account_id,)).fetchone()
     connection.execute(
         "INSERT INTO organisation_members(organisation_id, account_id, role, source, joined_at) VALUES(?, ?, ?, ?, ?)"
         " ON CONFLICT (organisation_id, account_id) DO NOTHING",
-        (organisation_id, account_id, role, source, now()),
+        (organisation_id, account_id, role, source, moment),
     )
     connection.execute(
         "DELETE FROM organisation_invitations WHERE organisation_id = ? AND account_id = ?",
         (organisation_id, account_id),
     )
     for vault in org_vaults_of(connection, organisation_id):
-        admit_to_vault(connection, vault, account_id, row["email"].lower(), organisation_id)
+        admit_to_vault(connection, vault, account_id, row["email"].lower(), organisation_id, moment)
 
 
-def join_by_domain(connection: Any, account_id: str, emails: tuple[str, ...]) -> list[str]:
+def join_by_domain(connection: Any, account_id: str, emails: tuple[str, ...], moment: int) -> list[str]:
     joined = []
     for organisation_id, _ in matching(connection, emails):
         if organisation_id in joined or departed(connection, organisation_id, emails, account_id):
             continue
         if not is_member(connection, organisation_id, account_id):
-            join(connection, organisation_id, account_id)
+            join(connection, organisation_id, account_id, moment)
             joined.append(organisation_id)
     return joined
 
@@ -288,12 +287,12 @@ class Organisations:
     def __init__(
         self,
         store: HostedStore,
-        clock: Callable[[], float] = time.time,
+        clock: Callable[[], float] | None = None,
         resolve: Callable[[str], list[str]] | None = None,
         public: frozenset[str] | None = None,
     ) -> None:
         self.store = store
-        self.clock = clock
+        self.clock = clock or store.clock
         self.resolve = resolve
         self.public = public_domains() if public is None else public
 
@@ -353,7 +352,7 @@ class Organisations:
                 "INSERT INTO organisations(id, name, created_at) VALUES(?, ?, ?)",
                 (organisation_id, cleaned, self.moment()),
             )
-            join(connection, organisation_id, admin.id, ADMIN, "created")
+            join(connection, organisation_id, admin.id, self.moment(), ADMIN, "created")
         return self.require(organisation_id)
 
     def domains(self, organisation: Organisation) -> list[OrgDomain]:
@@ -495,7 +494,7 @@ class Organisations:
                 return Admission(account, False)
             if created or at_verified_domain(connection, organisation.id, address):
                 clear_departure(connection, organisation.id, account.id, address)
-                join(connection, organisation.id, account.id, role, "admin")
+                join(connection, organisation.id, account.id, self.moment(), role, "admin")
                 return Admission(account, False)
             connection.execute(
                 "INSERT INTO organisation_invitations(organisation_id, account_id, role, sent_at, invited_by)"
@@ -556,7 +555,7 @@ class Organisations:
             if row is None:
                 raise OrganisationError(f"There is no invitation to {organisation.name} for {account.email}.")
             clear_departure(connection, organisation.id, account.id, account.email.lower())
-            join(connection, organisation.id, account.id, row["role"], "invitation")
+            join(connection, organisation.id, account.id, self.moment(), row["role"], "invitation")
 
     def decline(self, organisation: Organisation, account_id: str) -> bool:
         with self.store.connect() as connection:
@@ -625,11 +624,11 @@ class Organisations:
                 (organisation.id, account.id),
             ).fetchone()["source"]
             vaults = [
-                hand_to_an_admin(connection, vault, admins) if vault.account_id == account.id else vault
+                hand_to_an_admin(connection, vault, admins, self.moment()) if vault.account_id == account.id else vault
                 for vault in org_vaults_of(connection, organisation.id)
             ]
             for vault in vaults:
-                drop_member(connection, vault, account.id)
+                drop_member(connection, vault, account.id, self.moment())
             moment = self.moment()
             delete_after = moment + organisation.removal_days * 86400 if erases else None
             marks = ", ".join("?" for _ in vaults) or "''"
@@ -732,7 +731,7 @@ class Organisations:
                 " WHERE organisation_members.organisation_id = ?",
                 (organisation.id,),
             ).fetchall():
-                admit_to_vault(connection, vault, member["id"], member["email"].lower(), organisation.id)
+                admit_to_vault(connection, vault, member["id"], member["email"].lower(), organisation.id, self.moment())
         return vault
 
     def vaults(self, organisation: Organisation) -> list[OrgVault]:

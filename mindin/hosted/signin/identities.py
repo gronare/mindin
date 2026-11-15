@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from mindin.extensions import refusal
-from mindin.hosted.accounts.store import Account, HostedStore, account_of, digest, now
+from mindin.hosted.accounts.store import Account, HostedStore, account_of, digest
 from mindin.hosted.accounts.vaults import accept_invitations, add_first_vault, invited
 from mindin.hosted.config import Registration
 from mindin.hosted.database import Connection
@@ -89,12 +89,12 @@ class Identities:
             if row is not None:
                 connection.execute(
                     "UPDATE identities SET last_used_at = ? WHERE method = ? AND subject = ?",
-                    (now(), proof.method, proof.subject),
+                    (self.store.now(), proof.method, proof.subject),
                 )
                 returning = self._signed_in(connection, row["account_id"], proof.name)
                 if returning is not None and returning.active:
-                    join_by_domain(connection, returning.id, (returning.email.lower(), *emails))
-                    accept_invitations(connection, returning.id, (returning.email.lower(),))
+                    join_by_domain(connection, returning.id, (returning.email.lower(), *emails), self.store.now())
+                    accept_invitations(connection, returning.id, (returning.email.lower(),), self.store.now())
                 return Outcome(returning)
             if not emails:
                 return Outcome(None, "unverified")
@@ -117,10 +117,14 @@ class Identities:
                 connection.execute(
                     "UPDATE accounts SET status = 'active', status_source = 'invite', status_changed_at = ?"
                     " WHERE id = ?",
-                    (now(), account.id),
+                    (self.store.now(), account.id),
                 )
-            join_by_domain(connection, account.id, tuple(dict.fromkeys((account.email.lower(), *emails))))
-            accept_invitations(connection, account.id, tuple(dict.fromkeys((*emails, account.email.lower()))))
+            join_by_domain(
+                connection, account.id, tuple(dict.fromkeys((account.email.lower(), *emails))), self.store.now()
+            )
+            accept_invitations(
+                connection, account.id, tuple(dict.fromkeys((*emails, account.email.lower()))), self.store.now()
+            )
             return Outcome(self._signed_in(connection, account.id, proof.name))
 
     def registering(self, email: str) -> str:
@@ -153,7 +157,7 @@ class Identities:
 
     def join_by_domain(self, account: Account) -> None:
         with self.store.connect() as connection:
-            join_by_domain(connection, account.id, (account.email.lower(),))
+            join_by_domain(connection, account.id, (account.email.lower(),), self.store.now())
 
     def link(self, account_id: str, proof: Proof) -> bool:
         with self.store.connect() as connection:
@@ -199,7 +203,7 @@ class Identities:
                 connection.execute(
                     "INSERT INTO identities(method, subject, account_id, label, public_key, sign_count, created_at)"
                     " VALUES('passkey', ?, ?, ?, ?, ?, ?)",
-                    (credential_id, account_id, label, public_key, sign_count, now()),
+                    (credential_id, account_id, label, public_key, sign_count, self.store.now()),
                 )
         except self.store.database.IntegrityError:
             return False
@@ -228,7 +232,7 @@ class Identities:
         return [row["subject"] for row in rows]
 
     def begin(self, kind: str, key: str, binding: str, document: dict[str, Any], ttl: int) -> None:
-        moment = now()
+        moment = self.store.now()
         with self.store.connect() as connection:
             connection.execute("DELETE FROM ceremonies WHERE expires_at < ?", (moment,))
             connection.execute(
@@ -244,7 +248,7 @@ class Identities:
                 "DELETE FROM ceremonies WHERE key_hash = ? AND kind = ? RETURNING document, binding_hash, expires_at",
                 (digest(key), kind),
             ).fetchone()
-        if row is None or row["expires_at"] < now():
+        if row is None or row["expires_at"] < self.store.now():
             return None
         return json.loads(row["document"]), row["binding_hash"]
 
@@ -254,7 +258,7 @@ class Identities:
         with self.store.connect() as connection:
             row = connection.execute(
                 "SELECT document FROM ceremonies WHERE key_hash = ? AND kind = ? AND expires_at >= ?",
-                (digest(key), kind, now()),
+                (digest(key), kind, self.store.now()),
             ).fetchone()
         return json.loads(row["document"]) if row else None
 
@@ -270,7 +274,7 @@ class Identities:
         return account_of(row)
 
     def _create(self, connection: Connection, email: str) -> Account:
-        moment = now()
+        moment = self.store.now()
         account_id = "acc_" + secrets.token_urlsafe(16)
         connection.execute(
             "INSERT INTO accounts(id, email, status, status_source, status_changed_at, created_at)"
@@ -286,7 +290,15 @@ class Identities:
         connection.execute(
             "INSERT INTO identities(method, subject, account_id, email, label, created_at, last_used_at)"
             " VALUES(?, ?, ?, ?, ?, ?, ?)",
-            (proof.method, proof.subject, account_id, emails[0] if emails else "", proof.label, now(), now()),
+            (
+                proof.method,
+                proof.subject,
+                account_id,
+                emails[0] if emails else "",
+                proof.label,
+                self.store.now(),
+                self.store.now(),
+            ),
         )
 
     def _signed_in(self, connection: Connection, account_id: str, name: str) -> Account | None:
@@ -294,9 +306,9 @@ class Identities:
             "UPDATE accounts SET sub = COALESCE(sub, ?), last_login_at = ?,"
             " name = CASE WHEN ? = '' THEN name ELSE ? END"
             " WHERE id = ?",
-            (secrets.token_hex(16), now(), name, name, account_id),
+            (secrets.token_hex(16), self.store.now(), name, name, account_id),
         )
         account = account_of(connection.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone())
         if account is not None and account.active:
-            keep_departed(connection, account_id, now())
+            keep_departed(connection, account_id, self.store.now())
         return account

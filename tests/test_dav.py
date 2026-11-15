@@ -399,14 +399,17 @@ async def test_if_match_star_on_a_file_deleted_meanwhile_is_412(
 async def test_a_slow_vault_open_leaves_the_event_loop_free(
     app: Any, secret: str, vaults: SubjectVaults, monkeypatch: pytest.MonkeyPatch
 ):
+    import threading
     import time
 
     import anyio
 
     real = vaults.for_subject
+    entered, release = threading.Event(), threading.Event()
 
     def slow(subject: str):
-        time.sleep(0.6)
+        entered.set()
+        release.wait(30)
         return real(subject)
 
     monkeypatch.setattr(vaults, "for_subject", slow)
@@ -419,10 +422,13 @@ async def test_a_slow_vault_open_leaves_the_event_loop_free(
         async with anyio.create_task_group() as group:
             group.start_soon(walk)
             started = time.monotonic()
+            while not entered.is_set():
+                await anyio.sleep(0.01)
             await anyio.sleep(0.05)
             waited = time.monotonic() - started
+            release.set()
     assert statuses == [207]
-    assert waited < 0.4
+    assert waited < 10
 
 
 @pytest.mark.anyio

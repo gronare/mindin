@@ -12,7 +12,7 @@ from typing import Any
 
 import uvicorn
 from cimd_support import MetadataHost
-from hosted_support import Clock, FakeIdentityProvider, hosted_config
+from hosted_support import Clock, FakeIdentityProvider, hold_departures, hosted_config
 
 from mindin.backends import VaultBackend
 from mindin.hosted.accounts.keys import Keyring, MasterKey
@@ -103,7 +103,8 @@ def serve(
         keyring=Keyring(MasterKey.generate()),
         extensions=extensions,
     )
-    store = HostedStore(config.auth_dir)
+    store = HostedStore(config.auth_dir, clock=clock)
+    hold_departures(store)
     account, _ = store.invite(email)
     with store.connect() as connection:
         connection.execute("UPDATE accounts SET status = 'active', sub = ? WHERE id = ?", (sub, account.id))

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from typing import Any
 
 import jwt
 import pytest
+from clock_support import world_time
 from forwarded_support import HOST, ISSUER, TYP, Proxy
 
 from mindin.hosted.accounts.store import HostedStore
@@ -33,7 +33,7 @@ def verifier(proxy: Proxy, tmp_path: Path) -> ForwardedSignIn:
 
 
 def _claims(proxy: Proxy, **overrides: Any) -> dict[str, Any]:
-    now = int(time.time())
+    now = int(world_time())
     payload = {"iss": ISSUER, "aud": HOST, "sub": "7", "entitlements": ["vault:write"], "exp": now + 60, "typ": TYP}
     payload.update(overrides)
     return {key: value for key, value in payload.items() if value is not None}
@@ -70,7 +70,7 @@ def test_a_token_for_another_host_is_refused(proxy: Proxy, tmp_path: Path):
 
 
 def test_an_expired_or_not_yet_valid_token_is_refused(proxy: Proxy, tmp_path: Path):
-    now = int(time.time())
+    now = int(world_time())
     expired = jwt.encode(_claims(proxy, exp=now - 1), proxy.key, algorithm="RS256")
     early = jwt.encode(_claims(proxy, nbf=now + 300), proxy.key, algorithm="RS256")
     assert _refused(proxy, tmp_path, expired)

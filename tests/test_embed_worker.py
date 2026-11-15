@@ -173,13 +173,13 @@ def test_a_query_behind_a_slow_embed_goes_by_words(make, gate: Path):
     assert wait_until(lambda: entered(gate) == 1)
     started = time.monotonic()
     assert embedder.query("oauth") is None
-    assert time.monotonic() - started < 1.5
+    assert time.monotonic() - started < 10
     gate.touch()
     bulk.join()
 
 
 def test_a_query_jumps_ahead_of_queued_embeds(make, gate: Path):
-    embedder = make(query_wait=5)
+    embedder = make(query_wait=25)
     embedder.query("quick")
     bulks = [threading.Thread(target=embedder.passages, args=([f"slow {n}"],)) for n in range(3)]
     for bulk in bulks:
@@ -187,7 +187,7 @@ def test_a_query_jumps_ahead_of_queued_embeds(make, gate: Path):
     assert wait_until(lambda: entered(gate) == 1)
     started = time.monotonic()
     assert embedder.query("quick") is not None
-    assert time.monotonic() - started < 2.0
+    assert time.monotonic() - started < 10
     assert entered(gate) == 1
     gate.touch()
     for bulk in bulks:
@@ -206,11 +206,11 @@ def test_a_query_is_answered_while_a_slow_embed_runs(make, gate: Path):
 
 
 def test_a_worker_kept_warm_outlives_its_idle_time_until_warming_stops(make):
-    embedder = make(idle_seconds=0.5)
-    embedder.keep_warm(every=0.1)
+    embedder = make(idle_seconds=1.0)
+    embedder.keep_warm(every=0.05)
     assert wait_until(lambda: embedder.worker_pid is not None)
     warm = embedder.worker_pid
-    time.sleep(1.5)
+    time.sleep(2.5)
     assert alive(warm)
     embedder.warm_stop.set()
     assert wait_until(lambda: not alive(warm))

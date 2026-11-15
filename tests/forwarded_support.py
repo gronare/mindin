@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import time
 from functools import lru_cache
 from typing import Any
 
 import jwt
+from clock_support import world_time
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
@@ -38,7 +38,7 @@ class Proxy:
         return _pem(self.key)
 
     def token(self, sub: str = "1042", entitlements: tuple[str, ...] = ("vault:write",), **claims: Any) -> str:
-        now = int(time.time())
+        now = int(world_time())
         payload = {
             "iss": ISSUER,
             "aud": HOST,
@@ -54,6 +54,6 @@ class Proxy:
         return jwt.encode(payload, self.key, algorithm="RS256")
 
     def foreign_token(self) -> str:
-        now = int(time.time())
+        now = int(world_time())
         payload = {"iss": ISSUER, "aud": HOST, "sub": "1", "entitlements": ["vault:write"], "exp": now + 60, "typ": TYP}
         return jwt.encode(payload, self.stranger, algorithm="RS256")

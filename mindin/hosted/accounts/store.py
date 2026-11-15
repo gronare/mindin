@@ -58,10 +58,9 @@ def digest(secret: str) -> str:
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
-def drop_member(connection: Any, vault: Vault, account_id: str) -> bool:
+def drop_member(connection: Any, vault: Vault, account_id: str, moment: int) -> bool:
     if account_id == vault.account_id:
         raise MembershipError("The owner cannot be removed; hand the vault over first.")
-    moment = now()
     removed = connection.execute(
         "DELETE FROM vault_members WHERE vault_id = ? AND account_id = ?", (vault.id, account_id)
     ).rowcount
@@ -76,7 +75,7 @@ def drop_member(connection: Any, vault: Vault, account_id: str) -> bool:
     return removed > 0
 
 
-def pass_vault(connection: Any, vault: Vault, account_id: str) -> Vault:
+def pass_vault(connection: Any, vault: Vault, account_id: str, moment: int) -> Vault:
     if account_id == vault.account_id or not reaches(connection, vault, account_id):
         raise MembershipError("Only a member of this vault can become its owner.")
     if clash(connection, [account_id], vault.slug, vault.id) is not None:
@@ -87,7 +86,7 @@ def pass_vault(connection: Any, vault: Vault, account_id: str) -> Vault:
     connection.execute(
         "INSERT INTO vault_members(vault_id, account_id, joined_at) VALUES(?, ?, ?)"
         " ON CONFLICT (vault_id, account_id) DO NOTHING",
-        (vault.id, vault.account_id, now()),
+        (vault.id, vault.account_id, moment),
     )
     connection.execute("UPDATE vaults SET account_id = ? WHERE id = ?", (account_id, vault.id))
     connection.execute("DELETE FROM vault_support_grants WHERE vault_id = ?", (vault.id,))
@@ -95,10 +94,6 @@ def pass_vault(connection: Any, vault: Vault, account_id: str) -> Vault:
     handed = vault_of(connection.execute("SELECT * FROM vaults WHERE id = ?", (vault.id,)).fetchone())
     assert handed is not None
     return handed
-
-
-def now() -> int:
-    return int(time.time())
 
 
 def key_id_of(key: str) -> str:
@@ -205,8 +200,13 @@ def account_of(row: Row | None) -> Account | None:
 
 class HostedStore:
     def __init__(
-        self, directory: Path, extensions: Sequence[Extension] | None = None, database: Database | None = None
+        self,
+        directory: Path,
+        extensions: Sequence[Extension] | None = None,
+        database: Database | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
+        self.clock = clock or time.time
         chosen = installed() if extensions is None else extensions
         self.extensions = tuple(chosen)
         self.database = (
@@ -219,6 +219,9 @@ class HostedStore:
 
     def connect(self) -> AbstractContextManager[Any]:
         return self.database.connect()
+
+    def now(self) -> int:
+        return int(self.clock())
 
     def account(self, ref: str) -> Account | None:
         with self.connect() as connection:
@@ -241,7 +244,7 @@ class HostedStore:
         existing = self.account(address)
         if existing is not None:
             return existing, False
-        moment = now()
+        moment = self.now()
         account_id = "acc_" + secrets.token_urlsafe(16)
         registrant = Registrant(method, address, (address,), label or address, invited=True)
         with self.connect() as connection:
@@ -267,7 +270,7 @@ class HostedStore:
         with self.connect() as connection:
             connection.execute(
                 "UPDATE accounts SET status = ?, status_source = ?, status_changed_at = ? WHERE id = ?",
-                (status, source, now(), account.id),
+                (status, source, self.now(), account.id),
             )
         return self.account(account.id)
 
@@ -328,7 +331,7 @@ class HostedStore:
 
     def accept_invitations(self, account: Account) -> list[Waiting]:
         with self.connect() as connection:
-            return accept_invitations(connection, account.id, (account.email.lower(),))
+            return accept_invitations(connection, account.id, (account.email.lower(),), self.now())
 
     def members(self, vault: Vault) -> list[Member]:
         with self.connect() as connection:
@@ -388,7 +391,7 @@ class HostedStore:
             connection.execute(
                 "INSERT INTO vault_invitations(vault_id, email, invited_by, link_hash, created_at)"
                 " VALUES(?, ?, ?, ?, ?)",
-                (vault.id, address, invited_by, link_hash, now()),
+                (vault.id, address, invited_by, link_hash, self.now()),
             )
         return address
 
@@ -404,11 +407,11 @@ class HostedStore:
 
     def remove_member(self, vault: Vault, account_id: str) -> bool:
         with self.connect() as connection:
-            return drop_member(connection, vault, account_id)
+            return drop_member(connection, vault, account_id, self.now())
 
     def hand_over(self, vault: Vault, account_id: str) -> Vault:
         with self.connect() as connection:
-            return pass_vault(connection, vault, account_id)
+            return pass_vault(connection, vault, account_id, self.now())
 
     def client_name(self, client_id: str) -> str:
         with self.connect() as connection:
@@ -431,7 +434,7 @@ class HostedStore:
             found = clash(connection, [account_id], address)
             if found is not None:
                 raise VaultNameError(taken_by(address, found))
-            insert_vault(connection, vault_id, account_id, cleaned, address, now(), kind)
+            insert_vault(connection, vault_id, account_id, cleaned, address, self.now(), kind)
         created = self.vault(vault_id)
         assert created is not None
         return created
@@ -487,7 +490,7 @@ class HostedStore:
                     digest(key),
                     " ".join(scopes),
                     purpose,
-                    now(),
+                    self.now(),
                     1 if spans_account else 0,
                     made_by,
                 ),
@@ -502,7 +505,7 @@ class HostedStore:
             row = connection.execute("SELECT * FROM api_keys WHERE id = ? AND revoked_at IS NULL", (key_id,)).fetchone()
             if row is None or not hmac.compare_digest(row["key_hash"], digest(key)):
                 return None
-            moment = now()
+            moment = self.now()
             if row["last_used_at"] is None or moment - row["last_used_at"] >= LAST_USED_RESOLUTION:
                 connection.execute("UPDATE api_keys SET last_used_at = ? WHERE id = ?", (moment, key_id))
             account = account_of(
@@ -536,7 +539,7 @@ class HostedStore:
                 connection.execute(
                     "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND account_id = ? AND (? IS NULL OR vault_id = ?)"
                     " AND revoked_at IS NULL",
-                    (now(), key_id, account_id, vault_id, vault_id),
+                    (self.now(), key_id, account_id, vault_id, vault_id),
                 ).rowcount
                 > 0
             )
@@ -546,7 +549,7 @@ class HostedStore:
             connection.execute(
                 "UPDATE api_keys SET revoked_at = ? WHERE vault_id = ? AND purpose = ? AND account_id = ?"
                 " AND revoked_at IS NULL",
-                (now(), vault_id, purpose, account_id),
+                (self.now(), vault_id, purpose, account_id),
             )
 
     def connections(self, vault_id: str, account_id: str) -> list[Connection]:
@@ -558,7 +561,7 @@ class HostedStore:
                 " ORDER BY tokens.issued_at",
                 (vault_id, account_id),
             ).fetchall()
-        moment = now()
+        moment = self.now()
         found: dict[str, Connection] = {}
         for row in rows:
             known = found.get(row["client_id"])
@@ -589,7 +592,7 @@ class HostedStore:
 
     def create_session(self, account_id: str) -> str:
         session = secrets.token_urlsafe(32)
-        moment = now()
+        moment = self.now()
         with self.connect() as connection:
             connection.execute("DELETE FROM sessions WHERE expires_at < ?", (moment,))
             connection.execute(
@@ -604,7 +607,7 @@ class HostedStore:
         with self.connect() as connection:
             row = connection.execute(
                 "SELECT account_id, csrf FROM sessions WHERE id_hash = ? AND expires_at >= ?",
-                (digest(session), now()),
+                (digest(session), self.now()),
             ).fetchone()
             if row is None:
                 return None
@@ -618,7 +621,7 @@ class HostedStore:
             connection.execute("DELETE FROM sessions WHERE id_hash = ?", (digest(session),))
 
     def save_client(self, client_id: str, client_name: str, document: str) -> None:
-        moment = now()
+        moment = self.now()
         with self.connect() as connection:
             connection.execute(
                 "DELETE FROM clients WHERE last_token_at IS NULL AND registered_at < ?", (moment - UNUSED_CLIENT_TTL,)
@@ -636,7 +639,7 @@ class HostedStore:
         return row["document"] if row else None
 
     def save_request(self, request_id: str, payload: dict[str, Any], ttl: int) -> None:
-        moment = now()
+        moment = self.now()
         with self.connect() as connection:
             connection.execute("DELETE FROM requests WHERE created_at < ?", (moment - ttl,))
             connection.execute(
@@ -647,7 +650,7 @@ class HostedStore:
     def load_request(self, request_id: str, ttl: int) -> dict[str, Any] | None:
         with self.connect() as connection:
             row = connection.execute(
-                "SELECT document FROM requests WHERE id = ? AND created_at >= ?", (request_id, now() - ttl)
+                "SELECT document FROM requests WHERE id = ? AND created_at >= ?", (request_id, self.now() - ttl)
             ).fetchone()
         return json.loads(row["document"]) if row else None
 
@@ -657,7 +660,7 @@ class HostedStore:
 
     def save_code(self, code: str, expires_at: float, payload: dict[str, Any]) -> None:
         with self.connect() as connection:
-            connection.execute("DELETE FROM codes WHERE expires_at < ?", (time.time(),))
+            connection.execute("DELETE FROM codes WHERE expires_at < ?", (self.clock(),))
             connection.execute(
                 "INSERT INTO codes(code_hash, expires_at, document) VALUES(?, ?, ?)",
                 (digest(code), expires_at, json.dumps(payload)),
@@ -673,7 +676,7 @@ class HostedStore:
             return connection.execute("DELETE FROM codes WHERE code_hash = ?", (digest(code),)).rowcount > 0
 
     def save_token(self, token: str, kind: str, grant: dict[str, Any], ttl: int) -> int:
-        issued_at = now()
+        issued_at = self.now()
         with self.connect() as connection:
             connection.execute(
                 "INSERT INTO tokens(token_hash, kind, grant_id, client_id, account_id, vault_id, scopes, resource,"

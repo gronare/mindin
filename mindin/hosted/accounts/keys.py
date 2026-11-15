@@ -6,7 +6,6 @@ import hashlib
 import hmac
 import os
 import shutil
-import time
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -131,7 +130,7 @@ class VaultKeys:
                 connection.execute(
                     "INSERT INTO vault_data_keys(vault_id, key_id, wrapped, created_at) VALUES(?, ?, ?, ?)"
                     " ON CONFLICT (vault_id) DO NOTHING",
-                    (vault_id, key_id, wrapped, int(time.time())),
+                    (vault_id, key_id, wrapped, self.store.now()),
                 )
                 row = connection.execute(
                     "SELECT key_id, wrapped FROM vault_data_keys WHERE vault_id = ?", (vault_id,)
@@ -174,7 +173,7 @@ class VaultKeys:
                 connection.execute(
                     "UPDATE vault_data_keys SET key_id = ?, wrapped = ?, rewrapped_at = ?"
                     " WHERE vault_id = ? AND key_id = ?",
-                    (key_id, wrapped, int(time.time()), row["vault_id"], row["key_id"]),
+                    (key_id, wrapped, self.store.now(), row["vault_id"], row["key_id"]),
                 )
             rewrapped += 1
         return rewrapped, len(rows) - rewrapped

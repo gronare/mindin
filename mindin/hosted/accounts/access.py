@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -45,9 +44,9 @@ def one_line(text: str) -> str:
 
 
 class SupportAccess:
-    def __init__(self, store: HostedStore, clock: Callable[[], float] = time.time) -> None:
+    def __init__(self, store: HostedStore, clock: Callable[[], float] | None = None) -> None:
         self.store = store
-        self.clock = clock
+        self.clock = clock or store.clock
 
     def grant(self, vault: Vault, seconds: int) -> int:
         moment = int(self.clock())
@@ -193,7 +192,7 @@ def ask_for_support(
     operator: str,
     reason: str,
     smtp_factory: SmtpFactory | None = None,
-    clock: Callable[[], float] = time.time,
+    clock: Callable[[], float] | None = None,
 ) -> tuple[SupportRequest, bool]:
     """Record a support request and email the account; False when no email went out and it waits on the page."""
     request = SupportAccess(store, clock).ask(account, vault, operator, reason)

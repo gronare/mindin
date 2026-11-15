@@ -13,7 +13,7 @@ from forwarded_support import ISSUER, TYP, Proxy
 from hosted_support import BASE, INITIALIZE, Hosted, csrf_of, hosted, query, running_a_loop
 from login_support import Authenticator, branded, hrefs
 
-from mindin.hosted.accounts.store import HostedStore, now
+from mindin.hosted.accounts.store import HostedStore
 from mindin.hosted.app import HostedGuard
 from mindin.hosted.config import ForwardedConfig
 from mindin.hosted.schema import STEPS, to_opened_tables
@@ -155,8 +155,7 @@ async def test_an_email_link_expires_after_fifteen_minutes(site: Hosted):
     async with site.browser() as http:
         await http.post("/signin/email", data={"email": "ann@example.com"})
         token = query(site.smtp.last_link("ann@example.com"))["token"]
-        with site.store.connect() as connection:
-            connection.execute("UPDATE ceremonies SET expires_at = ? WHERE kind = 'email'", (now() - 1,))
+        site.clock.advance(15 * 60 + 1)
         late = await http.post("/signin/email/confirm", data={"token": token})
     assert late.status_code == 400
     with site.store.connect() as connection:

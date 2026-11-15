@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import time
 from pathlib import Path
 from typing import Any
 
@@ -171,6 +172,22 @@ async def test_an_invited_address_signs_in_and_becomes_active(site: Hosted):
     account = site.store.account("ann@example.com")
     assert account is not None and account.status == "active" and account.sub
     assert site.identities.account_for("oidc", "sub-ann") == account
+
+
+@pytest.mark.anyio
+async def test_the_store_stamps_accounts_vaults_and_keys_with_the_clock_the_app_is_given(site: Hosted):
+    site.clock.advance(400 * 86400)
+    moment = int(site.clock.now)
+    assert moment > time.time() + 300 * 86400
+    async with await site.member("ann@example.com"):
+        account = site.store.account("ann@example.com")
+        assert account is not None
+        key = site.key_for("ann@example.com")
+    vault = site.store.first_vault(account.id)
+    assert vault is not None and key
+    assert (account.created_at, account.status_changed_at, account.last_login_at) == (moment, moment, moment)
+    assert vault.created_at == moment
+    assert [row["created_at"] for row in site.store.keys(account.id)] == [moment]
 
 
 @pytest.mark.anyio

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import secrets
-import time
 import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -168,7 +167,7 @@ class Waiting:
     clash: Vault
 
 
-def accept_invitations(connection: Connection, account_id: str, emails: tuple[str, ...]) -> list[Waiting]:
+def accept_invitations(connection: Connection, account_id: str, emails: tuple[str, ...], moment: int) -> list[Waiting]:
     if not emails:
         return []
     marks = ", ".join("?" for _ in emails)
@@ -177,7 +176,6 @@ def accept_invitations(connection: Connection, account_id: str, emails: tuple[st
         f" WHERE vault_invitations.email IN ({marks}) AND vaults.account_id != ? ORDER BY vaults.created_at",
         (*emails, account_id),
     ).fetchall()
-    moment = int(time.time())
     waiting: list[Waiting] = []
     for vault in [vault for vault in map(vault_of, rows) if vault is not None]:
         found = clash(connection, [account_id], vault.slug, vault.id)

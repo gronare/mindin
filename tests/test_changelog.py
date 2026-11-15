@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from clock_support import PINNED, committed_at
 from test_cli_hooks import feed, head_sha, make_repo
 
 from mindin import changelog, hooks
@@ -14,14 +16,17 @@ from mindin.cli import main
 from mindin.frontmatter import parse
 from mindin.vault import Vault
 
-THIS_MONTH = date.today().strftime("%Y-%m")
+THIS_MONTH = PINNED.strftime("%Y-%m")
 
 
 def commit(repo: Path, subject: str) -> str:
     (repo / "more.py").write_text(f"# {subject}\n", encoding="utf-8")
     subprocess.run(["git", "add", "more.py"], cwd=repo, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-qm", subject], cwd=repo, check=True
+        ["git", "-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-qm", subject],
+        cwd=repo,
+        check=True,
+        env=committed_at(time.time()),
     )
     return head_sha(repo)
 
@@ -30,6 +35,21 @@ def test_periods_due_adds_the_previous_month_in_the_first_week():
     assert changelog.periods_due(date(2026, 9, 3)) == ["2026-08", "2026-09"]
     assert changelog.periods_due(date(2026, 9, 20)) == ["2026-09"]
     assert changelog.periods_due(date(2027, 1, 2)) == ["2026-12", "2027-01"]
+
+
+@pytest.mark.parametrize(
+    ("period", "on", "over"),
+    [
+        ("2026-08", date(2026, 8, 31), False),
+        ("2026-08", date(2026, 9, 1), True),
+        ("2026-12", date(2026, 12, 31), False),
+        ("2026-12", date(2027, 1, 1), True),
+        ("2028-02", date(2028, 2, 29), False),
+        ("2028-02", date(2028, 3, 1), True),
+    ],
+)
+def test_a_period_is_over_from_the_first_of_the_next_month(period: str, on: date, over: bool):
+    assert changelog.period_over(period, on) is over
 
 
 def test_period_key_follows_the_log_folder(vault: Vault):

@@ -54,6 +54,7 @@ from mindin.hosted.signin.email import Mailer
 from mindin.presets import PRESETS, WIKI_PRESET
 
 DEPARTURES_EVERY = 3600.0
+DEPARTURES_JOB = "organisation-departures"
 DAYS_RE = re.compile(r"[0-9]{1,3}")
 SOURCES = {
     "admin": "added by an admin",
@@ -621,7 +622,7 @@ already exists.</p>
 
     def periodic(self) -> Periodic:
         return Periodic(
-            "organisation-departures",
+            DEPARTURES_JOB,
             DEPARTURES_EVERY,
             lambda: delete_departed(self.organisations, self.pages.deletion.erase),
         )

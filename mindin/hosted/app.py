@@ -193,7 +193,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
             "code": code,
             "client_id": pending["client_id"],
             "scopes": scopes,
-            "expires_at": time.time() + CODE_TTL,
+            "expires_at": self.clock() + CODE_TTL,
             "code_challenge": pending["code_challenge"],
             "redirect_uri": pending["redirect_uri"],
             "redirect_uri_provided_explicitly": pending["redirect_uri_provided_explicitly"],
@@ -219,7 +219,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
         record = self.store.load_code(authorization_code.code)
         if record is None or not self.store.take_code(authorization_code.code):
             raise TokenError("invalid_grant", "authorization code does not exist")
-        if record["expires_at"] < time.time():
+        if record["expires_at"] < self.clock():
             raise TokenError("invalid_grant", "authorization code has expired")
         account = self.require_active(record["account_id"])
         vault = self.require_vault(account, record.get("vault_id"))
@@ -312,7 +312,7 @@ class HostedProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refresh
                 spans_account=grant.spans_account,
             )
         row = self.store.load_token(token, "access")
-        if row is None or row["expires_at"] <= time.time():
+        if row is None or row["expires_at"] <= self.clock():
             return Verdict(None, 401, "invalid_token", "the token is unknown, revoked or expired")
         known, issued_for = self.resource_target(row["resource"])
         if not known or (issued_for is not None and slug is None):
@@ -600,7 +600,7 @@ def build_hosted_app(
 ) -> Starlette:
 
     extensions = installed() if extensions is None else tuple(extensions)
-    store = HostedStore(auth.auth_dir or auth_dir(), extensions)
+    store = HostedStore(auth.auth_dir or auth_dir(), extensions, clock=clock)
     if not isinstance(vaults, SubjectVaults):
         raise ConfigError("mindin: the HTTP server serves one sealed vault per account")
     keys = VaultKeys(store, keyring or Keyring.from_env())

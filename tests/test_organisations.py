@@ -24,6 +24,7 @@ from mindin.hosted.accounts.keys import SealedVaults, StillShared, VaultKeys, de
 from mindin.hosted.accounts.store import HostedStore, MembershipError
 from mindin.hosted.orgs import organisations as hosted_orgs
 from mindin.hosted.orgs.organisations import OrganisationError, Organisations, OrgDomain, clean_domain
+from mindin.hosted.orgs.pages import day_label
 from mindin.hosted.signin.identities import Identities, Proof
 from mindin.presets import preset_data
 from mindin.schema import Schema
@@ -1173,7 +1174,9 @@ async def test_the_removed_list_says_what_happens_to_each_account_and_when(site:
         sealed = SealedVaults(site.store, VaultKeys(site.store, site.keyring))
         site.clock.advance(31 * 86400)
         delete_departed(orgs(site), lambda account: delete_account(sealed, account, vaults.cache))
-        later = await ada.get(f"/account/organisation/{orgs(site).require('Acme').id}")
+    async with site.browser() as back:
+        await site.sign_in(back, "ada@acme.test")
+        later = await back.get(f"/account/organisation/{orgs(site).require('Acme').id}")
     sent = datetime.fromtimestamp(site.clock() - 31 * 86400, UTC)
     due = datetime.fromtimestamp(site.clock() - 86400, UTC)
     gone = datetime.fromtimestamp(site.clock(), UTC)
@@ -1186,3 +1189,18 @@ async def test_the_removed_list_says_what_happens_to_each_account_and_when(site:
     assert "<td>dan@acme.test</td>" in removed.text
     assert "<td>kept: added by an admin, not through a domain</td>" in removed.text
     assert f"<td>deleted on {gone.day} {gone:%b}, with their own vaults</td>" in later.text
+
+
+@pytest.mark.parametrize(
+    ("moment", "now", "label"),
+    [
+        (datetime(2026, 9, 15, 0, 0, 30, tzinfo=UTC), datetime(2026, 9, 15, 23, 59, 30, tzinfo=UTC), "today 00:00"),
+        (datetime(2026, 9, 14, 23, 59, 30, tzinfo=UTC), datetime(2026, 9, 15, 0, 0, 30, tzinfo=UTC), "yesterday"),
+        (datetime(2026, 9, 30, 23, 59, 30, tzinfo=UTC), datetime(2026, 10, 1, 0, 0, 30, tzinfo=UTC), "yesterday"),
+        (datetime(2026, 12, 31, 23, 59, 30, tzinfo=UTC), datetime(2027, 1, 1, 0, 0, 30, tzinfo=UTC), "yesterday"),
+        (datetime(2028, 2, 28, 12, 0, tzinfo=UTC), datetime(2028, 3, 1, 12, 0, tzinfo=UTC), "2028-02-28"),
+        (datetime(2028, 2, 29, 12, 0, tzinfo=UTC), datetime(2028, 3, 1, 12, 0, tzinfo=UTC), "yesterday"),
+    ],
+)
+def test_a_sign_in_day_turns_over_at_utc_midnight_across_months_years_and_leap_days(moment, now, label):
+    assert day_label(int(moment.timestamp()), now.timestamp()) == label

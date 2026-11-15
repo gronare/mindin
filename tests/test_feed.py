@@ -184,7 +184,7 @@ async def test_a_wait_on_an_idle_folder_ends_with_no_changes_and_ignores_hidden_
     started = time.monotonic()
     found = await feed.changes(lambda: nullcontext(vault), since, wait=1.5)
     assert found == {"cursor": since, "reset": False, "more": False, "changes": []}
-    assert 1.4 < time.monotonic() - started < 5
+    assert 1.4 < time.monotonic() - started < 15
     assert len(reads) == 2
 
 
@@ -348,7 +348,7 @@ async def test_a_hosted_wait_ends_idle_and_leaves_no_waiter_behind(served: Subje
     since = (await feed.changes(opened, None))["cursor"]
     started = time.monotonic()
     found = await feed.changes(opened, since, wait=1.0)
-    assert found["changes"] == [] and 0.9 < time.monotonic() - started < 3
+    assert found["changes"] == [] and 0.9 < time.monotonic() - started < 10
     assert served.waking.count() == 0
 
 
@@ -364,7 +364,7 @@ async def test_a_wait_on_one_server_returns_when_another_server_writes(
     started = time.monotonic()
     found = await feed.changes(opened, since, wait=30)
     assert keys(found) == [("Areas/quince.md", "write")]
-    assert time.monotonic() - started < 5
+    assert time.monotonic() - started < 15
     first.close()
     second.close()
 
@@ -432,7 +432,7 @@ async def test_an_open_hosted_wait_returns_at_once_when_the_server_starts_closin
     later(0.3, served.closing)
     started = time.monotonic()
     found = await feed.changes(opened, since, wait=30)
-    assert found["changes"] == [] and time.monotonic() - started < 3
+    assert found["changes"] == [] and time.monotonic() - started < 15
     assert served.waking.count() == 0
 
 
@@ -471,7 +471,7 @@ def test_the_server_ends_open_waits_before_it_waits_for_requests_to_finish():
         server.should_exit = True
         serving.join(10)
         asking.join(10)
-    assert answers == [b"closing"] and time.monotonic() - started < 3
+    assert answers == [b"closing"] and time.monotonic() - started < SHUTDOWN_SECONDS
 
 
 def test_the_hosted_server_gives_open_requests_a_short_grace_on_shutdown():

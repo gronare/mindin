@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx2
 import jwt
 from cimd_support import MetadataHost
+from clock_support import world_time
 from forwarded_support import _keys
 from login_support import GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, FakeGithub, FakeSmtp
 
@@ -27,6 +28,7 @@ from mindin.hosted.accounts.store import Account, HostedStore
 from mindin.hosted.accounts.vaults import Vault
 from mindin.hosted.app import build_hosted_app
 from mindin.hosted.config import AuthConfig, GithubConfig, OidcConfig, SmtpConfig
+from mindin.hosted.orgs.pages import DEPARTURES_JOB
 from mindin.hosted.signin.identities import Identities
 
 BASE = "http://localhost"
@@ -114,7 +116,7 @@ class FakeIdentityProvider:
         digest = hashlib.sha256(form["code_verifier"].encode()).digest()
         if base64.urlsafe_b64encode(digest).decode().rstrip("=") != grant["code_challenge"]:
             return httpx2.Response(400, json={"error": "invalid_grant", "error_description": "pkce"})
-        now = int(time.time())
+        now = int(world_time())
         claims = {
             "iss": self.issuer,
             "aud": CLIENT_ID,
@@ -191,7 +193,7 @@ class Hosted:
 
     @property
     def store(self) -> HostedStore:
-        return HostedStore(self.config.auth_dir)
+        return HostedStore(self.config.auth_dir, clock=self.clock)
 
     def browser(self) -> httpx2.AsyncClient:
         return Browser(transport=httpx2.ASGITransport(app=self.app), base_url=BASE)
@@ -241,6 +243,15 @@ class Hosted:
         return self.store.create_key(account.id, name, scopes, vault_id=self.vault_of(email, vault))
 
 
+def hold_departures(store: HostedStore) -> None:
+    with store.connect() as connection:
+        connection.execute(
+            "INSERT INTO periodic_leases(name, holder, held_until) VALUES(?, 'tests', ?)"
+            " ON CONFLICT (name) DO UPDATE SET holder = excluded.holder, held_until = excluded.held_until",
+            (DEPARTURES_JOB, 2**62),
+        )
+
+
 @asynccontextmanager
 async def hosted(
     vaults: Any, tmp_path: Path, keyring: Keyring | None = None, extensions: Any = (), **overrides: Any
@@ -264,6 +275,7 @@ async def hosted(
         keyring=keyring,
         extensions=extensions,
     )
+    hold_departures(HostedStore(config.auth_dir, extensions))
     async with app.router.lifespan_context(app):
         yield Hosted(
             app=app,

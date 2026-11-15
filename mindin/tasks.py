@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -137,7 +138,7 @@ def claim_task(vault: Vault, path: str, cwd: str) -> dict:
 
 
 def claim_stamp() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.fromtimestamp(time.time(), UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def claim_note(vault: Vault, path: str, machine: str, task: str, repo: str = "", force: bool = False) -> dict:

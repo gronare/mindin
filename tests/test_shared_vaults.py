@@ -515,7 +515,7 @@ def test_the_shell_makes_a_shared_vault_and_manages_its_members(
     with store.connect() as connection:
         from mindin.hosted.accounts.vaults import accept_invitations
 
-        accept_invitations(connection, bo.id, ("bo@example.com",))
+        accept_invitations(connection, bo.id, ("bo@example.com",), store.now())
     assert main(["accounts", "members", "ann@example.com", "workshop"]) == 0
     listing = capsys.readouterr().out
     assert main(["accounts", "vaults", "bo@example.com"]) == 0

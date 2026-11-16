@@ -21,6 +21,7 @@ from mindin.presets import PERSONAL_LAYOUTS
 from mindin.schema import CLAIM_KEY, NoHome, bounded, instructions, shared_instructions
 from mindin.search import QueryError, Searched, SearchResult, across, render, search
 from mindin.snapshot import build_snapshot
+from mindin.styles import StyleRefused, style_for
 from mindin.vault import (
     NoVault,
     Reachable,
@@ -33,7 +34,15 @@ from mindin.vault import (
 
 VERSION = "0.19.0"
 
-EXPECTED_FAILURES = (VaultError, FrontmatterError, notes.ValidationError, ScopeError, QueryError, NoHome)
+EXPECTED_FAILURES = (
+    VaultError,
+    FrontmatterError,
+    notes.ValidationError,
+    ScopeError,
+    QueryError,
+    NoHome,
+    StyleRefused,
+)
 
 SEARCH_DESCRIPTION = (
     "CHEAP — start here. Full-text search over the local SQLite index of the vault; it never "
@@ -217,7 +226,8 @@ def build_server(
         description=(
             "MODERATE — one round trip to storage. Returns the note with an `etag:` first line; pass "
             "that etag back to write_file to refuse a write over someone else's change. Search first. "
-            "`.vault/schema.yml` reads the vault's schema." + vault_note
+            "`.vault/schema.yml` reads the vault's schema; `.vault/styles/<kind>.md` a kind's style, and "
+            "`.vault/styles/<kind>.override.md` the user's override of it." + vault_note
         ),
     )
     def read_file(path: str, vault: str | None = None) -> str:
@@ -231,7 +241,9 @@ def build_server(
             "does not hold. Stamps `updated` "
             "with today and fills `date` when missing. Pass "
             'expected_etag from read_file to make the write conditional, or "*" to create a note '
-            "that must not exist yet." + vault_note
+            "that must not exist yet. `.vault/styles/<kind>.md` writes a kind's style as it is, without those "
+            "checks; one whose first line `<!-- style-version: N -->` is older than the stored one is refused, and "
+            "the user's `.vault/styles/<kind>.override.md` is never written." + vault_note
         ),
     )
     def write_file(path: str, content: str, expected_etag: str | None = None, vault: str | None = None) -> str:
@@ -324,6 +336,7 @@ def build_server(
             lambda vault: (
                 "Filed: "
                 + backlog.backlog_add(vault, title, area, line, priority=priority, source=source, sections=sections)
+                + backlog.styled(style_for(vault.backend, backlog.STYLE_KIND))
             ),
             write=True,
             expected=(*EXPECTED_FAILURES, ValueError),
@@ -558,12 +571,17 @@ def build_server(
             "CHEAP — the headings a note of a kind is written to, from the vault's schema: each section's key, "
             "heading in the vault's language and whether it is required, the section that holds open questions, "
             "and a skeleton to fill. Without kind, every kind that has a template. write_file holds a new note to "
-            "it, and a note that already follows it, unless its status is backlog or draft. Answers JSON." + vault_note
+            "it, and a note that already follows it, unless its status is backlog or draft. With kind, also the "
+            "vault's style for that kind, if it has one: style is markdown guidance for how such a note reads, "
+            "never a check; style_source says whether it is the user's override or the default. A kind with a "
+            "style needs no template, such as backlog. Answers JSON." + vault_note
         ),
     )
     def template_tool(kind: str | None = None, vault: str | None = None) -> str:
         return run(
-            lambda opened: json.dumps(note_templates.template_answer(opened.schema, kind), ensure_ascii=False),
+            lambda opened: json.dumps(
+                note_templates.template_answer(opened.schema, kind, style_for(opened.backend, kind)), ensure_ascii=False
+            ),
             expected=(*EXPECTED_FAILURES, ValueError),
             vault_slug=vault,
         )

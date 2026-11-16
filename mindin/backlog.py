@@ -4,7 +4,7 @@ import re
 import time
 import unicodedata
 
-from mindin import note_templates
+from mindin import note_templates, styles
 from mindin.backends import MUST_NOT_EXIST, VersionConflict
 from mindin.frontmatter import dump
 from mindin.index import Note, stem_of
@@ -24,6 +24,12 @@ from mindin.vault import Vault
 
 PRIORITY_ORDER = ("urgent", "high", "medium", "low")
 SLUG_MAX = 60
+STYLE_KIND = "backlog"
+
+
+def styled(style: styles.Style | None) -> str:
+    found = styles.guidance(style)
+    return f"\n\n{found}" if found else ""
 
 
 def priority_rank(value: str) -> int:

@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable
 from datetime import date
 
-from mindin import note_templates
+from mindin import note_templates, styles
 from mindin.backends import MUST_NOT_EXIST, SCHEMA_KEY, NotFound, VersionConflict, delete_checked
 from mindin.bundle import bundle_of
 from mindin.frontmatter import CLAIM_KEY, FrontmatterError, claim_fields, dump, parse, validate
@@ -92,6 +92,9 @@ def rewrite(vault: Vault, key: str, change: Callable[[str | None], str | None]) 
 
 
 def read(vault: Vault, path: str) -> str:
+    if styles.style_key(path) is not None:
+        text, version = fetch(vault, path)
+        return f"etag: {version}\n{text}"
     text, version = fetch(vault, note_key(path, readable=True))
     frontmatter, body = parse(text)
     superseded_by = frontmatter.get("superseded_by")
@@ -181,7 +184,16 @@ def _with_claim(frontmatter: dict, claim: dict[str, str] | None) -> dict:
     return kept
 
 
+def write_style(vault: Vault, path: str, content: str, expected_etag: str | None = None) -> str:
+    kind, override = styles.style_key(path) or ("", False)
+    if override:
+        raise styles.StyleRefused(styles.write_refusal(path))
+    return styles.write_default(vault.backend, kind, content, expected_etag=expected_etag)
+
+
 def write(vault: Vault, path: str, content: str, expected_etag: str | None = None) -> str:
+    if styles.style_key(path) is not None:
+        return write_style(vault, path, content, expected_etag)
     key = note_key(path)
     frontmatter, body = parse(content)
     warnings: list[str] = []

@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from mindin.schema import Schema, Section, Template, template_line
+from mindin.styles import Style
 
 FENCE_RE = re.compile(r"^[ \t]*(```|~~~)")
 DRAFT_STATUSES = ("backlog", "draft")
@@ -130,9 +131,10 @@ def describe(schema: Schema, template: Template) -> dict[str, Any]:
     }
 
 
-def template_answer(schema: Schema, kind: str | None = None) -> dict[str, Any]:
+def template_answer(schema: Schema, kind: str | None = None, style: Style | None = None) -> dict[str, Any]:
     if kind is None:
         return {"language": schema.language, "templates": {k: describe(schema, t) for k, t in schema.templates.items()}}
-    if kind not in schema.kind_values:
-        raise ValueError(f"kind '{kind}' is not one of: {', '.join(schema.kind_values)}")
-    return describe(schema, schema.template(kind) or Template(kind, ()))
+    found = style or Style(kind)
+    if kind not in schema.kind_values and found.text is None:
+        raise ValueError(f"kind '{kind}' is not one of: {', '.join(schema.kind_values)}, and has no style")
+    return describe(schema, schema.template(kind) or Template(kind, ())) | found.fields()

@@ -328,10 +328,13 @@ async def test_the_template_tool_answers_a_kind_and_every_kind(vault: Vault):
         "sections": TASK_SECTIONS,
         "questions": "questions",
         "skeleton": TASK_SKELETON,
+        "style": None,
+        "style_source": None,
+        "style_note": None,
     }
     answer = json.loads(every.content[0].text)
     assert answer["language"] == "en" and list(answer["templates"]) == ["task", "system"]
-    assert answer["templates"]["task"] == task
+    assert answer["templates"]["task"] == {key: value for key, value in task.items() if not key.startswith("style")}
     assert json.loads(none.content[0].text)["sections"] == []
     assert unknown.is_error and "kind 'poem' is not one of" in unknown.content[0].text
     assert "- task: ## Background*" in rules.content[0].text

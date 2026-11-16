@@ -39,8 +39,9 @@ def round_trip(capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch, s
     assert written["path"] == KEY and written["etag"] not in ("", read["etag"])
     code, _, err = run(capsys, monkeypatch, "write", KEY, "--etag", read["etag"], stdin=changed)
     assert code == 1 and "etag" in err and "\n" not in err.strip()
-    code, _, err = run(capsys, monkeypatch, "write", "Projects/orchard-gate.md", "--etag", "*", stdin=NEW_TASK)
-    assert code == 1 and "does not follow the task template" in err
+    code, out, err = run(capsys, monkeypatch, "write", "Projects/orchard-gate.md", "--etag", "*", stdin=NEW_TASK)
+    assert code == 0, err
+    assert "differs from the task template, which is guidance" in json.loads(out)["warning"]
 
 
 def test_read_json_and_write_with_its_etag_on_a_local_vault(

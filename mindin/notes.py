@@ -136,14 +136,12 @@ def _off_template_before(vault: Vault, frontmatter: dict, stored: str) -> bool:
     return note_templates.DRAFT_MARKER not in body and bool(note_templates.problems(vault.schema, before, body))
 
 
-def _require_template(vault: Vault, key: str, frontmatter: dict, body: str, stored: str | None = None) -> None:
+def _template_warning(vault: Vault, key: str, frontmatter: dict, body: str, stored: str | None = None) -> str:
     kept_kind = None if stored is None or frontmatter.get("kind") else _kind_in(stored)
     checked = {**frontmatter, "kind": kept_kind} if kept_kind else frontmatter
     if stored is not None and _off_template_before(vault, checked, stored):
-        return
-    refused = note_templates.refusal(vault.schema, key, checked, body)
-    if refused:
-        raise ValidationError(refused)
+        return ""
+    return note_templates.off_template_warning(vault.schema, key, checked, body)
 
 
 def require_clean(vault: Vault, key: str, text: str) -> str:
@@ -201,9 +199,9 @@ def write(vault: Vault, path: str, content: str, expected_etag: str | None = Non
     def written(existing: str | None) -> str:
         stamped = _with_dates(_with_claim(frontmatter, _claim_in(existing)))
         require_valid(vault, stamped, key, "is not a valid note")
-        _require_template(vault, key, stamped, body, existing)
         kept_kind = existing is not None and _kind_in(existing) is not None
-        warnings[:] = [] if kept_kind else [note_templates.kindless_warning(vault.schema, key, stamped, body)]
+        kindless = "" if kept_kind else note_templates.kindless_warning(vault.schema, key, stamped, body)
+        warnings[:] = [_template_warning(vault, key, stamped, body, existing), kindless]
         return require_clean(vault, key, dump(stamped, body))
 
     if expected_etag is None:

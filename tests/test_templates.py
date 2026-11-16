@@ -120,40 +120,46 @@ def test_a_template_for_a_kind_the_vault_drops_is_ignored():
     assert schema.problems == () and schema.template("system") is None
 
 
-def test_write_refuses_an_active_task_without_its_headings(vault: Vault, tmp_path: Path):
-    with pytest.raises(notes.ValidationError) as caught:
-        notes.write(vault, "Projects/orchard-prune.md", TASK.format(status="active", body="Cut the branches.\n"))
-    message = str(caught.value)
-    assert message.startswith("Projects/orchard-prune.md does not follow the task template:\n- missing headings: ")
-    assert "## Background, ## Goal, ## What we know, ## Open questions, ## Out of scope, ## Source" in message
-    assert "The task template (* is required): task: ## Background*, ## Goal*, ## What we know" in message
-    assert "`- [ ]` marks a question that blocks the start" in message
-    assert not (tmp_path / "vault" / "Projects" / "orchard-prune.md").exists()
+OFF_TEMPLATE = "Warning: written, though {key} differs from the {kind} template, which is guidance:"
 
 
-def test_write_refuses_a_required_section_left_empty(vault: Vault):
+def test_write_takes_an_active_task_without_its_headings_and_warns(vault: Vault, tmp_path: Path):
+    answer = notes.write(vault, "Projects/orchard-prune.md", TASK.format(status="active", body="Cut the branches.\n"))
+    lines = answer.splitlines()
+    assert lines[0] == "Written: Projects/orchard-prune.md" and lines[1].startswith("etag: ")
+    assert lines[2] == OFF_TEMPLATE.format(key="Projects/orchard-prune.md", kind="task")
+    assert lines[3].startswith("- missing headings: ## Background, ## Goal, ## What we know, ## Open questions")
+    assert "The task template (* is required): task: ## Background*, ## Goal*, ## What we know" in answer
+    assert "`- [ ]` marks a question that blocks the start" in answer
+    assert written(answer)["etag"] == lines[1].removeprefix("etag: ")
+    assert stored(tmp_path, "Projects/orchard-prune.md")[1].strip() == "Cut the branches."
+
+
+def test_a_note_missing_a_required_template_section_is_written_with_a_warning(vault: Vault, tmp_path: Path):
     body = WRITTEN_TASK.replace("Light on the beds by May.\n", "")
-    with pytest.raises(notes.ValidationError, match=r"- required sections left empty: ## Goal\n"):
-        notes.write(vault, "Projects/orchard-prune.md", TASK.format(status="active", body=body))
+    answer = notes.write(vault, "Projects/orchard-prune.md", TASK.format(status="active", body=body))
+    assert answer.startswith("Written: Projects/orchard-prune.md\netag: ")
+    assert "- required sections left empty: ## Goal\n" in answer
+    assert stored(tmp_path, "Projects/orchard-prune.md")[1] == f"\n{body}"
 
 
-def test_write_accepts_a_written_out_task_and_one_just_opened(vault: Vault):
-    assert notes.write(vault, "Projects/a.md", TASK.format(status="active", body=WRITTEN_TASK)).startswith("Written")
-    assert notes.write(vault, "Projects/b.md", TASK.format(status="active", body=TASK_SKELETON)).startswith("Written")
+def test_write_takes_a_written_out_task_and_one_just_opened_without_a_warning(vault: Vault):
+    assert notes.write(vault, "Projects/a.md", TASK.format(status="active", body=WRITTEN_TASK)).count("\n") == 1
+    assert notes.write(vault, "Projects/b.md", TASK.format(status="active", body=TASK_SKELETON)).count("\n") == 1
 
 
-def test_a_backlog_or_draft_note_is_a_draft_held_to_nothing(vault: Vault):
-    notes.write(vault, "Projects/later.md", TASK.format(status="backlog", body="One line for later.\n"))
-    notes.write(vault, "Projects/drafting.md", TASK.format(status="draft", body="Half a thought.\n"))
+def test_a_backlog_or_draft_note_gets_no_warning(vault: Vault):
+    assert notes.write(vault, "Projects/later.md", TASK.format(status="backlog", body="One.\n")).count("\n") == 1
+    assert notes.write(vault, "Projects/drafting.md", TASK.format(status="draft", body="Half.\n")).count("\n") == 1
     notes.append(vault, "Projects/later.md", "Another line.")
 
 
-def test_a_system_note_is_held_to_its_template_and_takes_headings_in_any_language(vault: Vault):
-    with pytest.raises(notes.ValidationError, match="does not follow the system template"):
-        notes.write(vault, "Areas/orchard.md", SYSTEM.format(body="It grows pears.\n"))
+def test_a_system_note_is_checked_against_its_template_and_takes_headings_in_any_language(vault: Vault):
+    answer = notes.write(vault, "Areas/orchard.md", SYSTEM.format(body="It grows pears.\n"))
+    assert OFF_TEMPLATE.format(key="Areas/orchard.md", kind="system") in answer
     swedish = "## Vad det gör\nOdlar päron.\n\n## Objekten som bär sanningen\n\n## Flödena\n\n## Gränser\n\n"
     swedish += "## Undantag\n\n## Fällor\n\n## Kvar\n\n## Historik\n"
-    assert notes.write(vault, "Areas/orchard.md", SYSTEM.format(body=swedish)).startswith("Written")
+    assert notes.write(vault, "Areas/orchard.md", SYSTEM.format(body=swedish)).count("\n") == 1
 
 
 def old_note(tmp_path: Path) -> str:
@@ -165,27 +171,27 @@ def old_note(tmp_path: Path) -> str:
 def test_a_note_from_before_its_template_takes_appends_and_rewrites(vault: Vault, tmp_path: Path):
     key = old_note(tmp_path)
     notes.append(vault, key, "- 2026-11-12 abc1234 one more line")
-    assert notes.write(vault, key, SYSTEM.format(body="Still free text.\n")).startswith("Written")
+    assert notes.write(vault, key, SYSTEM.format(body="Still free text.\n")).count("\n") == 1
     assert stored(tmp_path, key)[1].strip() == "Still free text."
 
 
-def test_a_note_that_follows_its_template_refuses_a_rewrite_that_breaks_it(vault: Vault, tmp_path: Path):
+def test_a_rewrite_that_breaks_a_note_s_template_is_written_with_a_warning(vault: Vault, tmp_path: Path):
     notes.write(vault, "Projects/a.md", TASK.format(status="active", body=WRITTEN_TASK))
     notes.append(vault, "Projects/a.md", "- A note on the saw.")
     assert stored(tmp_path, "Projects/a.md")[1].rstrip().endswith("A walk on 2026-11-01.\n- A note on the saw.")
     dropped = WRITTEN_TASK.replace("Light on the beds by May.\n", "")
-    with pytest.raises(notes.ValidationError, match=r"- required sections left empty: ## Goal\n"):
-        notes.write(vault, "Projects/a.md", TASK.format(status="active", body=dropped))
+    answer = notes.write(vault, "Projects/a.md", TASK.format(status="active", body=dropped))
+    assert "- required sections left empty: ## Goal\n" in answer
+    notes.write(vault, "Projects/a.md", TASK.format(status="active", body=WRITTEN_TASK))
     etag = notes.read(vault, "Projects/a.md").splitlines()[0].removeprefix("etag: ")
-    with pytest.raises(notes.ValidationError, match="missing headings: ## Background"):
-        notes.write(vault, "Projects/a.md", TASK.format(status="active", body="Gone.\n"), expected_etag=etag)
-    assert "Light on the beds by May." in stored(tmp_path, "Projects/a.md")[1]
+    answer = notes.write(vault, "Projects/a.md", TASK.format(status="active", body="Gone.\n"), expected_etag=etag)
+    assert "missing headings: ## Background" in answer
+    assert stored(tmp_path, "Projects/a.md")[1].strip() == "Gone."
 
 
 def test_a_heading_inside_a_fence_does_not_count(vault: Vault):
     fenced = WRITTEN_TASK.replace("## Goal\nLight on the beds by May.\n", "```\n## Goal\nLight.\n```\n")
-    with pytest.raises(notes.ValidationError, match="missing headings: ## Goal"):
-        notes.write(vault, "Projects/a.md", TASK.format(status="active", body=fenced))
+    assert "missing headings: ## Goal" in notes.write(vault, "Projects/a.md", TASK.format(status="active", body=fenced))
     assert note_templates.filled_headings("~~~\n# Inside\n~~~\n# Outside\nText.\n") == {"outside": True}
 
 
@@ -206,30 +212,29 @@ def test_a_stored_note_with_broken_frontmatter_can_be_rewritten(vault: Vault, tm
     assert written.startswith("Written") and stored(tmp_path, "Projects/broken.md")[0]["title"] == "Prune"
 
 
-def test_a_draft_picked_up_is_held_to_its_template(vault: Vault, tmp_path: Path):
+def test_a_draft_picked_up_is_checked_against_its_template(vault: Vault, tmp_path: Path):
     key = backlog.backlog_add(vault, "Prune", "orchard", "The beds need light.")
     notes.set_status(vault, key, "active")
-    with pytest.raises(notes.ValidationError, match="missing headings: ## Background"):
-        notes.write(vault, key, TASK.format(status="active", body="Cut the branches.\n"))
     _, drafted = stored(tmp_path, key)
-    with pytest.raises(notes.ValidationError, match="the backlog's draft line is still there"):
-        notes.write(vault, key, TASK.format(status="active", body=drafted.replace("## Goal\n", "## Goal\nLight.\n")))
+    lit = drafted.replace("## Goal\n", "## Goal\nLight.\n")
+    assert "the backlog's draft line is still there" in notes.write(vault, key, TASK.format(status="active", body=lit))
+    assert "missing headings: ## Background" in notes.write(vault, key, TASK.format(status="active", body="Cut.\n"))
     notes.write(vault, "Projects/drafting.md", TASK.format(status="draft", body="Half a thought.\n"))
-    with pytest.raises(notes.ValidationError, match="does not follow the task template"):
-        notes.write(vault, "Projects/drafting.md", TASK.format(status="active", body="Half a thought.\n"))
-    assert notes.write(vault, key, TASK.format(status="active", body=WRITTEN_TASK)).startswith("Written")
+    answer = notes.write(vault, "Projects/drafting.md", TASK.format(status="active", body="Half a thought.\n"))
+    assert OFF_TEMPLATE.format(key="Projects/drafting.md", kind="task") in answer
+    assert notes.write(vault, key, TASK.format(status="active", body=WRITTEN_TASK)).count("\n") == 1
 
 
-def test_a_rewrite_that_changes_or_drops_the_kind_is_held_to_the_template(vault: Vault, tmp_path: Path):
+def test_a_rewrite_that_changes_or_drops_the_kind_is_checked_against_the_template(vault: Vault, tmp_path: Path):
     (tmp_path / "vault" / "Projects").mkdir(exist_ok=True)
     trap = TASK.format(status="active", body="Free text.\n").replace("kind: task", "kind: trap")
     (tmp_path / "vault" / "Projects" / "old.md").write_text(trap, encoding="utf-8")
-    with pytest.raises(notes.ValidationError, match="does not follow the task template"):
-        notes.write(vault, "Projects/old.md", TASK.format(status="active", body="Free text.\n"))
+    answer = notes.write(vault, "Projects/old.md", TASK.format(status="active", body="Free text.\n"))
+    assert OFF_TEMPLATE.format(key="Projects/old.md", kind="task") in answer
     notes.write(vault, "Projects/a.md", TASK.format(status="active", body=WRITTEN_TASK))
     kindless = TASK.format(status="active", body="Gone.\n").replace("kind: task\n", "")
-    with pytest.raises(notes.ValidationError, match="does not follow the task template"):
-        notes.write(vault, "Projects/a.md", kindless)
+    assert OFF_TEMPLATE.format(key="Projects/a.md", kind="task") in notes.write(vault, "Projects/a.md", kindless)
+    assert stored(tmp_path, "Projects/a.md")[1].strip() == "Gone."
 
 
 def test_lint_lists_open_notes_that_do_not_follow_their_template(vault: Vault, tmp_path: Path):
@@ -283,9 +288,13 @@ def test_backlog_add_with_sections_writes_them_in_template_order(vault: Vault, t
     )
 
 
-def test_backlog_add_refuses_sections_that_miss_the_template(vault: Vault):
-    with pytest.raises(ValueError, match=r"needs text in goal \(## Goal\), source \(## Source\)"):
-        backlog.backlog_add(vault, "Prune", "orchard", sections={"background": "Shade."})
+def test_backlog_add_files_sections_that_miss_the_template_with_a_warning(vault: Vault, tmp_path: Path):
+    key = backlog.backlog_add(vault, "Prune", "orchard", sections={"background": "Shade."})
+    assert stored(tmp_path, key)[1].startswith("\n## Background\nShade.\n\n## Goal\n\n")
+    assert backlog.sections_warning(vault, {"background": "Shade."}) == (
+        "\nWarning: filed, though the task template asks for text in goal (## Goal), source (## Source)."
+    )
+    assert backlog.sections_warning(vault, {"goal": "g", "background": "b", "source": "s"}) == ""
     with pytest.raises(ValueError, match="unknown section why; the task template has background, goal"):
         backlog.backlog_add(vault, "Prune", "orchard", sections={"why": "Shade."})
     with pytest.raises(ValueError, match="needs line"):
@@ -309,7 +318,7 @@ def test_the_instructions_list_each_template_with_its_required_sections(vault: V
         "Under ## Open questions, `- [ ]` marks a question that blocks the start and `- ` one the work settles"
     ) in text
     assert "- system: ## What it does*, ## The objects that hold the truth, ## Flows, ## Limits" in text
-    assert "a backlog or draft note is a draft, held to nothing" in text
+    assert "A template is guidance, never a gate" in text and "refuses" not in text.split("Note templates")[1]
     assert "Note templates" not in instructions(Schema(preset_data("custom")))
 
 

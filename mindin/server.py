@@ -236,10 +236,10 @@ def build_server(
     @server.tool(
         name="write_file",
         description=(
-            "WRITE — validates the frontmatter against the vault schema, and the body of a new note, or of one that "
-            "already follows it, against the template of its kind (see `template`), and refuses the write if either "
-            "does not hold. Stamps `updated` "
-            "with today and fills `date` when missing. Pass "
+            "WRITE — validates the frontmatter against the vault schema and refuses the write if it does not hold. "
+            "The body is free: a new note, or one that already follows its kind's template (see `template`), that "
+            "differs from the template is written, and the answer carries a warning naming what it lacks. "
+            "Stamps `updated` with today and fills `date` when missing. Pass "
             'expected_etag from read_file to make the write conditional, or "*" to create a note '
             "that must not exist yet. `.vault/styles/<kind>.md` writes a kind's style as it is, without those "
             "checks; one whose first line `<!-- style-version: N -->` is older than the stored one is refused, and "
@@ -319,7 +319,8 @@ def build_server(
             "WRITE — files an idea as a backlog note in the task folder: title, area (stem or [[stem]]), "
             "optional priority (urgent, high, medium, low) and source (who said it and when, or a sha), and "
             "either line, one line saying what and why, which files a draft of the task template to write out "
-            "later, or sections, the task template's sections by key (see `template`), its required ones filled, "
+            "later, or sections, the task template's sections by key (see `template`), a required one left empty "
+            "answered with a warning, "
             "with line then as the summary. Call it the moment something is deferred, in so many words or in "
             "passing; picking the idea up later is setting its status to active."
         ),
@@ -336,6 +337,7 @@ def build_server(
             lambda vault: (
                 "Filed: "
                 + backlog.backlog_add(vault, title, area, line, priority=priority, source=source, sections=sections)
+                + backlog.sections_warning(vault, sections)
                 + backlog.styled(style_for(vault.backend, backlog.STYLE_KIND))
             ),
             write=True,
@@ -570,8 +572,8 @@ def build_server(
         description=(
             "CHEAP — the headings a note of a kind is written to, from the vault's schema: each section's key, "
             "heading in the vault's language and whether it is required, the section that holds open questions, "
-            "and a skeleton to fill. Without kind, every kind that has a template. write_file holds a new note to "
-            "it, and a note that already follows it, unless its status is backlog or draft. With kind, also the "
+            "and a skeleton to fill. Without kind, every kind that has a template. A template is guidance: write_file "
+            "warns, never refuses, when an open note differs from it. With kind, also the "
             "vault's style for that kind, if it has one: style is markdown guidance for how such a note reads, "
             "never a check; style_source says whether it is the user's override or the default. A kind with a "
             "style needs no template, such as backlog. Answers JSON." + vault_note

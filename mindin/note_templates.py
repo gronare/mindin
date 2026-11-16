@@ -103,7 +103,7 @@ def kindless_warning(schema: Schema, key: str, frontmatter: dict[str, Any], body
     )
 
 
-def refusal(schema: Schema, key: str, frontmatter: dict[str, Any], body: str) -> str:
+def off_template_warning(schema: Schema, key: str, frontmatter: dict[str, Any], body: str) -> str:
     found = problems(schema, frontmatter, body)
     if not found:
         return ""
@@ -111,10 +111,10 @@ def refusal(schema: Schema, key: str, frontmatter: dict[str, Any], body: str) ->
     assert template is not None
     return "\n".join(
         [
-            f"{key} does not follow the {template.kind} template:",
+            f"Warning: written, though {key} differs from the {template.kind} template, which is guidance:",
             *[f"- {problem}" for problem in found],
             f"The {template.kind} template (* is required): {template_line(template, schema.language)[2:]}",
-            f"`template` with kind {template.kind} gives a skeleton; a backlog or draft note is held to nothing.",
+            f"`template` with kind {template.kind} gives a skeleton.",
         ]
     )
 

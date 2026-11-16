@@ -763,10 +763,10 @@ def _template_block(schema: Schema) -> str:
         return ""
     lines = [template_line(template, schema.language) for template in schema.templates.values()]
     return (
-        "\nNote templates, by kind (* is required). write_file refuses a new note, or a rewrite of one that follows "
-        "its template, that lacks one of its kind's headings or leaves a required one empty; a backlog or draft note "
-        "is a draft, held to nothing, and a note of only the headings is one just opened. An older note is brought to "
-        "its template when it is next rewritten; lint lists those that are not. `template` gives the headings and a "
+        "\nNote templates, by kind (* is required). A template is guidance, never a gate: the vault is free-form "
+        "memory, and write_file writes a note that lacks one of its kind's headings or leaves a required one empty, "
+        "answering with a warning that names what it lacks. A backlog or draft note gets no warning, and lint lists "
+        "open notes that differ from their template, as information. `template` gives the headings and a "
         "skeleton:\n" + "\n".join(lines)
     )
 

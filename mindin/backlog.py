@@ -73,14 +73,20 @@ def _sections_body(vault: Vault, sections: dict[str, str]) -> str:
     if unknown:
         raise ValueError(f"unknown section {', '.join(unknown)}; the task template has {', '.join(template.keys)}")
     language = vault.schema.language
+    return note_templates.written_body(template, language, {key: str(text) for key, text in sections.items()})
+
+
+def sections_warning(vault: Vault, sections: dict[str, str] | None) -> str:
+    template = vault.schema.template("task")
+    if not sections or template is None:
+        return ""
+    language = vault.schema.language
     empty = [
         f"{section.key} (## {section.heading(language)})"
         for section in template.sections
         if section.required and not str(sections.get(section.key) or "").strip()
     ]
-    if empty:
-        raise ValueError(f"the task template needs text in {', '.join(empty)}")
-    return note_templates.written_body(template, language, {key: str(text) for key, text in sections.items()})
+    return f"\nWarning: filed, though the task template asks for text in {', '.join(empty)}." if empty else ""
 
 
 def _first_line(text: str) -> str:

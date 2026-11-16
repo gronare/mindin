@@ -35,6 +35,7 @@ With nothing to save, stop again; the hook asks once. Your reply to the user nam
 
 - Frontmatter is validated: required fields, allowed `status` and `kind` values, `area` outside system folders. The server sets `updated` itself.
 - A kind with a template (the server's instructions list them; `template` gives the headings and a skeleton) is written to it: `write_file` refuses a new note, or a rewrite of one that follows it, that lacks one of its headings or leaves a required section empty, and names what is missing. A `backlog` or `draft` note is held to nothing until it is written out as an open note. When you rewrite an older note that `lint` lists under `off_template`, bring it to its template.
+- When the vault has a style for the kind you write (`template` with that kind answers it as `style`; `backlog_add` answers with the `backlog` style), follow it. It is guidance for how the note reads, never a check; an override is the user's own and wins over the default.
 - A note describes the current state. History belongs in the log folder and in the system note's history lines with a date and a sha, not in prose about what used to be.
 - A superseded note gets `superseded_by: "[[stem]]"` through `close(..., merged_into=...)`; do not delete history.
 - Tags come from the vocabulary in the schema; the folder name is never a tag.

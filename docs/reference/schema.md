@@ -103,6 +103,7 @@ In a shared vault, the schema and its bundle are changed by the vault's owner or
 | `tags.strict` | `false` | `true` refuses a write with a tag outside the vocabulary, and `lint` reports such tags. |
 | `synonyms` | `[]` | Groups of words search treats as one, such as `[[bokning, booking]]`. |
 | `stale_after_days` | `30` | When an open task note counts as stale. |
+| `unsearched_folders` | `[]` | More folders search hides unless asked for, as it hides the archive, such as `[Kebbie]` for a tool's own notes; a nested path like `Work/Cards` works too. The folders need no entry under `folders`, and the server's instructions list them as not searched. |
 | `search.default_limit` | `15` | How many notes `search` returns when the call names no `limit`: a whole number, 1 or more; above 1000 answers 1000. Any other value is reported by `lint` and `schema check`, and search uses the layout's own value. A call's own `limit` is held to 0–1000. |
 | `search.recency_half_life_days` | `90` | How fast an old note's rank decays: a number above 0. Any other value is reported, and search uses the layout's own value. |
 | `search.title_weight`, `summary_weight`, `tags_weight`, `body_weight`, `stem_weight` | `10.0`, `5.0`, `3.0`, `1.0`, `20.0` | How much a match in the title, summary, tags, body and file name weighs: a finite number, 0 or more. Any other value is reported, and search uses the layout's own value. |
@@ -166,6 +167,15 @@ A heading counts in any of its languages, so a vault that writes `## Vad det gö
 The server lists each template in its instructions and in the `rules` tool, one line per kind with the required sections marked. The `template` tool and `mindin template --json` answer it as JSON; see [Agent commands](agent-commands.md#template).
 
 A vault made before templates holds its layout's earlier `task.sections` in `.vault/schema.yml`; while those are the layout's own headings, the vault takes its layout's task template. A schema whose `task.sections` were changed (headings by language, such as `sv: { problem: Varför }`) keeps them: its keys `problem`, `solution`, `decisions`, `tests` and `scope` become the task template, with `problem`, `solution` and `decisions` required, unless the schema also sets `templates.task`.
+
+## Styles
+
+A style is markdown guidance for how a kind of note reads, kept in the vault as a file per kind:
+
+- `.vault/styles/<kind>.md`, the default, which a tool on top of the vault writes with `mindin style write` or `write_file`;
+- `.vault/styles/<kind>.override.md`, the user's own, edited as a file in Obsidian, on disk or over WebDAV. When it exists it applies in place of the default, and mindin never writes it.
+
+The kind is the file name and any word: `backlog`, `task`, `decision`. A style is guidance, never a check: nothing refuses a write because of it. The `template` tool and `mindin template --kind` answer the style that applies, and `backlog_add` answers with the `backlog` style. The default's first line may stamp its version as `<!-- style-version: N -->`; a write of an older version than the stored one is refused. Each vault keeps its own styles, also on a server, and a vault without `.vault/styles/` works as before.
 
 ## When the schema does not hold
 

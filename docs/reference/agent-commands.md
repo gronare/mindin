@@ -31,13 +31,17 @@ mindin read Projects/myapp-idea.md --json
 mindin write Projects/myapp-idea.md --etag 9b2f… < note.md
 # {"path": "Projects/myapp-idea.md", "etag": "c41a…"}
 mindin template --json --kind task
-# {"kind": "task", "language": "en", "sections": [{"key": "background", "heading": "Background", "required": true}, …], "questions": "questions", "skeleton": "## Background\n\n## Goal\n…"}
+# {"kind": "task", "language": "en", "sections": [{"key": "background", "heading": "Background", "required": true}, …], "questions": "questions", "skeleton": "## Background\n\n## Goal\n…", "style": null, "style_source": null, "style_note": null}
+mindin template --json --kind backlog
+# {"kind": "backlog", "language": "en", "sections": [], "questions": null, "skeleton": "", "style": "<!-- style-version: 3 -->\nOne line…", "style_source": "default", "style_note": null}
+mindin style write --kind backlog --file backlog.md [--version 3]
+# {"path": ".vault/styles/backlog.md", "etag": "5e0d…", "version": 3}
 mindin status
 # {"configured": true, "version": "0.19.0", "backend": "s3", "source": "config", "writable": null, "signals": "on", "signals_source": "config", "signals_change": "mindin setup --signals yes|no"}
 mindin status --probe
 # {"configured": true, "version": "0.19.0", "backend": "s3", "source": "config", "writable": true, "signals": "on", "signals_source": "config", "signals_change": "mindin setup --signals yes|no"}
 mindin about --json
-# {"name": "mindin", "version": "0.19.0", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "changes", "watch", "read", "write", "templates"], "former_names": ["notes-vault-mcp"]}
+# {"name": "mindin", "version": "0.19.0", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "changes", "watch", "read", "write", "templates", "styles"], "former_names": ["notes-vault-mcp"]}
 ```
 
 ## task open
@@ -52,7 +56,11 @@ The repo is the main checkout's name, also from a worktree, and the area is the 
 
 ## template
 
-`template --json` answers the [note templates](schema.md#note-templates) of the vault's schema, the same JSON as the `template` tool: with `--kind`, one kind's `sections` (`key`, `heading` in the vault's language, `required`), its `questions` section and a `skeleton` to fill; without it, `{"language": …, "templates": {"task": {…}, "system": {…}}}`. A kind without a template answers `"sections": []`, and a kind the schema does not name fails. Without `--json` it prints one line per kind.
+`template --json` answers the [note templates](schema.md#note-templates) of the vault's schema, the same JSON as the `template` tool: with `--kind`, one kind's `sections` (`key`, `heading` in the vault's language, `required`), its `questions` section and a `skeleton` to fill; without it, `{"language": …, "templates": {"task": {…}, "system": {…}}}`. A kind without a template answers `"sections": []`, and a kind the schema does not name fails unless the vault has a style for it. With `--kind`, the answer also carries the vault's [style](schema.md#styles) for the kind: `style` is its markdown, `style_source` is `override`, `default` or `null`, and `style_note` says, for an override, that it applies in place of the default. Without `--json` it prints one line per kind, and the style after it.
+
+## style write
+
+`style write` writes a kind's default style to `.vault/styles/<kind>.md` through the vault's own write path, local or on a server, without the frontmatter and template checks notes get. `--version N` stamps the first line `<!-- style-version: N -->` in place of the file's own; a file without one counts as version 0. A version older than the stored default's is refused, and the file is left as it was. It never writes the user's `.vault/styles/<kind>.override.md`; when one exists, the answer carries a `note` saying it applies in place of the default. A shared vault refuses it, as it refuses any `.vault/` write.
 
 ## task claim and release
 

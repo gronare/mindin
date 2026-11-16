@@ -34,7 +34,7 @@ With nothing to save, stop again; the hook asks once. Your reply to the user nam
 ## Writing rules
 
 - Frontmatter is validated: required fields, allowed `status` and `kind` values, `area` outside system folders. The server sets `updated` itself.
-- A kind with a template (the server's instructions list them; `template` gives the headings and a skeleton) is written to it: `write_file` refuses a new note, or a rewrite of one that follows it, that lacks one of its headings or leaves a required section empty, and names what is missing. A `backlog` or `draft` note is held to nothing until it is written out as an open note. When you rewrite an older note that `lint` lists under `off_template`, bring it to its template.
+- A kind with a template (the server's instructions list them; `template` gives the headings and a skeleton) has guidance for how such a note reads, never a gate: `write_file` writes a note that lacks one of its headings or leaves a required section empty, and its answer carries a warning naming what is missing. Follow the template when it fits the note; the vault is free-form memory.
 - When the vault has a style for the kind you write (`template` with that kind answers it as `style`; `backlog_add` answers with the `backlog` style), follow it. It is guidance for how the note reads, never a check; an override is the user's own and wins over the default.
 - A note describes the current state. History belongs in the log folder and in the system note's history lines with a date and a sha, not in prose about what used to be.
 - A superseded note gets `superseded_by: "[[stem]]"` through `close(..., merged_into=...)`; do not delete history.
@@ -47,7 +47,7 @@ With nothing to save, stop again; the hook asks once. Your reply to the user nam
 
 ## Backlog
 
-- The moment something is deferred, in so many words or in passing ("later", "not now", "put it in the backlog"), call `backlog_add` in the same turn: title, area, one line, a priority (`urgent`, `high`, `medium`, `low`) and the source (who said it and when, or a sha). One line files a draft of the task template; when the idea is already understood, pass `sections` (the template's keys) instead, its required ones filled. Confirm it in one line.
+- The moment something is deferred, in so many words or in passing ("later", "not now", "put it in the backlog"), call `backlog_add` in the same turn: title, area, one line, a priority (`urgent`, `high`, `medium`, `low`) and the source (who said it and when, or a sha). One line files a draft of the task template; when the idea is already understood, pass `sections` (the template's keys) instead; an empty required one is filed with a warning. Confirm it in one line.
 - A backlog note is a decision to build something later; the system note's remaining-work section describes what is missing today. Do not duplicate one into the other.
 - `backlog` lists the queue by priority then age, filtered by area or family; `context` shows the relevant ones at session start. Picking an item up is setting its status to `active` and writing the note out to the task template; finishing it is `close`.
 

@@ -151,16 +151,16 @@ templates:
 
 | Key | Meaning |
 | --- | --- |
-| `sections` | The headings in order. `key` is a lowercase word that `backlog_add`, `task check` and `template` name the section by. `heading` is the heading per language, one line that does not end in `#`; the vault's `language` picks the one the tools write, falling back to `en`. `required: true` means the section needs text. |
+| `sections` | The headings in order. `key` is a lowercase word that `backlog_add`, `task check` and `template` name the section by. `heading` is the heading per language, one line that does not end in `#`; the vault's `language` picks the one the tools write, falling back to `en`. `required: true` means the template asks for text there; a write without it is warned about, not refused. |
 | `questions` | The section that holds open questions, or `null`. A line `- [ ]` under it is a question that blocks the start of the work, a line `- ` one the work settles. |
 
-`write_file` holds a note to its kind's template when it creates the note, as `backlog_add` and `task open` do, when it rewrites a note whose stored body already follows the template, so a note that follows it stays that way, when the stored note was a `backlog` or `draft` note or still carries the mark `backlog_add` puts in a draft, and when the rewrite changes the note's kind. A rewrite that leaves `kind` out is held to the stored kind's template. It refuses such a write, naming the headings that are missing and the required sections left empty, unless:
+A template is guidance, never a gate: the vault is the agent's free-form memory, and no write is refused for its body. `write_file` checks a note against its kind's template when it creates the note, when it rewrites a note whose stored body already follows the template, when the stored note was a `backlog` or `draft` note or still carries the mark `backlog_add` puts in a draft, and when the rewrite changes the note's kind. A rewrite that leaves `kind` out is checked against the stored kind's template. When the body differs, the note is written as sent and the answer carries a warning naming the headings that are missing and the required sections left empty. There is no warning when:
 
 - its status is `backlog` or `draft`: it is a draft, such as a one-line idea filed with `backlog_add`;
 - its status is `complete` or `superseded`;
 - its body is the headings alone, as `task open` writes it.
 
-A note of the same kind written before its template, or one whose stored frontmatter does not parse, keeps taking rewrites that do not follow it yet, and `append_file` never checks the body. `lint` lists each open note that does not follow its kind's template under `off_template`, with what it lacks, so those notes can be rewritten over time.
+A note of the same kind written before its template, or one whose stored frontmatter does not parse, gets no warning on a rewrite, and `append_file` never checks the body. `backlog_add` with `sections` files the note when a required section is empty, with a warning. `lint` lists each open note that differs from its kind's template under `off_template`, with what it lacks, as information.
 
 A heading counts in any of its languages, so a vault that writes `## Vad det gör` passes under `language: en`. A template restated in the schema replaces the layout's whole template for that kind; `templates: { system: null }` drops one. The para, simple and journal layouts carry a task template, and the custom, shared and wiki layouts carry none.
 

@@ -84,7 +84,7 @@ Every answer carries an `etag`; with `--since <etag>` the answer is only `{"unch
 
 ## read and write
 
-`read --json` answers the whole note as stored, frontmatter included, as `text`, with its `etag`. `write` reads a whole note from stdin and writes it the way `write_file` does: the schema, the [note templates](schema.md#note-templates) and the content checks apply, `updated` is stamped and a claim is kept. With `--etag` it writes only over that version, so a tool edits a note in three steps: `read --json`, change the text, `write --etag`. A note changed in between fails with exit 1 and a message naming the etag; `--etag "*"` creates a note that must not exist yet. Any other refusal fails with exit 1 and the reason `write_file` gives.
+`read --json` answers the whole note as stored, frontmatter included, as `text`, with its `etag`. `write` reads a whole note from stdin and writes it the way `write_file` does: the schema and the content checks apply, a body that differs from its [note template](schema.md#note-templates) is written with a warning, `updated` is stamped and a claim is kept. With `--etag` it writes only over that version, so a tool edits a note in three steps: `read --json`, change the text, `write --etag`. A note changed in between fails with exit 1 and a message naming the etag; `--etag "*"` creates a note that must not exist yet. Any other refusal fails with exit 1 and the reason `write_file` gives.
 
 ## changes and watch
 

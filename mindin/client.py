@@ -14,7 +14,7 @@ from typing import Any, Protocol, TypeVar
 import anyio
 from anyio.from_thread import BlockingPortal, start_blocking_portal
 
-from mindin import backlog, changelog, context, credentials, feed, lint, notes, tasks, views
+from mindin import backlog, changelog, context, credentials, feed, lint, note_templates, notes, styles, tasks, views
 from mindin.backends import NotFound
 from mindin.config import ConfigError, cache_dir, vault_id
 from mindin.frontmatter import dump, parse
@@ -200,6 +200,13 @@ class LocalClient:
 
     def read(self, path: str) -> str:
         return notes.read(self.vault, path).partition("\n")[2]
+
+    def template_answer(self, kind: str | None) -> dict:
+        vault = self.vault
+        return note_templates.template_answer(vault.schema, kind, styles.style_for(vault.backend, kind))
+
+    def write_style(self, kind: str, text: str) -> dict:
+        return style_written(styles.write_default(self.vault.backend, kind, text), text)
 
     def read_stored(self, path: str) -> dict:
         text, version = self.vault.backend.get(notes.note_key(path, readable=True))
@@ -418,6 +425,15 @@ class RemoteClient:
     def read(self, path: str) -> str:
         return self._on(lambda remote: remote.read(path))
 
+    def template_answer(self, kind: str | None) -> dict:
+        if kind is None:
+            return note_templates.template_answer(self.schema())
+        found = json.loads(self.tool_text("template", kind=kind))
+        return {"style": None, "style_source": None, "style_note": None} | found
+
+    def write_style(self, kind: str, text: str) -> dict:
+        return style_written(self.tool_text("write_file", path=styles.default_key(kind), content=text), text)
+
     def read_stored(self, path: str) -> dict:
         first, _, text = self.tool_text("read_file", path=path).partition("\n")
         return {"text": without_superseded_warning(text), "etag": first.removeprefix("etag:").strip()}
@@ -517,6 +533,12 @@ def written(answer: str) -> dict:
     etag, _, warning = tail.partition("\n")
     found = {"path": head.removeprefix("Written:").strip(), "etag": etag.removeprefix("etag:").strip()}
     return {**found, "warning": warning} if warning else found
+
+
+def style_written(answer: str, text: str) -> dict:
+    found = written(answer)
+    note = found.pop("warning", None)
+    return {**found, "version": styles.version_of(text)} | ({"note": note} if note else {})
 
 
 def without_superseded_warning(text: str) -> str:

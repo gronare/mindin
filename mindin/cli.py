@@ -16,10 +16,10 @@ from mindin import (
     hooks,
     human,
     install_signal,
-    note_templates,
     notes,
     provision,
     setup,
+    styles,
 )
 from mindin.backends import NotFound, VersionConflict
 from mindin.client import ReaderGone, open_client
@@ -222,7 +222,7 @@ def command_template(args: argparse.Namespace) -> int:
         adopt_config()
         with open_client() as client:
             schema = client.schema()
-        found = note_templates.template_answer(schema, args.kind)
+            found = client.template_answer(args.kind)
     except Exception as exc:
         print(one_line(exc), file=sys.stderr)
         return 1
@@ -235,6 +235,27 @@ def command_template(args: argparse.Namespace) -> int:
         print(template_line(template, schema.language)[2:] if template else f"{entry['kind']}: no template")
     if not chosen:
         print("This vault's notes have no templates.")
+    if args.kind and found.get("style") is not None:
+        shown = styles.guidance_of(args.kind, found["style"], found["style_source"], found.get("style_note"))
+        print(f"\n{shown}", end="")
+    return 0
+
+
+def style_text(args: argparse.Namespace) -> str:
+    text = sys.stdin.read() if args.file == "-" else Path(args.file).expanduser().read_text(encoding="utf-8")
+    return text if args.version is None else styles.stamped(text, args.version)
+
+
+def command_style_write(args: argparse.Namespace) -> int:
+    try:
+        adopt_config()
+        text = style_text(args)
+        with open_client() as client:
+            found = client.write_style(styles.require_kind(args.kind), text)
+    except Exception as exc:
+        print(one_line(exc), file=sys.stderr)
+        return 1
+    print(json.dumps(found, ensure_ascii=False))
     return 0
 
 
@@ -595,6 +616,7 @@ CAPABILITIES = {
     "read": ("read",),
     "write": ("write",),
     "templates": ("template",),
+    "styles": ("style", "write"),
 }
 
 
@@ -837,6 +859,20 @@ def build_parser() -> argparse.ArgumentParser:
     shaping.add_argument("--kind", help="one kind, such as task or system; every kind with a template when omitted")
     shaping.add_argument("--json", action="store_true", help="answer JSON, for tools that read it")
     shaping.set_defaults(func=command_template)
+
+    styling = sub.add_parser("style", help="the vault's style per kind of note, kept in .vault/styles (JSON out)")
+    style_sub = styling.add_subparsers(dest="style_command", required=True)
+    style_writing = style_sub.add_parser(
+        "write",
+        help="write a kind's default style to .vault/styles/<kind>.md; an older style-version than the stored one is "
+        "refused, and the user's .override.md is never written",
+    )
+    style_writing.add_argument("--kind", required=True, help="the kind of note, such as backlog, task or decision")
+    style_writing.add_argument("--file", required=True, help="the markdown to write; - reads stdin")
+    style_writing.add_argument(
+        "--version", type=int, help="stamp the first line <!-- style-version: N --> in place of the file's own"
+    )
+    style_writing.set_defaults(func=command_style_write)
 
     board = sub.add_parser(
         "snapshot",

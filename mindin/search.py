@@ -352,7 +352,6 @@ def search(
         return _matches_filters(note, folder, status, tag, kind, area, path_prefix, since)
 
     now = time.time()
-    unsearched = set(schema.unsearched_folders)
     result = SearchResult(languages=schema.languages)
 
     def shown(rows: list[Row], counted: bool = True) -> list[Row]:
@@ -361,7 +360,7 @@ def search(
             note = row.note
             if note.key in pinned_keys or not wanted(note):
                 continue
-            if schema.folder_of(note.key) in unsearched and not include_archive:
+            if schema.is_unsearched(note.key) and not include_archive:
                 result.hidden_archive += counted
                 continue
             if _is_superseded(note) and not include_superseded:

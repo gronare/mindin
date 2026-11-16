@@ -231,9 +231,17 @@ class Schema:
     def reference_folders(self) -> list[str]:
         return self.folders_of_kind("reference")
 
-    @property
+    @cached_property
+    def skipped_folders(self) -> list[str]:
+        return [str(name).strip("/") for name in self.data.get("unsearched_folders") or ()]
+
+    @cached_property
     def unsearched_folders(self) -> list[str]:
-        return [name for name, folder in self.folders.items() if not folder.searched]
+        declared = [name for name, folder in self.folders.items() if not folder.searched]
+        return declared + [name for name in self.skipped_folders if name not in declared]
+
+    def is_unsearched(self, key: str) -> bool:
+        return self.folder_of(key) in self.unsearched_folders or self.under(key, self.skipped_folders)
 
     def _frontmatter(self) -> dict[str, Any]:
         return self.data.get("frontmatter") or {}
@@ -492,6 +500,9 @@ def schema_problems(data: Any) -> list[str]:
         problems.append("root_description must be text")
     for name, spec in _mapping(data.get("folders"), ["folders"], problems).items():
         _folder_problems(name, spec, problems)
+    for name in _strings(data.get("unsearched_folders"), ["unsearched_folders"], problems):
+        if any(segment in ("", ".", "..") or segment.startswith(".") for segment in name.strip("/").split("/")):
+            problems.append(f"unsearched_folders: {name!r} is not a vault path like Kebbie or Work/Logs")
     frontmatter = _mapping(data.get("frontmatter"), ["frontmatter"], problems)
     for key in ("required", "optional", "area_required_in", "status_values", "kind_values", "priority_values"):
         _strings(frontmatter.get(key), ["frontmatter", key], problems)
@@ -724,6 +735,7 @@ def _folder_lines(schema: Schema) -> list[str]:
     for name, folder in schema.folders.items():
         suffix = " (not searched by default)" if not folder.searched else ""
         lines.append(f"- {name}/ — {folder.description}{suffix}")
+    lines += [f"- {name}/ — not searched by default" for name in schema.skipped_folders if name not in schema.folders]
     return lines
 
 

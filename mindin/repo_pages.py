@@ -54,13 +54,12 @@ def pages_for(
 ) -> list[tuple[int, str, RepoPage]]:
     schema = vault.schema
     rules = bundle_of(schema).session
-    unsearched = set(schema.unsearched_folders)
     wanted = {area.lower() for area in areas} | ({repo.lower()} if repo else set())
     found = []
     for note in vault.index.all_notes():
         if not note.valid or note.superseded_by or note.status == "superseded":
             continue
-        if schema.folder_of(note.key) in unsearched or (rules is not None and not rules.shows(note.key)):
+        if schema.is_unsearched(note.key) or (rules is not None and not rules.shows(note.key)):
             continue
         score = relevance(note, path, repo or "", plain_remote(remote or ""), wanted)
         if score:

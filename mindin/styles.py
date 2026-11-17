@@ -8,7 +8,9 @@ from mindin.backends import MUST_NOT_EXIST, NotFound, VaultBackend, VersionConfl
 STYLES_FOLDER = ".vault/styles"
 OVERRIDE_SUFFIX = ".override"
 KIND_RE = re.compile(r"^\w[\w-]*$")
-VERSION_RE = re.compile(r"^<!--[ \t]*style-version:[ \t]*(\d+)[ \t]*-->[ \t]*\n?")
+VERSION_RE = re.compile(r"<!--[ \t]*style-version:[ \t]*(\d+)[ \t]*-->[ \t]*\n?")
+FRONTMATTER_RE = re.compile(r"---[ \t]*\r?\n.*?\n---[ \t]*(?:\r?\n|$)", re.DOTALL)
+LEADING = "\ufeff \t\r\n"
 STYLE_KEY_RE = re.compile(rf"^{re.escape(STYLES_FOLDER)}/(\w[\w-]*)({re.escape(OVERRIDE_SUFFIX)})?\.md$")
 WRITE_RETRIES = 3
 
@@ -56,13 +58,30 @@ def style_key(key: str) -> tuple[str, bool] | None:
     return None if found is None else (found.group(1), found.group(2) is not None)
 
 
+def _past_leading(text: str, at: int) -> int:
+    return len(text) - len(text[at:].lstrip(LEADING))
+
+
+def _stamp(text: str) -> re.Match[str] | None:
+    at = _past_leading(text, 0)
+    found = VERSION_RE.match(text, at)
+    front = None if found else FRONTMATTER_RE.match(text, at)
+    return found if front is None else VERSION_RE.match(text, _past_leading(text, front.end()))
+
+
+def stamp_of(text: str | None) -> int | None:
+    found = _stamp(text or "")
+    return int(found.group(1)) if found else None
+
+
 def version_of(text: str | None) -> int:
-    found = VERSION_RE.match(text or "")
-    return int(found.group(1)) if found else 0
+    return stamp_of(text) or 0
 
 
 def stamped(text: str, version: int) -> str:
-    return f"<!-- style-version: {version} -->\n{VERSION_RE.sub('', text, count=1)}"
+    line = f"<!-- style-version: {version} -->\n"
+    found = _stamp(text)
+    return line + text if found is None else text[: found.start()] + line + text[found.end() :]
 
 
 def _stored(backend: VaultBackend, key: str) -> tuple[str | None, str]:
@@ -100,19 +119,29 @@ def guidance_of(kind: str, text: str, source: str | None, note: str | None) -> s
     return "\n".join(lines) + "\n\n" + text.strip() + "\n"
 
 
-def _refuse_older(key: str, text: str, stored: str | None) -> None:
-    if stored is not None and version_of(text) < version_of(stored):
+def _unchanged(kind: str, text: str, stored: str | None) -> str | None:
+    key = default_key(kind)
+    if stored is None:
+        return None
+    held = stamp_of(stored)
+    if held is None:
         raise StyleRefused(
-            f"{key} holds style-version {version_of(stored)}, newer than the {version_of(text)} offered; "
-            "it was left as it is"
+            f"{key} has no style-version stamp, so it may be the user's own and was left as it is; to replace it, "
+            f"delete it first, or put the user's wording in {override_key(kind)}"
         )
+    offered = version_of(text)
+    if offered < held:
+        raise StyleRefused(f"{key} holds style-version {held}, newer than the {offered} offered; it was left as it is")
+    return f"{key} is already at style-version {held}; it was left as it is" if offered == held else None
 
 
 def write_default(backend: VaultBackend, kind: str, text: str, expected_etag: str | None = None) -> str:
     key = default_key(kind)
     for _ in range(WRITE_RETRIES + 1):
         stored, version = _stored(backend, key)
-        _refuse_older(key, text, stored)
+        unchanged = _unchanged(kind, text, stored)
+        if unchanged is not None:
+            return f"Unchanged: {key}\netag: {version}\n{unchanged}"
         try:
             written = backend.put(key, text, expected_version=expected_etag or version)
         except VersionConflict:

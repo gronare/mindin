@@ -60,7 +60,7 @@ The repo is the main checkout's name, also from a worktree, and the area is the 
 
 ## style write
 
-`style write` writes a kind's default style to `.vault/styles/<kind>.md` through the vault's own write path, local or on a server, without the frontmatter and template checks notes get. `--version N` stamps the first line `<!-- style-version: N -->` in place of the file's own; a file without one counts as version 0. A version older than the stored default's is refused, and the file is left as it was. It never writes the user's `.vault/styles/<kind>.override.md`; when one exists, the answer carries a `note` saying it applies in place of the default. A shared vault refuses it, as it refuses any `.vault/` write.
+`style write` writes a kind's default style to `.vault/styles/<kind>.md` through the vault's own write path, local or on a server, without the frontmatter and template checks notes get. `--version N` stamps the first line `<!-- style-version: N -->` in place of the file's own; the stamp is found after a byte-order mark, blank lines or frontmatter. Only a newer version than the stored default's replaces it: the same version answers `Unchanged` with a `note` that it is already at that version, an older one is refused, and a stored default without a stamp is never replaced, since it may be the user's own (delete it first to replace it). In each of these the file is left as it was. It never writes the user's `.vault/styles/<kind>.override.md`; when one exists, the answer carries a `note` saying it applies in place of the default. A shared vault refuses it, as it refuses any `.vault/` write.
 
 ## task claim and release
 

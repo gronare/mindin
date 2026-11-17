@@ -63,9 +63,42 @@ def test_an_older_version_is_refused_and_leaves_the_file(vault: Vault, tmp_path:
         with pytest.raises(styles.StyleRefused, match="holds style-version 2, newer than"):
             notes.write(vault, ".vault/styles/backlog.md", older)
     assert path.read_text(encoding="utf-8") == DEFAULT
-    notes.write(vault, ".vault/styles/backlog.md", "<!-- style-version: 2 -->\nSame version.\n")
     notes.write(vault, ".vault/styles/backlog.md", "<!-- style-version: 3 -->\nNewer.\n")
     assert styles.version_of(path.read_text(encoding="utf-8")) == 3
+
+
+def test_the_same_version_leaves_the_file_as_it_is(vault: Vault, tmp_path: Path):
+    edited = "<!-- style-version: 2 -->\nOne line, edited in place by the user.\n"
+    path = put(tmp_path, ".vault/styles/backlog.md", edited)
+    answer = notes.write(vault, ".vault/styles/backlog.md", DEFAULT)
+    assert answer.startswith("Unchanged: .vault/styles/backlog.md\netag: ")
+    assert answer.endswith("already at style-version 2; it was left as it is")
+    assert path.read_text(encoding="utf-8") == edited
+
+
+@pytest.mark.parametrize("stored", ["Mine, without a stamp.\n", "<!-- style-versio: 9 -->\nMine.\n"])
+def test_a_stored_style_without_a_stamp_is_never_replaced(vault: Vault, tmp_path: Path, stored: str):
+    path = put(tmp_path, ".vault/styles/backlog.md", stored)
+    with pytest.raises(styles.StyleRefused, match="has no style-version stamp.*delete it first"):
+        notes.write(vault, ".vault/styles/backlog.md", "<!-- style-version: 5 -->\nNewer.\n")
+    assert path.read_text(encoding="utf-8") == stored
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        "\ufeff<!-- style-version: 4 -->\nAfter a BOM.\n",
+        "\n  <!-- style-version: 4 -->\nAfter a blank line.\n",
+        "---\ntitle: Backlog\n---\n\n<!-- style-version: 4 -->\nAfter frontmatter.\n",
+    ],
+)
+def test_a_stamp_after_a_bom_blank_lines_or_frontmatter_is_found(vault: Vault, tmp_path: Path, stored: str):
+    assert styles.version_of(stored) == 4
+    path = put(tmp_path, ".vault/styles/backlog.md", stored)
+    with pytest.raises(styles.StyleRefused, match="holds style-version 4, newer than the 3 offered"):
+        notes.write(vault, ".vault/styles/backlog.md", "<!-- style-version: 3 -->\nOlder.\n")
+    assert path.read_text(encoding="utf-8") == stored
+    assert styles.stamped(stored, 5).count("style-version") == 1
 
 
 def test_the_override_is_never_written(vault: Vault, tmp_path: Path):

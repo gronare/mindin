@@ -864,8 +864,8 @@ def build_parser() -> argparse.ArgumentParser:
     style_sub = styling.add_subparsers(dest="style_command", required=True)
     style_writing = style_sub.add_parser(
         "write",
-        help="write a kind's default style to .vault/styles/<kind>.md; an older style-version than the stored one is "
-        "refused, and the user's .override.md is never written",
+        help="write a kind's default style to .vault/styles/<kind>.md; only a newer style-version than the stored one "
+        "replaces it, a stored one without a stamp is never replaced, and the user's .override.md is never written",
     )
     style_writing.add_argument("--kind", required=True, help="the kind of note, such as backlog, task or decision")
     style_writing.add_argument("--file", required=True, help="the markdown to write; - reads stdin")

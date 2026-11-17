@@ -531,7 +531,10 @@ class RemoteClient:
 def written(answer: str) -> dict:
     head, _, tail = answer.partition("\n")
     etag, _, warning = tail.partition("\n")
-    found = {"path": head.removeprefix("Written:").strip(), "etag": etag.removeprefix("etag:").strip()}
+    found = {
+        "path": head.removeprefix("Written:").removeprefix("Unchanged:").strip(),
+        "etag": etag.removeprefix("etag:").strip(),
+    }
     return {**found, "warning": warning} if warning else found
 
 

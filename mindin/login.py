@@ -20,7 +20,9 @@ HTTP_TIMEOUT = 20.0
 
 
 class LoginError(Exception):
-    pass
+    def __init__(self, message: str, kind: str = "refused") -> None:
+        super().__init__(message)
+        self.kind = kind
 
 
 def endpoints(http: httpx2.Client, base: str) -> tuple[str, str]:
@@ -60,6 +62,7 @@ def device_login(
     sleep: Callable[[float], None] = time.sleep,
     open_browser: bool = True,
     vault: str | None = None,
+    show: Callable[[dict], None] | None = None,
 ) -> dict:
     device_endpoint, token_endpoint = endpoints(http, base)
     form = {"client_id": CLIENT_ID, "scope": SCOPE, "name": name} | ({"vault": vault} if vault else {})
@@ -69,10 +72,13 @@ def device_login(
         raise LoginError(f"{base} refused to start a sign-in: {error} {description}".rstrip())
     device = started.json()
     link = device.get("verification_uri_complete") or device["verification_uri"]
-    print(f"Open {device['verification_uri']} and enter the code {device['user_code']}", file=out)
-    print(f"or go straight to {link}", file=out)
-    print("Waiting for you to approve it there…", file=out, flush=True)
-    if open_browser and can_open_browser():
+    if show is not None:
+        show(device)
+    else:
+        print(f"Open {device['verification_uri']} and enter the code {device['user_code']}", file=out)
+        print(f"or go straight to {link}", file=out)
+        print("Waiting for you to approve it there…", file=out, flush=True)
+    if open_browser and show is None and can_open_browser():
         webbrowser.open(link)
     interval = float(device.get("interval") or 5)
     deadline = time.monotonic() + float(device.get("expires_in") or 600)
@@ -91,11 +97,11 @@ def device_login(
             interval += SLOW_DOWN_STEP
             continue
         if error == "access_denied":
-            raise LoginError("the sign-in was denied; no key was stored")
+            raise LoginError("the sign-in was denied; no key was stored", "denied")
         if error == "expired_token":
-            raise LoginError("the code expired before it was approved; run login again")
+            raise LoginError("the code expired before it was approved; run login again", "expired")
         raise LoginError(f"{base} answered {error} {description}".rstrip())
-    raise LoginError("the code expired before it was approved; run login again")
+    raise LoginError("the code expired before it was approved; run login again", "expired")
 
 
 def login(
@@ -106,12 +112,13 @@ def login(
     sleep: Callable[[float], None] = time.sleep,
     open_browser: bool = True,
     vault: str | None = None,
+    show: Callable[[dict], None] | None = None,
 ) -> dict:
     base = credentials.server_base(url)
     out = out or sys.stdout
     client = http or httpx2.Client(timeout=HTTP_TIMEOUT)
     try:
-        granted = device_login(base, name or socket.gethostname(), out, client, sleep, open_browser, vault)
+        granted = device_login(base, name or socket.gethostname(), out, client, sleep, open_browser, vault, show)
     finally:
         if http is None:
             client.close()

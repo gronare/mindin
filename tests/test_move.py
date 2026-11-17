@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import tomllib
@@ -10,7 +11,7 @@ import pytest
 from hosted_support import FixedLimits
 from remote_support import Served, serve
 
-from mindin import credentials, move, places, setup
+from mindin import credentials, move, places, setup, setup_json
 from mindin.cli import build_parser, main
 from mindin.config import config_dir
 from mindin.hosted.accounts.limits import StorageLimits
@@ -298,3 +299,30 @@ def test_a_dry_run_lists_the_plan_and_copies_nothing(
     assert run(monkeypatch, from_folder(source), "--server", served.url, "--dry-run") == 0
     assert "Dry run: nothing copied. 4 files would be copied." in capsys.readouterr().out
     assert "Areas/a.md" not in on_server(served) and saved_vault() == {}
+
+
+def json_events(argv: list[str], answers: str) -> tuple[int, list[dict]]:
+    out = io.StringIO()
+    code = setup_json.command(build_parser().parse_args(["setup", *argv, "--json"]), out, io.StringIO(answers))
+    return code, [json.loads(line) for line in out.getvalue().splitlines()]
+
+
+def test_json_setup_offers_the_saved_folder_as_an_event_and_moves_it_on_yes(served: Served, tmp_path: Path):
+    source = folder(tmp_path / "vault", SOURCE | {".vault/schema.yml": b"preset: default\n"})
+    places.save(from_folder(source))
+    code, said = json_events(["--server", served.url], "yes\n")
+    assert code == 0
+    assert [event["event"] for event in said] == ["signed_in", "move", "moved", "done"]
+    assert said[0]["already"] and said[0]["layout"] == "default" and said[0]["notes"] >= 1
+    assert said[1] == {"event": "move", "files": 5, "source": f"the folder {source.resolve()}"}
+    assert on_server(served)["Areas/a.md"] == SOURCE["Areas/a.md"]
+    assert saved_vault() == {"kind": "server", "url": served.url}
+
+
+def test_json_setup_keeps_the_folder_as_it_was_when_the_move_is_declined(served: Served, tmp_path: Path):
+    source = folder(tmp_path / "vault", SOURCE)
+    places.save(from_folder(source))
+    code, said = json_events(["--server", served.url], "no\n")
+    assert code == 0 and [event["event"] for event in said] == ["signed_in", "move", "done"]
+    assert "Areas/a.md" not in on_server(served)
+    assert saved_vault() == {"kind": "server", "url": served.url}

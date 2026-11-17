@@ -68,6 +68,11 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--signals", choices=("yes", "no"), help="share anonymous usage data once a day (asked in a terminal)"
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="with --server: one JSON line per event for a program that shows the sign-in; asks nothing",
+    )
 
 
 def record_signals(share: bool) -> int:

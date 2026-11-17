@@ -19,6 +19,7 @@ from mindin import (
     notes,
     provision,
     setup,
+    setup_json,
     styles,
 )
 from mindin.backends import NotFound, VersionConflict
@@ -669,7 +670,7 @@ def command_launch(args: argparse.Namespace) -> int:
 
 
 def command_setup(args: argparse.Namespace) -> int:
-    return setup.command_setup(args)
+    return setup_json.command(args) if args.json else setup.command_setup(args)
 
 
 def command_move(args: argparse.Namespace) -> int:

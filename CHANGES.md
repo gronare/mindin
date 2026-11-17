@@ -5,6 +5,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+- `mindin setup --server URL --json` prints the sign-in code, the vault and any move offer as JSON lines, so kebbie setup shows the sign-in in its own screen.
 - A new vault's layout picker offers Built-in, first and preselected.
 
 ### Fixed

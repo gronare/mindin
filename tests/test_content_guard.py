@@ -115,3 +115,15 @@ async def test_the_wiki_refuses_secrets_and_personal_data_through_claude_and_obs
     assert dav.status_code == 403 and "an AWS access key" in dav.text
     assert "settling-payouts" not in text_of(listed)
     assert not fine.get("isError"), text_of(fine)
+
+
+def test_a_style_holding_a_secret_is_refused_as_a_note_would_be(tmp_path: Path):
+    backend = LocalBackend(tmp_path / "vault")
+    provision.initialize(backend, preset="wiki")
+    vault = Vault(backend, load_schema(backend), index_path=tmp_path / "index.sqlite")
+    with pytest.raises(notes.ValidationError, match="an AWS access key"):
+        notes.write(vault, ".vault/styles/backlog.md", f"<!-- style-version: 1 -->\nKey: {AWS_KEY}\n")
+    assert not (tmp_path / "vault" / ".vault" / "styles" / "backlog.md").exists()
+    assert notes.write(vault, ".vault/styles/backlog.md", "<!-- style-version: 1 -->\nOne line.\n").startswith(
+        "Written:"
+    )

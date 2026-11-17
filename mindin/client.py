@@ -206,7 +206,7 @@ class LocalClient:
         return note_templates.template_answer(vault.schema, kind, styles.style_for(vault.backend, kind))
 
     def write_style(self, kind: str, text: str) -> dict:
-        return style_written(styles.write_default(self.vault.backend, kind, text), text)
+        return style_written(notes.write_style(self.vault, styles.default_key(kind), text), text)
 
     def read_stored(self, path: str) -> dict:
         text, version = self.vault.backend.get(notes.note_key(path, readable=True))

@@ -186,7 +186,8 @@ def write_style(vault: Vault, path: str, content: str, expected_etag: str | None
     kind, override = styles.style_key(path) or ("", False)
     if override:
         raise styles.StyleRefused(styles.write_refusal(path))
-    return styles.write_default(vault.backend, kind, content, expected_etag=expected_etag)
+    clean = require_clean(vault, path, content)
+    return styles.write_default(vault.backend, kind, clean, expected_etag=expected_etag)
 
 
 def write(vault: Vault, path: str, content: str, expected_etag: str | None = None) -> str:

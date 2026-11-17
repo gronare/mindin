@@ -45,7 +45,7 @@ mindin changelog --all                  # this month, and last month during its 
 mindin hook session-start | stop        # the Claude Code hooks, JSON on stdin
 ```
 
-`serve --host` defaults to `127.0.0.1` and `--port` to `8765`. `embed-worker` is described in [Search by meaning](../install/semantic-search.md#the-model-in-its-own-process). `search --limit` defaults to the schema's `search.default_limit`. Through a server, `sync` only says that the server keeps the index. `schema check` reads the vault's own schema, or the file it names, and exits 1 when the schema has problems. `template --kind` prints the kind's template line and, when the vault has one, its [style](schema.md#styles). `style write` writes `.vault/styles/<kind>.md` from `--file` (`-` reads stdin), with `--version` stamping its first line; see [Agent commands](agent-commands.md#style-write).
+`serve --host` defaults to `127.0.0.1` and `--port` to `8765`. `embed-worker` is described in [Search by meaning](../install/semantic-search.md#the-model-in-its-own-process). `search --limit` defaults to the schema's `search.default_limit`. Through a server, `sync` only says that the server keeps the index. `schema check` reads the vault's own schema, or the file it names, and exits 1 when the schema has problems. `template --kind` prints the kind's template line and, when the vault has one, its [style](schema.md#styles). `style write` writes `.vault/styles/<kind>.md` from `--file` (`-` reads stdin), with `--version N` (1 or more) stamping its first line; see [Agent commands](agent-commands.md#style-write).
 
 ## Signing in to a server
 

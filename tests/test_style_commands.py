@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from test_client_contract import Place, isolated, place, place_name, server  # noqa: F401
 from test_styles import OVERRIDE
 
@@ -46,3 +47,14 @@ def test_the_cli_reads_a_style_with_its_etag_locally_and_on_a_server(place: Plac
     assert main(["read", "--json", ".vault/styles/backlog.override.md"]) == 0
     read = json.loads(capsys.readouterr().out)
     assert read["text"] == OVERRIDE and read["etag"]
+
+
+def test_the_cli_takes_only_a_style_version_of_one_or_more(place: Place, tmp_path: Path, capsys):  # noqa: F811
+    source = tmp_path / "backlog-style.md"
+    source.write_text("One line.\n", encoding="utf-8")
+    for bad in ("-1", "0", "two"):
+        with pytest.raises(SystemExit) as exited:
+            main(["style", "write", "--kind", "backlog", "--file", str(source), "--version", bad])
+        assert exited.value.code == 2
+        assert "an integer of 1 or more" in capsys.readouterr().err
+    assert main(["read", "--json", ".vault/styles/backlog.md"]) == 1, "nothing was written"

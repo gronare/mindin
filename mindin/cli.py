@@ -241,6 +241,12 @@ def command_template(args: argparse.Namespace) -> int:
     return 0
 
 
+def style_version(value: str) -> int:
+    if not value.isdigit() or int(value) < 1:
+        raise argparse.ArgumentTypeError(f"{value!r} is not an integer of 1 or more")
+    return int(value)
+
+
 def style_text(args: argparse.Namespace) -> str:
     text = sys.stdin.read() if args.file == "-" else Path(args.file).expanduser().read_text(encoding="utf-8")
     return text if args.version is None else styles.stamped(text, args.version)
@@ -870,7 +876,9 @@ def build_parser() -> argparse.ArgumentParser:
     style_writing.add_argument("--kind", required=True, help="the kind of note, such as backlog, task or decision")
     style_writing.add_argument("--file", required=True, help="the markdown to write; - reads stdin")
     style_writing.add_argument(
-        "--version", type=int, help="stamp the first line <!-- style-version: N --> in place of the file's own"
+        "--version",
+        type=style_version,
+        help="stamp the first line <!-- style-version: N -->, N 1 or more, in place of the file's own",
     )
     style_writing.set_defaults(func=command_style_write)
 

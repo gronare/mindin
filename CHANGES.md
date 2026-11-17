@@ -5,8 +5,10 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+- The installer takes --no-setup to only install mindin, for a setup such as kebbie's that asks itself.
 
 ### Fixed
+- mindin setup's questions take arrow keys and editing, and Ctrl-C leaves them cleanly.
 
 ## 0.20.0
 

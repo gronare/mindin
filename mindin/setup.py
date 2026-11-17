@@ -81,14 +81,14 @@ def ask_signals(ask: Ask) -> int:
 
 
 def pick(ask: Ask) -> Choice:
-    print("Where does your vault live?")
+    print("  Where does your vault live?")
     for number, choice in enumerate(CHOICES, 1):
-        print(f"  {number}  {choice.label}")
+        print(f"    {number}  {choice.label}")
     while True:
         answer = ask(f"Choose 1-{len(CHOICES)}", False).strip()
         if answer.isdigit() and 1 <= int(answer) <= len(CHOICES):
             return CHOICES[int(answer) - 1]
-        print(f"Answer a number from 1 to {len(CHOICES)}.")
+        print(f"  Answer a number from 1 to {len(CHOICES)}.")
 
 
 def command_setup(args: argparse.Namespace, ask: Ask | None = None) -> int:

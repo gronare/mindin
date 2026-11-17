@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import getpass
 import os
 from collections.abc import Callable
@@ -195,9 +196,12 @@ CHOICES_BY_KIND = {choice.kind: choice for choice in CHOICES}
 
 
 def terminal_ask(question: str, secret: bool) -> str:
+    with contextlib.suppress(ImportError):
+        import readline  # noqa: F401  # gives input() line editing, so arrow keys move instead of printing ^[[D
     try:
-        return getpass.getpass(f"{question}: ") if secret else input(f"{question}: ")
-    except EOFError as exc:
+        return getpass.getpass(f"  {question}: ") if secret else input(f"  {question}: ")
+    except (EOFError, KeyboardInterrupt) as exc:
+        print()
         raise ConfigError("mindin: setup stopped before it was done; nothing saved") from exc
 
 

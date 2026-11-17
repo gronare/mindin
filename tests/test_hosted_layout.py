@@ -29,7 +29,7 @@ async def test_the_first_vault_asks_for_a_layout_and_writes_the_one_picked(site:
         first = await http.get("/account/vaults/notes")
         assert "Pick a layout" in first.text and "no layout yet" in first.text
         offered = re.findall(r'name="preset" value="([^"]+)"', first.text)
-        assert offered == ["para", "simple", "journal", "custom"]
+        assert offered == ["default", "para", "simple", "journal", "custom"]
         forged = await http.post("/account/vaults/notes/layout", data={"csrf": "wrong", "preset": "para"})
         csrf = csrf_of(first.text)
         unknown = await http.post("/account/vaults/notes/layout", data={"csrf": csrf, "preset": "nope"})
@@ -95,7 +95,7 @@ async def test_a_new_vault_gets_the_layout_picked_with_its_name(site: Hosted, va
         made = await http.post("/account/vaults", data={"csrf": csrf, "name": "Orchard Notes", "preset": "simple"})
         page = await http.get(made.headers["location"])
         taken = await http.post("/account/vaults", data={"csrf": csrf, "name": "orchard notes", "preset": "para"})
-    assert offered == ["para", "simple", "journal", "custom"]
+    assert offered == ["default", "para", "simple", "journal", "custom"]
     assert 'data-slug-from="vault-name"' in form.text and 'data-base="http://localhost/mcp?vault="' in form.text
     assert unnamed.status_code == 400 and "Give the vault a name." in unnamed.text
     assert made.status_code == 303 and made.headers["location"] == "/account/vaults/orchardnotes"

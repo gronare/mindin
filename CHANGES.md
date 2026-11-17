@@ -5,6 +5,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+- A new vault's layout picker offers Built-in, first and preselected.
 
 ### Fixed
 

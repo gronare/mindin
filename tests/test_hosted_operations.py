@@ -56,7 +56,7 @@ async def test_provisioning_writes_the_picked_layout_and_a_shared_vault_keeps_a_
 @pytest.mark.anyio
 async def test_switching_a_layout_says_what_happened_and_keeps_the_built_in_one(site: Hosted, vaults: SubjectVaults):
     vault = new_vault(site, "ann@example.com", "Notes two")
-    first, second = OFFERED[0], OFFERED[-1]
+    first, second = OFFERED[1], OFFERED[-1]
     assert switch_layout(vaults, vault, first).startswith("This vault now uses")
     assert "No note was moved or deleted." not in switch_layout(vaults, vault, first)
     assert switch_layout(vaults, vault, first).startswith("This vault already uses")

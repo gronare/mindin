@@ -38,7 +38,6 @@ PRESETS: dict[str, Preset] = {
             "Areas, Resources, Projects, Log, Archive: one living note per system, open work, a log per repo.",
             "presets/default/",
             ("Areas.base", "Open tasks.base", "Resources.base", "Backlog.base", "Log.base"),
-            offered=False,
         ),
         Preset(
             "para",

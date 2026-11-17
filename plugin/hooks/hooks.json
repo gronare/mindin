@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uvx mindin==0.20.0 launch hook session-start",
+            "command": "uvx mindin==0.20.1 launch hook session-start",
             "timeout": 30
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uvx mindin==0.20.0 launch hook stop",
+            "command": "uvx mindin==0.20.1 launch hook stop",
             "timeout": 30
           }
         ]

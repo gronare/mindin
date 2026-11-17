@@ -25,6 +25,7 @@ from hosted_support import (
 from test_hosted_app import authorize, consent, register
 from test_signin_device import decide, poll, start
 
+from mindin import provision
 from mindin.backends.factory import make_subject_backend
 from mindin.backends.local import LocalBackend
 from mindin.backends.sealed import SealedBackend, Unreadable, new_data_key
@@ -229,7 +230,7 @@ async def test_oauth_through_the_server_address_lets_the_user_pick_the_vault(sit
             http, tokens["access_token"], "read_file", {"path": "Areas/here.md"}, "/mcp?vault=workshop"
         )
         elsewhere = await post_mcp(http, tokens["access_token"], INITIALIZE, path="/mcp?vault=orchard")
-    assert page.text.count('type="radio" name="vault"') == 2
+    assert page.text.count('type="radio" name="vault"') == 3
     assert "Oil the bed" in text_of(read) and not wrote.get("isError")
     assert "Oil the bed" in text_of(named) and elsewhere.status_code == 401
     assert "Cursor" in listed.text and "Connector" in listed.text and "Disconnect" in listed.text
@@ -249,7 +250,7 @@ async def test_a_client_that_drops_the_vault_from_its_resource_gets_the_picker_a
         )
         refused = await post_mcp(http, other["access_token"], INITIALIZE, path="/mcp?vault=workshop")
     assert challenged.status_code == 401
-    assert page.text.count('type="radio" name="vault"') == 2
+    assert page.text.count('type="radio" name="vault"') == 3
     assert "Oil the bed" in text_of(reached)
     assert refused.status_code == 401 and refused.json()["error_description"] == "the token belongs to another vault"
 
@@ -353,8 +354,73 @@ async def test_a_device_login_without_a_vault_asks_which_one(site: Hosted):
         device = await start(machine)
         page, _ = await decide(member, device["user_code"], vault="orchard")
         granted = (await poll(site, machine, device)).json()
-    assert page.text.count('type="radio" name="vault"') == 2
+    assert page.text.count('type="radio" name="vault"') == 3
     assert granted["vault"] == "orchard"
+
+
+@pytest.mark.anyio
+async def test_approving_with_a_new_vault_makes_it_in_the_built_in_layout_and_binds_the_connection(
+    site: Hosted, vaults: SubjectVaults
+):
+    http = await two_vaults(site)
+    async with http:
+        client = await register(http)
+        verifier, started = await authorize(http, client["client_id"])
+        request_id = query(started.headers["location"])["request"]
+        page = await http.get("/login", params={"request": request_id})
+        form = {"request": request_id, "csrf": csrf_of(page.text), "vault": "new", "access": "write"}
+        unnamed = await http.post("/login", data={**form, "new_name": " ", "decision": "approve"})
+        approved = await http.post("/login", data={**form, "new_name": "Garden Notes", "decision": "approve"})
+        tokens = await http.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": query(approved.headers["location"])["code"],
+                "redirect_uri": "http://localhost:9876/callback",
+                "client_id": client["client_id"],
+                "code_verifier": verifier,
+                "resource": f"{BASE}/mcp",
+            },
+        )
+        written = await call_tool(
+            http, tokens.json()["access_token"], "write_file", {"path": "Areas/bed.md", "content": NOTE_BODY}
+        )
+    assert "Which vault does this machine use?" in page.text and "Address workshop · " in page.text
+    assert "<b>Orchard</b> <i>your default</i>" in page.text and "A new vault" in page.text
+    assert "Made now with the Built-in layout kebbie works with." in page.text
+    assert 'name="access" value="write" checked' in page.text
+    assert unnamed.status_code == 200 and "Give the vault a name." in unnamed.text
+    assert approved.status_code == 302 and not written.get("isError"), text_of(written)
+    made = site.store.vault_at(site.store.account("ann@example.com").id, "gardennotes")
+    assert made is not None and made.name == "Garden Notes"
+    backend = vaults.backend_factory(made.id)[0]
+    assert provision.current_preset(backend) == "default"
+    assert "Areas/bed.md" in {entry.key for entry in backend.list_all()}
+
+
+@pytest.mark.anyio
+async def test_an_account_with_one_empty_vault_has_it_preselected_and_nothing_else_to_choose(site: Hosted):
+    http = await site.member("ann@example.com", sub="sub-ann")
+    async with http, site.browser() as machine:
+        device = await start(machine)
+        page, approved = await decide(http, device["user_code"])
+        granted = (await poll(site, machine, device)).json()
+    assert 'name="vault" value="personal" checked>' in page.text and "A new vault" not in page.text
+    assert "Address personal · built-in layout · 1 note" in page.text
+    assert approved.status_code == 200 and granted["vault"] == "personal"
+
+
+@pytest.mark.anyio
+async def test_a_device_login_can_make_a_new_vault(site: Hosted, vaults: SubjectVaults):
+    member = await two_vaults(site)
+    async with site.browser() as machine, member:
+        device = await start(machine)
+        page = await member.get("/device", params={"user_code": device["user_code"]})
+        form = {"csrf": csrf_of(page.text), "user_code": device["user_code"], "action": "approve", "access": "write"}
+        await member.post("/device", data={**form, "vault": "new", "new_name": "Shed"})
+        granted = (await poll(site, machine, device)).json()
+    assert granted["vault"] == "shed" and granted["vault_name"] == "Shed"
+    assert provision.current_preset(vaults.backend_factory(site.vault_of("ann@example.com", "shed"))[0]) == "default"
 
 
 @pytest.mark.anyio
@@ -705,7 +771,9 @@ async def test_the_migration_keeps_an_existing_vault_where_it_is_and_readable(
         assert connection.execute("SELECT name FROM sqlite_master WHERE name = 'vault_keys'").fetchone() is None
         assert connection.execute("SELECT COUNT(*) FROM vault_data_keys").fetchone()[0] == 1
     vault = store.first_vault(account_id)
-    assert vault is not None and vault.id == account_id and vault.slug == "notes" and len(store.vaults(account_id)) == 1
+    assert (
+        vault is not None and vault.id == account_id and vault.slug == "personal" and len(store.vaults(account_id)) == 1
+    )
     sealed = SealedVaults(store, VaultKeys(store, keyring))
     backend, _ = sealed.for_vault(vault.id)
     assert {entry.key: backend.get(entry.key)[0] for entry in backend.list()} == notes
@@ -740,12 +808,12 @@ def test_new_accounts_get_their_first_vault_and_a_free_slug(tmp_path: Path):
     store = HostedStore(tmp_path / "auth")
     first, _ = store.invite("ann.green@example.com")
     second, _ = store.invite("ann.green@example.org")
-    assert [vault.slug for vault in store.vaults(first.id)] == ["notes"]
-    assert [vault.slug for vault in store.vaults(second.id)] == ["notes"]
+    assert [vault.slug for vault in store.vaults(first.id)] == ["personal"]
+    assert [vault.slug for vault in store.vaults(second.id)] == ["personal"]
     assert store.first_vault(first.id).id.startswith("vlt_")
     names = ["Work", "Work shop!", "Work", "Wörk", "2026 plans", "!!!", "New", "Notes", "x" * 40, "x" * 40]
     made = [store.create_vault(first.id, name).slug for name in names]
-    assert made == ["work", "workshop", "work2", "work3", "plans", "vault", "new2", "notes2", "x" * 32, "x" * 31 + "2"]
+    assert made == ["work", "workshop", "work2", "work3", "plans", "vault", "new2", "notes", "x" * 32, "x" * 31 + "2"]
     assert store.create_vault(second.id, "Work").slug == "work"
 
 
@@ -754,7 +822,7 @@ def test_one_account_cannot_own_two_vaults_with_one_slug(tmp_path: Path):
     ann, _ = store.invite("ann@example.com")
     with store.connect() as connection, pytest.raises(sqlite3.IntegrityError):
         connection.execute(
-            "INSERT INTO vaults(id, account_id, name, slug, created_at, kind) VALUES('vlt_x', ?, 'Twin', 'notes', 1,"
+            "INSERT INTO vaults(id, account_id, name, slug, created_at, kind) VALUES('vlt_x', ?, 'Twin', 'personal', 1,"
             " 'personal')",
             (ann.id,),
         )
@@ -810,7 +878,7 @@ def test_the_migration_gives_every_vault_a_one_word_slug_unique_within_what_each
             )
     store = HostedStore(folder)
     assert {vault.id: vault.slug for vault in store.vaults("acc-ann")} == {
-        "v-ann1": "notes",
+        "v-ann1": "personal",
         "v-ann2": "worknotes",
         "v-ann3": "archive",
         "v-ann4": "orchard",
@@ -819,7 +887,7 @@ def test_the_migration_gives_every_vault_a_one_word_slug_unique_within_what_each
         "v-ann7": "work4",
     }
     assert {vault.id: vault.slug for vault in store.vaults("acc-bo")} == {
-        "v-bo1": "notes",
+        "v-bo1": "personal",
         "v-bo2": "work",
         "v-bo3": "work3",
         "v-bo4": "orchard2",

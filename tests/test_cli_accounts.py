@@ -211,16 +211,16 @@ async def test_the_owner_sees_and_removes_a_key_the_operator_made(
         assert main(["accounts", "add-key", "ann@example.com", "agent", "--out", str(out)]) == 0
         own = site.key_for("ann@example.com", name="laptop")
         async with http:
-            page = await http.get("/account/vaults/notes")
+            page = await http.get("/account/vaults/personal")
             rows = {row.split("</td>")[0] for row in page.text.split("<tr><td>")[1:]}
             assert 'agent <span class="small muted">made by the operator</span>' in rows
             assert "laptop" in rows
             key_id = out.read_text().strip()[4:16]
             revoked = await http.post(
-                "/account/vaults/notes/keys/revoke", data={"csrf": csrf_of(page.text), "key": key_id}
+                "/account/vaults/personal/keys/revoke", data={"csrf": csrf_of(page.text), "key": key_id}
             )
             assert revoked.status_code == 303
-            after = await http.get("/account/vaults/notes")
+            after = await http.get("/account/vaults/personal")
     assert "made by the operator" not in after.text and "laptop" in after.text
     assert site.store.key_grant(out.read_text().strip()) is None
     assert site.store.key_grant(own) is not None

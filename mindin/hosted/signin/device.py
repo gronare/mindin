@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import quote
 
+import anyio
 from mcp.shared.auth import OAuthClientInformationFull
 from starlette.datastructures import FormData
 from starlette.requests import Request
@@ -17,7 +18,7 @@ from mindin.hosted.accounts.vaults import Vault
 from mindin.hosted.config import MACHINE_KEY_PURPOSE, READ_SCOPE, SCOPES, WRITE_SCOPE, AuthConfig
 from mindin.hosted.database import Row
 from mindin.hosted.pages.html import error_box, esc
-from mindin.hosted.pages.web import NO_STORE, Browser, Limits, client_address, main_vault_choice, oauth_error, page
+from mindin.hosted.pages.web import CHOOSE_VAULT, NO_STORE, Browser, Limits, client_address, oauth_error, page
 
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 CLI_CLIENT_ID = "cli"
@@ -172,7 +173,7 @@ class DeviceFlow:
         account, csrf = session
         row = self.pending(user_code) if len(user_code) == USER_CODE_LENGTH else None
         if row is not None:
-            return self.confirm(row, account, csrf)
+            return await anyio.to_thread.run_sync(self.confirm, row, account, csrf)
         return self.entry(csrf, shown(user_code) if user_code else "")
 
     def pending(self, user_code: str) -> Row | None:
@@ -198,16 +199,19 @@ class DeviceFlow:
             return (requested, [vault]) if vault is not None and vault.slug == requested else (requested, [])
         return "", self.store.reachable_vaults(account.id)
 
-    def vault_field(self, account: Account, requested: str, vaults: list[Vault]) -> tuple[str, str]:
+    def vault_field(
+        self, account: Account, requested: str, vaults: list[Vault], form: FormData | None
+    ) -> tuple[str, str]:
         if requested:
             vault = vaults[0]
             return (
                 f"<dt>Main vault</dt><dd>{esc(vault.name)} <code>{esc(vault.slug)}</code></dd>",
                 f'<input type="hidden" name="vault" value="{esc(vault.slug)}">',
             )
-        return "", main_vault_choice(vaults, self.store.default_vault(account.id))
+        picked, name = ("", "") if form is None else (str(form.get("vault") or ""), str(form.get("new_name") or ""))
+        return "", self.browser.vault_choice(account, vaults, picked, name)
 
-    def confirm(self, row: Row, account: Account, csrf: str) -> Response:
+    def confirm(self, row: Row, account: Account, csrf: str, error: str = "", form: FormData | None = None) -> Response:
         requested, vaults = self.vault_choice(row, account)
         if not vaults:
             lead = (
@@ -222,8 +226,9 @@ class DeviceFlow:
             else ""
         )
         read_checked = "" if write_choice else " checked"
-        vault_fact, vault_field = self.vault_field(account, requested, vaults)
-        body = f"""<p class="warning">Approve only if you started this yourself, just now, on a machine you use.</p>
+        vault_fact, vault_field = self.vault_field(account, requested, vaults, form)
+        body = f"""{error_box(error)}
+<p class="warning">Approve only if you started this yourself, just now, on a machine you use.</p>
 <dl><dt>Code</dt><dd><code>{esc(shown(row["user_code"]))}</code></dd>
 <dt>Asked by</dt><dd>{esc(row["client_name"])}</dd>
 <dt>The key will be named</dt><dd>{esc(row["name"])}</dd>{vault_fact}</dl>
@@ -255,14 +260,20 @@ class DeviceFlow:
             return self.entry(csrf, error="That code is unknown or has expired.", status_code=400)
         action = form.get("action")
         if action == "lookup":
-            return self.confirm(row, account, csrf)
+            return await anyio.to_thread.run_sync(self.confirm, row, account, csrf)
         if action == "deny":
             self.store.update_device(row["device_hash"], status="denied", account_id=account.id)
             return page("Denied", "The device gets no key. You can close this page.")
+        if action != "approve":
+            return await anyio.to_thread.run_sync(self.confirm, row, account, csrf)
         requested, vaults = self.vault_choice(row, account)
-        vault = next((vault for vault in vaults if vault.slug == form.get("vault")), None)
-        if action != "approve" or vault is None:
-            return self.confirm(row, account, csrf)
+        picked, name = str(form.get("vault") or ""), str(form.get("new_name") or "")
+        if requested:
+            vault: Vault | str = next((vault for vault in vaults if vault.slug == picked), CHOOSE_VAULT)
+        else:
+            vault = await anyio.to_thread.run_sync(self.browser.pick_vault, account, vaults, picked, name)
+        if isinstance(vault, str):
+            return await anyio.to_thread.run_sync(self.confirm, row, account, csrf, vault, form)
         scopes = [READ_SCOPE]
         if form.get("access") == "write" and WRITE_SCOPE in row["scopes"].split():
             scopes.append(WRITE_SCOPE)

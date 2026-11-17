@@ -33,6 +33,7 @@ from mindin.hosted.accounts.layout import (
     LayoutKept,
     describe,
     layout_title,
+    provision_first,
     provision_vault,
     switch_layout,
 )
@@ -54,7 +55,7 @@ from mindin.hosted.pages.html import (
     table,
 )
 from mindin.hosted.pages.shared import SharedPages
-from mindin.hosted.pages.web import Browser, app_script
+from mindin.hosted.pages.web import Browser, Offered, app_script
 from mindin.hosted.signin.email import SmtpFactory
 from mindin.presets import CUSTOM_PRESET, OFFERED, PRESETS, STARTING_POINTS
 from mindin.schema import Capability, Schema, broken_schema_lines, capabilities, schema_from_text
@@ -90,6 +91,7 @@ class VaultPages:
         self.deletion = deletion
         self.sections: list[Callable[[Account, Vault, str], str]] = []
         self.shared = SharedPages(self)
+        browser.shelf = self
 
     def local(self, path: str) -> str:
         return self.browser.local(path)
@@ -102,6 +104,25 @@ class VaultPages:
 
     def facts(self, vault: Vault) -> VaultFacts:
         return facts_of(self.storage(vault).list_all())
+
+    def offered(self, vault: Vault) -> Offered:
+        backend = self.storage(vault)
+        entries = backend.list_all()
+        facts = facts_of(entries)
+        welcome = any(entry.key == provision.WELCOME_KEY for entry in entries)
+        layout = layout_title(provision.stored(backend, SCHEMA_KEY))
+        line = " · ".join([f"Address {vault.slug}", layout, counted(facts.notes, "note")])
+        return Offered(vault, line, facts.notes - welcome == 0)
+
+    def make(self, account: Account, name: str) -> Vault:
+        vault = self.store.create_vault(account.id, name)
+        provision_vault(self.sealed, vault, BUILT_IN, self.vaults.dav_url)
+        return vault
+
+    def welcome(self, account_id: str) -> None:
+        vault = self.store.first_vault(account_id)
+        if vault is not None:
+            provision_first(self.sealed, vault, self.vaults.dav_url)
 
     def summary_line(self, vault: Vault, facts: VaultFacts) -> str:
         keys = self.store.keys(vault.account_id, vault.id)

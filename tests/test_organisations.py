@@ -127,7 +127,7 @@ async def test_flow_1_a_colleague_joins_by_signing_in_and_an_outsider_does_not(s
     cy_account = site.store.account("cy@acme.test")
     assert cy_account is not None and cy_account.active
     slugs = [vault.slug for vault in site.store.reachable_vaults(cy_account.id)]
-    assert slugs == ["notes", "wiki"]
+    assert slugs == ["personal", "wiki"]
     assert "Wiki" in listed.text and '<span class="chip shared">Acme</span>' in listed.text
     assert "<td>Acme</td><td>Member</td>" in settings.text and admin_page.status_code == 403
     assert refused.status_code == 403 and site.store.account("eve@elsewhere.test") is None
@@ -226,7 +226,7 @@ async def test_flow_13_a_removed_member_keeps_their_account_and_their_wiki_notes
         await write(cy, wiki_key, "Resources/deploys.md", DEPLOY)
         removed = await post_org(site, ada, "/members/remove", email="cy@acme.test")
         after = await post_mcp(cy, wiki_key, INITIALIZE, path="/mcp?vault=wiki")
-        own = await cy.get("/account/vaults/notes")
+        own = await cy.get("/account/vaults/personal")
         wiki = await cy.get("/account/vaults/wiki")
         again = await site.sign_in(site.browser(), "cy@acme.test")
     assert "cy@acme.test is removed; their own vaults stay" in removed.text
@@ -234,7 +234,7 @@ async def test_flow_13_a_removed_member_keeps_their_account_and_their_wiki_notes
     assert own.status_code == 200 and wiki.status_code == 404
     assert again.status_code == 303
     cy_account = site.store.account("cy@acme.test")
-    assert [vault.slug for vault in site.store.reachable_vaults(cy_account.id)] == ["notes"]
+    assert [vault.slug for vault in site.store.reachable_vaults(cy_account.id)] == ["personal"]
     assert orgs(site).of_account(cy_account.id) == [], "a removed member does not rejoin through the domain"
     assert history(site)[0].author_email == "cy@acme.test"
 
@@ -820,7 +820,7 @@ async def test_flow_3_search_labels_own_and_wiki_rows_and_reads_the_wiki_in_the_
             old = note(
                 f"Klarna notes {number}", "Klarna klarna klarna, old thoughts.", day="2024-01-0" + str(number + 1)
             )
-            assert not (await write(bea, own, f"Resources/klarna-{number}.md", old, slug="notes")).get("isError")
+            assert not (await write(bea, own, f"Resources/klarna-{number}.md", old, slug="personal")).get("isError")
         found, read, mine, shared = await in_one_session(
             bea,
             own,
@@ -831,12 +831,12 @@ async def test_flow_3_search_labels_own_and_wiki_rows_and_reads_the_wiki_in_the_
                 ("write_file", {"path": "Resources/ours.md", "content": note("Ours", "Ours."), "vault": "wiki"}),
             ],
         )
-        narrow = await call_tool(bea, key(site, "bea@acme.test", "notes"), "search", {"query": "klarna"})
+        narrow = await call_tool(bea, key(site, "bea@acme.test", "personal"), "search", {"query": "klarna"})
     lines = text_of(found).splitlines()
     assert lines[0].startswith("5 of 5"), lines
-    assert lines[1].startswith("Searched 2 vaults: notes (") and "wiki (Wiki, Acme)" in lines[1], lines[1]
+    assert lines[1].startswith("Searched 2 vaults: personal (") and "wiki (Wiki, Acme)" in lines[1], lines[1]
     assert lines[2].startswith("wiki | Resources/klarna.md | Adding Klarna"), lines
-    assert all(line.startswith("notes | Resources/klarna-") for line in lines[3:7]), lines
+    assert all(line.startswith("personal | Resources/klarna-") for line in lines[3:7]), lines
     assert "checkout adapter" in text_of(read), text_of(read)
     assert not mine.get("isError") and not shared.get("isError"), (text_of(mine), text_of(shared))
     assert [change.path for change in history(site)][0] == "Resources/ours.md"
@@ -850,7 +850,7 @@ async def test_a_member_of_no_organisation_searches_and_reads_one_vault_as_befor
     async with site.browser() as dan:
         assert (await site.sign_in(dan, "dan@elsewhere.test")).status_code == 303
         own = cli_key(site, "dan@elsewhere.test")
-        assert not (await write(dan, own, "Resources/klarna.md", note("Klarna", "Klarna."), slug="notes")).get(
+        assert not (await write(dan, own, "Resources/klarna.md", note("Klarna", "Klarna."), slug="personal")).get(
             "isError"
         )
         found, other = await in_one_session(
@@ -891,7 +891,7 @@ async def test_flow_2_session_start_lists_the_wikis_pages_for_the_repo_capped(si
             assert not (await write(ada, wiki, path, text)).get("isError"), path
         own = cli_key(site, "bea@acme.test")
         hub = note("Payments", filled(Schema(preset_data("default")), "system", "Our payments service."), kind="system")
-        assert not (await write(bea, own, "Areas/payments.md", hub, slug="notes")).get("isError")
+        assert not (await write(bea, own, "Areas/payments.md", hub, slug="personal")).get("isError")
         arguments = {"path": "/src/payments", "repo": "payments", "remote": "git@github.com:acme/payments.git"}
         bundle = await call_tool(bea, own, "context", arguments | {"format": "json"})
     text = json.loads(text_of(bundle))["text"]
@@ -961,9 +961,9 @@ async def test_a_search_across_vaults_skips_a_vault_whose_storage_is_down(site: 
 
     async with ada, bea:
         own = DEPLOY.replace("title: Deploys", "title: Klarna at home")
-        assert not (await write(bea, key(site, "bea@acme.test", "notes"), "Resources/klarna.md", own, "notes")).get(
-            "isError"
-        )
+        assert not (
+            await write(bea, key(site, "bea@acme.test", "personal"), "Resources/klarna.md", own, "personal")
+        ).get("isError")
         monkeypatch.setattr(Vault, "sync", down)
         spanning = cli_key(site, "bea@acme.test", spans=True)
         found = await call_tool(bea, spanning, "search", {"query": "klarna"})

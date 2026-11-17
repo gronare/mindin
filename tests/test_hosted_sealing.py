@@ -170,7 +170,7 @@ async def test_the_account_downloads_its_whole_vault_as_a_zip(site: Hosted, vaul
     key = site.key_for("ann@example.com")
     async with http:
         await http.put("/dav/vault/Bilagor/bild.png", content=bytes(range(256)), headers=basic(key))
-        response = await http.get("/account/vaults/notes/export")
+        response = await http.get("/account/vaults/personal/export")
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/zip"
     assert "attachment" in response.headers["content-disposition"]
@@ -183,7 +183,7 @@ async def test_the_account_downloads_its_whole_vault_as_a_zip(site: Hosted, vaul
 @pytest.mark.anyio
 async def test_export_needs_a_session(site: Hosted):
     async with site.browser() as http:
-        response = await http.get("/account/vaults/notes/export")
+        response = await http.get("/account/vaults/personal/export")
     assert response.status_code == 303
     assert response.headers["location"].startswith("/signin")
 
@@ -197,9 +197,9 @@ def zipped(files: dict[str, bytes]) -> bytes:
 
 
 async def upload(http: httpx2.AsyncClient, archive: bytes) -> httpx2.Response:
-    csrf = csrf_of((await http.get("/account/vaults/notes")).text)
+    csrf = csrf_of((await http.get("/account/vaults/personal")).text)
     return await http.post(
-        "/account/vaults/notes/import",
+        "/account/vaults/personal/import",
         data={"csrf": csrf},
         files={"archive": ("vault.zip", archive, "application/zip")},
     )
@@ -240,7 +240,7 @@ async def test_the_upload_needs_the_pages_csrf_token(site: Hosted):
     http = await site.member("ann@example.com", sub="sub-ann")
     async with http:
         response = await http.post(
-            "/account/vaults/notes/import",
+            "/account/vaults/personal/import",
             data={"csrf": "wrong"},
             files={"archive": ("v.zip", zipped({}), "application/zip")},
         )
@@ -269,13 +269,15 @@ async def test_support_opens_a_vault_only_once_the_account_approves_its_request_
         assert "waits on their account page" in capsys.readouterr().out
         asked = (await http.get("/account/settings")).text
         assert main(["support", "files", "ann@example.com", *support]) == 1
-        assert (await post_account(http, "/account/support/approve", vault="notes", duration="day")).status_code == 303
+        assert (
+            await post_account(http, "/account/support/approve", vault="personal", duration="day")
+        ).status_code == 303
         assert main(["support", "files", "ann@example.com", *support]) == 0
         assert "Areas/secret.md" in capsys.readouterr().out.splitlines()
         assert main(["support", "read", "ann@example.com", "Areas/secret.md", *support]) == 0
         assert "Hemligt" in capsys.readouterr().out
         page = (await http.get("/account/settings")).text
-        assert (await post_account(http, "/account/support/end", vault="notes")).status_code == 303
+        assert (await post_account(http, "/account/support/end", vault="personal")).status_code == 303
         assert main(["support", "read", "ann@example.com", "Areas/secret.md", *support]) == 1
         after = (await http.get("/account/settings")).text
     assert "<h2>Support access</h2>" not in before

@@ -40,7 +40,7 @@ async def ann_with_three_vaults(site: Hosted) -> httpx2.AsyncClient:
     return ann
 
 
-async def device_key(site: Hosted, ann: httpx2.AsyncClient, access: str = "write", vault: str = "notes") -> str:
+async def device_key(site: Hosted, ann: httpx2.AsyncClient, access: str = "write", vault: str = "personal") -> str:
     async with site.browser() as machine:
         device = await start(machine)
         page, approved = await decide(ann, device["user_code"], access=access, vault=vault)
@@ -158,7 +158,7 @@ async def test_the_consent_page_and_the_device_page_say_the_connection_reaches_e
         device = await start(machine)
         confirm = await ann.get("/device", params={"user_code": device["user_code"]})
     for shown in (page.text, confirm.text):
-        assert "Main vault" in shown and esc(ALSO_REACHES) in shown, shown
+        assert "Which vault does this machine use?" in shown and esc(ALSO_REACHES) in shown, shown
     assert "is asking to reach your vaults." in page.text
 
 
@@ -168,7 +168,7 @@ async def test_a_claude_ai_connection_reaches_every_vault_and_keeps_it_through_a
     async with ann:
         client = await register(ann)
         verifier, started = await authorize(ann, client["client_id"])
-        _, approved = await consent(ann, started.headers["location"], vault="notes")
+        _, approved = await consent(ann, started.headers["location"], vault="personal")
         code = httpx2.URL(approved.headers["location"]).params["code"]
         tokens = (
             await ann.post(
@@ -196,7 +196,7 @@ async def test_a_claude_ai_connection_reaches_every_vault_and_keeps_it_through_a
     assert not reached.get("isError"), text_of(reached)
     instructions = sse_payload(started_session.text)["result"]["instructions"]
     assert "## Vaults this connection reaches" in instructions
-    assert "The main vault is Personal (`notes`)" in instructions
+    assert "The main vault is Personal (`personal`)" in instructions
     assert "search without `vault` covers the main vault and the organisation vaults" in instructions
     assert "- `private` (Private): searched only when named" in instructions
     assert "- `club` (Orchard club): searched only when named" in instructions
@@ -217,33 +217,35 @@ async def test_the_default_vault_is_preselected_on_both_approval_pages_and_the_c
     ann = await ann_with_three_vaults(site)
     async with ann, site.browser() as machine:
         before = await ann.get("/account")
-        earlier = await device_key(site, ann, vault="notes")
+        earlier = await device_key(site, ann, vault="personal")
         page = await ann.get("/account/vaults/private")
         made = await ann.post("/account/vaults/private/default", data={"csrf": csrf_of(page.text)})
         listed = await ann.get("/account")
         shown = await ann.get("/account/vaults/private")
         client = await register(ann)
         _, started = await authorize(ann, client["client_id"])
-        consent_page, approved = await consent(ann, started.headers["location"], vault="notes")
+        consent_page, approved = await consent(ann, started.headers["location"], vault="personal")
         device = await start(machine)
         device_page = await ann.get("/device", params={"user_code": device["user_code"]})
-        chosen = await device_key(site, ann, vault="notes")
+        chosen = await device_key(site, ann, vault="personal")
         landed = await call_tool(
             ann, earlier, "write_file", {"path": "Resources/beds.md", "content": note("Beds", "Raised beds.")}
         )
-        in_notes = await call_tool(ann, chosen, "list_files", {"prefix": "Resources/", "vault": "notes"})
+        in_notes = await call_tool(ann, chosen, "list_files", {"prefix": "Resources/", "vault": "personal"})
         started_session = await post_mcp(ann, chosen, INITIALIZE)
     assert default_chips(before.text) == ["Personal"], "a new account's first vault is its default"
     assert made.status_code == 303
     assert default_chips(listed.text) == ["Private"], "an account has one default vault"
     assert "This is your default vault" in shown.text and "Make default" not in shown.text
-    assert checked(consent_page.text, "private") and not checked(consent_page.text, "notes")
-    assert checked(device_page.text, "private") and not checked(device_page.text, "notes")
+    assert checked(consent_page.text, "private") and not checked(consent_page.text, "personal")
+    assert checked(device_page.text, "private") and not checked(device_page.text, "personal")
     assert approved.status_code == 302 and "code=" in approved.headers["location"]
     assert not landed.get("isError"), text_of(landed)
     assert text_of(in_notes) == "Resources/beds.md", "an earlier connection keeps its vault"
     instructions = sse_payload(started_session.text)["result"]["instructions"]
-    assert "The main vault is Personal (`notes`)" in instructions, "the vault picked on the page wins over the default"
+    assert "The main vault is Personal (`personal`)" in instructions, (
+        "the vault picked on the page wins over the default"
+    )
 
 
 @pytest.mark.anyio
@@ -263,7 +265,7 @@ async def test_a_connection_searches_only_its_own_vault_and_reaches_the_others_b
     ann = await ann_with_three_vaults(site)
     async with ann:
         key = await device_key(site, ann, vault="private")
-        for slug in ("notes", "private", "club"):
+        for slug in ("personal", "private", "club"):
             page = note(f"Press in {slug}", "How the press works.")
             written = await call_tool(
                 ann, key, "write_file", {"path": f"Resources/press-{slug}.md", "content": page, "vault": slug}
@@ -274,13 +276,13 @@ async def test_a_connection_searches_only_its_own_vault_and_reaches_the_others_b
             key,
             [
                 ("search", {"query": "press"}),
-                ("search", {"query": "press", "vault": "notes"}),
+                ("search", {"query": "press", "vault": "personal"}),
                 ("search", {"query": "press", "vault": "club"}),
             ],
         )
     assert "Searched" not in text_of(found) and "Resources/press-private.md" in text_of(found), text_of(found)
-    assert "press-notes" not in text_of(found) and "press-club" not in text_of(found), text_of(found)
-    assert "notes | Resources/press-notes.md" in text_of(named), text_of(named)
+    assert "press-personal" not in text_of(found) and "press-club" not in text_of(found), text_of(found)
+    assert "personal | Resources/press-personal.md" in text_of(named), text_of(named)
     assert "club | Resources/press-club.md" in text_of(shared), text_of(shared)
 
 

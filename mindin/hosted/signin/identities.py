@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import secrets
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -41,6 +42,7 @@ class Outcome:
     account: Account | None
     refusal: Refusal = ""
     reason: str = ""
+    fresh: bool = False
 
 
 @dataclass(frozen=True)
@@ -72,13 +74,17 @@ SIGNING_IN = threading.Lock()
 
 
 class Identities:
-    def __init__(self, store: HostedStore) -> None:
+    def __init__(self, store: HostedStore, welcome: Callable[[str], None] | None = None) -> None:
         self.store = store
+        self.welcome = welcome
 
     def sign_in(self, proof: Proof, registration: Registration) -> Outcome:
         # Sign-ins run on the event loop and in worker threads: two first ones of an identity must not both register it.
         with SIGNING_IN:
-            return self._sign_in(proof, registration)
+            outcome = self._sign_in(proof, registration)
+        if outcome.fresh and outcome.account is not None and outcome.account.active and self.welcome is not None:
+            self.welcome(outcome.account.id)
+        return outcome
 
     def _sign_in(self, proof: Proof, registration: Registration) -> Outcome:
         emails = addresses(proof.emails)
@@ -125,7 +131,7 @@ class Identities:
             accept_invitations(
                 connection, account.id, tuple(dict.fromkeys((*emails, account.email.lower()))), self.store.now()
             )
-            return Outcome(self._signed_in(connection, account.id, proof.name))
+            return Outcome(self._signed_in(connection, account.id, proof.name), fresh=True)
 
     def registering(self, email: str) -> str:
         """Why an email link for this address would not make an account, or "" when it would or one exists."""

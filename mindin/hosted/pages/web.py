@@ -4,9 +4,11 @@ import hmac
 import logging
 import time
 from collections.abc import Callable
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Protocol
 from urllib.parse import quote, urlsplit
 
+import anyio
 from mcp.server.auth.provider import construct_redirect_uri
 from mcp.server.transport_security import RequestBodyLimitMiddleware
 from starlette.requests import Request
@@ -15,8 +17,8 @@ from starlette.routing import request_response
 from starlette.types import ASGIApp
 
 from mindin.hosted.accounts.reach import ALSO_REACHES
-from mindin.hosted.accounts.store import SESSION_TTL, Account, HostedStore, digest
-from mindin.hosted.accounts.vaults import Vault
+from mindin.hosted.accounts.store import SESSION_TTL, Account, HostedStore, VaultNameError, digest
+from mindin.hosted.accounts.vaults import NAME_MAX, Vault, slugify
 from mindin.hosted.config import READ_SCOPE, WRITE_SCOPE, AuthConfig
 from mindin.hosted.pages.html import error_box, esc, hidden_field
 from mindin.hosted.pages.templates import APP_PAGE, APP_SCRIPT, PAGE, PAGE_HEADERS, stamp
@@ -46,6 +48,8 @@ code, .key { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-b
 .warning { margin-bottom: 1.25rem; padding: .6rem .75rem; color: #6b4a00; background: #fdf5e2;
   border: 1px solid #f0e0b5; border-radius: 6px; }
 h2 { margin: 1.5rem 0 .5rem; font-size: 1rem; }
+.pick { padding: .35rem 0; } .pick span { display: block; margin-left: 1.4rem; color: #56534d; font-size: .85rem; }
+.pick i { color: #2f6f4f; font-size: .85rem; } .pick.sub { margin-left: 1.4rem; }
 ul { margin: 0 0 1.25rem; padding-left: 1.2rem; color: #56534d; }
 dl { margin: 0 0 1.25rem; } dt { color: #56534d; font-size: .85rem; } dd { margin: 0 0 .5rem; }
 """
@@ -75,14 +79,59 @@ async def app_script(_: Request) -> Response:
     return Response(APP_SCRIPT, media_type="text/javascript", headers={"Cache-Control": "public, max-age=3600"})
 
 
-def main_vault_choice(vaults: list[Vault], default: Vault | None) -> str:
-    chosen = default if default is not None and default in vaults else vaults[0]
-    radios = "".join(
-        f'<label><input type="radio" name="vault" value="{esc(vault.slug)}"{" checked" if vault == chosen else ""}>'
-        f" {esc(vault.name)} ({esc(vault.slug)})</label>"
-        for vault in vaults
+NEW_VAULT = "new"
+CHOOSE_VAULT = "Choose one of your vaults."
+
+
+@dataclass(frozen=True)
+class Offered:
+    vault: Vault
+    line: str
+    empty: bool = False
+
+
+class Shelf(Protocol):
+    """What the approval pages need from where the vaults are stored."""
+
+    def offered(self, vault: Vault) -> Offered: ...
+
+    def make(self, account: Account, name: str) -> Vault: ...
+
+    def welcome(self, account_id: str) -> None: ...
+
+
+def vault_option(offer: Offered, checked: bool, default: Vault | None) -> str:
+    vault = offer.vault
+    mark = " <i>your default</i>" if default is not None and vault.id == default.id else ""
+    tick = " checked" if checked else ""
+    return (
+        f'<label class="pick"><input type="radio" name="vault" value="{esc(vault.slug)}"{tick}>'
+        f" <b>{esc(vault.name)}</b>{mark}<span>{esc(offer.line)}</span></label>"
     )
-    return f"<fieldset><legend>Main vault</legend>{radios}</fieldset>"
+
+
+def new_vault_option(checked: bool, name: str) -> str:
+    tick = " checked" if checked else ""
+    return f"""<label class="pick"><input type="radio" name="vault" value="{NEW_VAULT}" id="vault-new"{tick}>
+<b>A new vault</b></label>
+<label class="pick sub" for="new-vault-name">Name
+<input type="text" id="new-vault-name" name="new_name" value="{esc(name)}" maxlength="{NAME_MAX}"
+ data-picks="vault-new">
+<span>Address: <code data-slug-from="new-vault-name" data-base="">{esc(slugify(name) or "…")}</code></span>
+<span>Made now with the Built-in layout kebbie works with.</span></label>"""
+
+
+def main_vault_choice(offers: list[Offered], default: Vault | None, picked: str = "", name: str = "") -> str:
+    vaults = [offer.vault for offer in offers]
+    alone = len(offers) == 1 and offers[0].empty
+    chosen = picked if picked == NEW_VAULT and not alone else ""
+    if not chosen:
+        chosen = next((vault.slug for vault in vaults if vault.slug == picked), "")
+    if not chosen:
+        chosen = default.slug if default is not None and default in vaults else vaults[0].slug
+    radios = "".join(vault_option(offer, offer.vault.slug == chosen, default) for offer in offers)
+    added = "" if alone else new_vault_option(chosen == NEW_VAULT, name)
+    return f"<fieldset><legend>Which vault does this machine use?</legend>{radios}{added}</fieldset>"
 
 
 def oauth_error(error: str, description: str, status_code: int = 400) -> JSONResponse:
@@ -201,6 +250,7 @@ class Browser:
         self.store = store
         self.limits = limits
         self.sections: list[Callable[[Account, str], str]] = []
+        self.shelf: Shelf | None = None
         self.secure = config.public_url.startswith("https://")
         self.cookie_path = config.path_prefix or "/"
 
@@ -270,6 +320,27 @@ class Browser:
     def app(self, title: str, body: str, on: str = "vaults", status_code: int = 200) -> Response:
         return app_page(self.config, title, body, on, status_code)
 
+    def welcome(self, account_id: str) -> None:
+        if self.shelf is not None:
+            self.shelf.welcome(account_id)
+
+    def offers(self, vaults: list[Vault]) -> list[Offered]:
+        if self.shelf is None:
+            return [Offered(vault, f"Address {vault.slug}") for vault in vaults]
+        return [self.shelf.offered(vault) for vault in vaults]
+
+    def vault_choice(self, account: Account, vaults: list[Vault], picked: str = "", name: str = "") -> str:
+        script = f'<script src="{esc(self.local("/account/page.js"))}" defer></script>'
+        return main_vault_choice(self.offers(vaults), self.store.default_vault(account.id), picked, name) + script
+
+    def pick_vault(self, account: Account, vaults: list[Vault], picked: str, name: str) -> Vault | str:
+        if picked == NEW_VAULT and self.shelf is not None:
+            try:
+                return self.shelf.make(account, name)
+            except VaultNameError as exc:
+                return str(exc)
+        return next((vault for vault in vaults if vault.slug == picked), CHOOSE_VAULT)
+
     async def consent_page(self, request: Request) -> Response:
         request_id = request.query_params.get("request", "")
         pending = self.store.load_request(request_id, REQUEST_TTL) if request_id else None
@@ -279,9 +350,11 @@ class Browser:
         if isinstance(session, Response):
             return session
         account, csrf = session
-        return self.render_consent(request_id, pending, account, csrf)
+        return await anyio.to_thread.run_sync(self.render_consent, request_id, pending, account, csrf)
 
-    def render_consent(self, request_id: str, pending: dict, account: Account, csrf: str, error: str = "") -> Response:
+    def render_consent(
+        self, request_id: str, pending: dict, account: Account, csrf: str, error: str = "", form: Any = None
+    ) -> Response:
         redirect_host = urlsplit(pending["redirect_uri"]).hostname or pending["redirect_uri"]
         origin = (
             f"Identified by {esc(pending['client_id'])}."
@@ -295,10 +368,11 @@ class Browser:
             else ""
         )
         write_choice = (
-            '<label><input type="radio" name="access" value="write"> read and write</label>'
+            '<label><input type="radio" name="access" value="write" checked> read and write</label>'
             if WRITE_SCOPE in pending["scopes"]
             else ""
         )
+        read_checked = "" if write_choice else " checked"
         requested = pending.get("requested_vault")
         bound = None if requested is None else self.store.vault_at(account.id, requested)
         if requested is not None and bound is None:
@@ -313,7 +387,8 @@ class Browser:
             vault_field = hidden_field("vault", bound.slug)
         else:
             vault_choice = ""
-            vault_field = main_vault_choice(vaults, self.store.default_vault(account.id))
+            picked, name = ("", "") if form is None else (str(form.get("vault") or ""), str(form.get("new_name") or ""))
+            vault_field = self.vault_choice(account, vaults, picked, name)
         body = f"""{error_box(error)}{warning}
 <dl><dt>Signed in as</dt><dd>{esc(account.email)}</dd>
 <dt>Client</dt><dd>{origin}</dd>
@@ -324,7 +399,7 @@ class Browser:
 <input type="hidden" name="csrf" value="{esc(csrf)}">
 {vault_field}
 <fieldset><legend>Grant this client</legend>
-<label><input type="radio" name="access" value="read" checked> read</label>
+<label><input type="radio" name="access" value="read"{read_checked}> read</label>
 {write_choice}
 </fieldset>
 <button type="submit" name="decision" value="approve">Approve</button>
@@ -344,12 +419,14 @@ class Browser:
         if session is None or not session[0].active or not self.csrf_ok(form.get("csrf"), session[1]):
             return page("Not signed in", "Open the link from the client again.", status_code=403)
         account, _ = session
-        vault = self.store.vault_at(account.id, str(form.get("vault") or ""))
-        requested = pending.get("requested_vault")
-        if form.get("decision") == "approve" and (vault is None or requested not in (None, vault.slug)):
-            return self.render_consent(request_id, pending, account, session[1], "Choose one of your vaults.")
+        approved = form.get("decision") == "approve"
+        vault = await self.approved_vault(account, pending, form) if approved else None
+        if isinstance(vault, str):
+            return await anyio.to_thread.run_sync(
+                self.render_consent, request_id, pending, account, session[1], vault, form
+            )
         self.store.drop_request(request_id)
-        if form.get("decision") != "approve" or vault is None:
+        if vault is None:
             target = construct_redirect_uri(
                 pending["redirect_uri"],
                 error="access_denied",
@@ -366,6 +443,15 @@ class Browser:
             pending["redirect_uri"], code=code, state=pending["state"], iss=self.config.issuer
         )
         return RedirectResponse(target, status_code=302, headers={"Cache-Control": "no-store"})
+
+    async def approved_vault(self, account: Account, pending: dict, form: Any) -> Vault | str:
+        picked = str(form.get("vault") or "")
+        requested = pending.get("requested_vault")
+        if requested is not None:
+            vault = self.store.vault_at(account.id, picked)
+            return vault if vault is not None and vault.slug == requested else CHOOSE_VAULT
+        vaults = self.store.reachable_vaults(account.id)
+        return await anyio.to_thread.run_sync(self.pick_vault, account, vaults, picked, str(form.get("new_name") or ""))
 
     def expired(self) -> Response:
         return page(

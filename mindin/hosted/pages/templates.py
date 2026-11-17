@@ -282,4 +282,7 @@ document.querySelectorAll("[data-slug-from]").forEach(function (target) {
   field.addEventListener("input", show);
   show();
 });
+document.querySelectorAll("[data-picks]").forEach(function (field) {
+  field.addEventListener("input", function () { document.getElementById(field.dataset.picks).checked = true; });
+});
 """

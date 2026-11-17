@@ -114,9 +114,9 @@ async def test_a_zip_upload_with_a_refused_file_imports_nothing_and_says_why(sit
         archive.writestr("Areas/fine.md", b"fine")
         archive.writestr("film.mkv", b"\x00" * 10)
     async with http:
-        csrf = csrf_of((await http.get("/account/vaults/notes")).text)
+        csrf = csrf_of((await http.get("/account/vaults/personal")).text)
         stopped = await http.post(
-            "/account/vaults/notes/import",
+            "/account/vaults/personal/import",
             data={"csrf": csrf},
             files={"archive": ("vault.zip", buffer.getvalue(), "application/zip")},
         )
@@ -175,7 +175,7 @@ async def test_a_machine_key_reads_its_vaults_limits_and_the_accounts_usage(site
         anonymous = await http.get("/api/vault/limits")
     found = answer.json()
     assert answer.status_code == 200 and anonymous.status_code == 401
-    assert found["vault"] == "notes" and found["kind"] == "personal" and found["write"] is True
+    assert found["vault"] == "personal" and found["kind"] == "personal" and found["write"] is True
     assert (found["file_bytes"], found["account_bytes"]) == (10_000, 40_000)
     assert found["content_types"] == ["text/*", "image/*", "application/pdf"]
     assert found["used_bytes"] >= 9_000 and found["vault_bytes"] >= 9_000
@@ -224,9 +224,9 @@ async def test_extensions_hear_of_each_write_webdav_and_a_zip_upload_refuse(watc
         )
         for name in "pqrs":
             await http.put(f"/dav/vault/Bilagor/{name}.png", content=b"\x89PNG" + b"\x00" * 9_000, headers=basic(key))
-        csrf = csrf_of((await http.get("/account/vaults/notes")).text)
+        csrf = csrf_of((await http.get("/account/vaults/personal")).text)
         stopped = await http.post(
-            "/account/vaults/notes/import",
+            "/account/vaults/personal/import",
             data={"csrf": csrf},
             files={"archive": ("vault.zip", buffer.getvalue(), "application/zip")},
         )

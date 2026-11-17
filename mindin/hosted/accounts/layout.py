@@ -56,6 +56,12 @@ def provision_vault(sealed: SealedVaults, vault: Vault, preset: str, dav_url: st
     provision.initialize(backend, preset=preset, welcome={"DAV_URL": dav_url})
 
 
+def provision_first(sealed: SealedVaults, vault: Vault, dav_url: str) -> None:
+    backend, _ = sealed.for_vault(vault.id)
+    if not vault.shared and provision.is_empty(backend):
+        provision.initialize(backend, preset=BUILT_IN, welcome={"DAV_URL": dav_url})
+
+
 def switch_layout(vaults: SubjectVaults, vault: Vault, preset: str, start_from: str | None = None) -> str:
     backend = vaults.announced(vault.id, vaults.backend_factory(vault.id)[0])
     current = provision.named_preset(provision.stored(backend, SCHEMA_KEY))

@@ -32,7 +32,7 @@ class Login:
     def __init__(self, config: AuthConfig, store: HostedStore, browser: Browser, limits: Limits) -> None:
         self.config = config
         self.store = store
-        self.identities = Identities(store)
+        self.identities = Identities(store, browser.welcome)
         self.browser = browser
         self.limits = limits
         self.methods: list[SignInMethod] = []

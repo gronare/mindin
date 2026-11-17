@@ -8,6 +8,8 @@ What each mindin release brings, one line per change, as you would tell someone 
 - `mindin setup --server URL --json` prints the sign-in code, the vault and any move offer as JSON lines, so kebbie setup shows the sign-in in its own screen.
 - A new vault's layout picker offers Built-in, first and preselected.
 - A vault's page shows its address, a Rename that keeps it, and connects through the plain /mcp address and `mindin setup --server`, since you pick the vault when you sign in.
+- Approving a sign-in asks which vault this machine uses, showing each vault's address, layout and notes, and can make a new vault in the Built-in layout there and then; access defaults to read and write when the client asks for it.
+- A new account's first vault is Personal at the address personal, in the Built-in layout from the start.
 
 ### Fixed
 

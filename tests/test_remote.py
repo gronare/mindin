@@ -173,9 +173,9 @@ def test_login_through_the_hosted_device_grant(served: Served):
         )
 
     entry = login.login(served.url, name="devbox", out=io.StringIO(), sleep=approve, open_browser=False)
-    assert entry["key"].startswith("nvm_") and entry["vault"] == "notes"
+    assert entry["key"].startswith("nvm_") and entry["vault"] == "personal"
     assert credentials.stored(served.url)["key"] == entry["key"]
-    assert credentials.server_state(served.url)["default"] == "notes"
+    assert credentials.server_state(served.url)["default"] == "personal"
     assert [row["name"] for row in served.store.keys(served.account_id())] == ["devbox"]
 
 
@@ -184,7 +184,7 @@ def test_whoami_and_logout(remote: Served, capsys):
     assert found == {
         "server": remote.url,
         "email": EMAIL,
-        "vault": "notes",
+        "vault": "personal",
         "vault_kind": "personal",
         "key": "laptop",
         "write": True,
@@ -579,7 +579,7 @@ def test_a_login_for_a_named_vault_asks_the_server_for_it(tmp_path: Path):
 def test_the_hooks_and_commands_pick_the_vault_of_the_folder(
     remote: Served, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
 ):
-    credentials.save(remote.url, {"key": remote.key(), "scope": "vault:read vault:write"}, "notes")
+    credentials.save(remote.url, {"key": remote.key(), "scope": "vault:read vault:write"}, "personal")
     workshop_vault(remote)
     repo = make_repo(tmp_path / "repos", "lathe")
     other = make_repo(tmp_path / "repos", "frame")
@@ -591,8 +591,8 @@ def test_the_hooks_and_commands_pick_the_vault_of_the_folder(
     assert "Areas/lathe.md" in in_repo and "Kontrollplanet" not in in_repo
     assert "Areas/lathe.md" not in elsewhere
     listed = run_json(capsys, "vault", "list")
-    assert listed["default"] == "notes" and listed["dirs"] == {str(repo.resolve()): "workshop"}
-    assert sorted(listed["vaults"]) == ["notes", "workshop"]
+    assert listed["default"] == "personal" and listed["dirs"] == {str(repo.resolve()): "workshop"}
+    assert sorted(listed["vaults"]) == ["personal", "workshop"]
     opened = run_json(capsys, "task", "open", "--name", "oil-the-lathe", "--cwd", str(repo))
     assert remote.read(opened["path"], vault="workshop")
     with pytest.raises(NotFound):

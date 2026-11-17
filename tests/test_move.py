@@ -78,7 +78,7 @@ def test_a_folder_moves_onto_a_fresh_server_vault_and_the_machine_switches(
     assert on_server(served) == tree(source)
     assert "Replaces the new vault's .vault/schema.yml, Areas.base, Welcome.md with the source's own" in out
     assert "Removes the new vault's Backlog.base, Log.base, Open tasks.base, Resources.base" in out
-    assert "Verified 5 files" in out and f"{served.url}/mcp?vault=notes" in out and f"{served.url}/dav/" in out
+    assert "Verified 5 files" in out and f"{served.url}/mcp?vault=personal" in out and f"{served.url}/dav/" in out
     assert saved_vault() == {"kind": "server", "url": served.url}
     assert tree(source) == SOURCE | {".vault/schema.yml": b"preset: default\n"}
 

@@ -289,7 +289,7 @@ async def test_a_member_connects_a_client_to_the_shared_vault_and_is_never_offer
         written = await call_tool(bo, token, "write_file", {"path": "Areas/pruning.md", "content": PRUNING})
         bo_page = await bo.get("/account/vaults/orchardclub")
         ann_page = await ann.get("/account/vaults/orchardclub")
-    assert 'value="orchardclub"' in page.text and 'value="notes"' in page.text and "annorchard" not in page.text
+    assert 'value="orchardclub"' in page.text and 'value="personal"' in page.text and "annorchard" not in page.text
     assert not written.get("isError"), text_of(written)
     assert changes(site)[0].client == "Cursor" and changes(site)[0].author_email == "bo@example.com"
     assert "<td>Cursor</td><td>Connector</td>" in bo_page.text
@@ -560,7 +560,7 @@ def test_the_migration_adds_shared_vaults_and_leaves_a_personal_vault_as_it_was(
         assert connection.execute("PRAGMA user_version").fetchone()[0] == len(STEPS)
         after = connection.execute("SELECT id, account_id, name, created_at, slug FROM vaults").fetchall()
         assert [tuple(row)[:4] for row in after] == [(row[0], row[1], row[2], row[4]) for row in vaults_before]
-        assert [row[4] for row in after] == ["notes"]
+        assert [row[4] for row in after] == ["personal"]
         assert connection.execute("SELECT kind FROM vaults").fetchall() == [("personal",)]
         assert connection.execute("SELECT * FROM vault_data_keys").fetchall() == keys_before
         for table in ("vault_members", "vault_invitations", "vault_changes"):
@@ -576,18 +576,21 @@ def test_the_migration_adds_shared_vaults_and_leaves_a_personal_vault_as_it_was(
 @pytest.mark.anyio
 async def test_an_invitation_to_a_slug_the_member_already_reaches_waits_until_they_rename_theirs(site: Hosted):
     ann, bo = await club(site)
-    made = await make_shared(site, ann, "Notes")
-    assert made.headers["location"] == "/account/vaults/notes"
-    shared = club_vault(site, "notes")
+    made = await make_shared(site, ann, "Personal")
+    assert made.headers["location"] == "/account/vaults/personal"
+    shared = club_vault(site, "personal")
     assert shared is not None and shared.account_id == site.store.account("ann@example.com").id
     site.store.invite_member(shared, "bo@example.com", shared.account_id)
     bo_id = site.store.account("bo@example.com").id
     async with ann, bo:
         waiting = await bo.get("/account")
         before = site.store.role(shared, bo_id)
-        site.store.rename_vault(site.store.own_vault(bo_id, "notes").id, slug="mine")
+        site.store.rename_vault(site.store.own_vault(bo_id, "personal").id, slug="mine")
         joined = await bo.get("/account")
-    assert "You are invited to Notes, but you already reach Personal at the address <code>notes</code>" in waiting.text
+    assert (
+        "You are invited to Personal, but you already reach Personal at the address <code>personal</code>"
+        in waiting.text
+    )
     assert "Rename Personal" in waiting.text and before is None
     assert site.store.role(shared, bo_id) == "member" and "You are invited" not in joined.text
 
@@ -598,9 +601,9 @@ async def test_a_rename_refuses_a_slug_a_member_already_reaches(site: Hosted):
     async with ann, bo:
         pass
     with pytest.raises(
-        VaultNameError, match="A member of Orchard club already reaches another vault at the address notes"
+        VaultNameError, match="A member of Orchard club already reaches another vault at the address personal"
     ):
-        site.store.rename_vault(club_vault(site).id, slug="notes")
+        site.store.rename_vault(club_vault(site).id, slug="personal")
     assert site.store.rename_vault(club_vault(site).id, slug="club").slug == "club"
 
 

@@ -75,6 +75,21 @@ def test_without_a_terminal_it_installs_sets_up_and_only_prints_the_client_snipp
     assert json.loads((home / ".cursor" / "mcp.json").read_text()) == CURSOR
 
 
+def test_no_setup_only_installs_for_a_caller_that_asks_itself(machine: dict[str, str]):
+    done = subprocess.run(
+        ["sh", str(SCRIPT), "--no-setup"],
+        env=machine,
+        capture_output=True,
+        text=True,
+        start_new_session=True,
+        timeout=30,
+    )
+    assert done.returncode == 0, done.stderr
+    assert "uv tool install --upgrade mindin" in logged(machine)
+    assert not any(line.startswith("mindin setup") for line in logged(machine)), "the caller asks where the vault is"
+    assert "claude plugin install" not in done.stdout
+
+
 def run_answering(machine: dict[str, str], answer: bytes) -> str:
     pid, terminal = pty.fork()
     if pid == 0:

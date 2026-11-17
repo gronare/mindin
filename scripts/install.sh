@@ -1,6 +1,14 @@
 #!/bin/sh
-# Installs mindin with uv, runs mindin setup and offers to add the vault to Claude Code, Codex and Cursor: curl -fsSL https://mindin.dev/install.sh | sh
+# Installs mindin with uv, runs mindin setup and offers to add the vault to Claude Code, Codex and Cursor: curl -fsSL https://mindin.dev/install.sh | sh; with sh -s -- --no-setup it only installs, for a caller such as kebbie setup that asks itself.
 set -eu
+
+setup=yes
+for arg in "$@"; do
+  case "$arg" in
+    --no-setup) setup=no ;;
+    *) printf 'mindin install: unknown option %s\n' "$arg" >&2; exit 2 ;;
+  esac
+done
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   bold=$(printf '\033[1m'); dim=$(printf '\033[2m'); green=$(printf '\033[32m'); yellow=$(printf '\033[33m'); red=$(printf '\033[31m'); off=$(printf '\033[0m')
@@ -56,6 +64,11 @@ mindin="$bin/mindin"
 [ -n "$mindin" ] && [ -x "$mindin" ] || fail "uv installed mindin but the command is not in $(short "$bin")."
 ok "$("$mindin" about | head -n 1) in $(short "$mindin")"
 command -v mindin >/dev/null 2>&1 || warn "$(short "$bin") is not on PATH; uv tool update-shell adds it"
+
+if [ "$setup" = no ]; then
+  say ""
+  exit 0
+fi
 
 printf '\n  %s→ mindin setup%s\n\n' "$dim" "$off"
 if [ -n "$tty" ]; then "$mindin" setup <"$tty"; else "$mindin" setup; fi || fail "mindin setup stopped before it was done. mindin is installed; run it again in this terminal: $(short "$mindin") setup"

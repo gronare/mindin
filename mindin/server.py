@@ -32,7 +32,7 @@ from mindin.vault import (
     open_vault,
 )
 
-VERSION = "0.19.0"
+VERSION = "0.20.0"
 
 EXPECTED_FAILURES = (
     VaultError,

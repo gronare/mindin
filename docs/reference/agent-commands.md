@@ -37,11 +37,11 @@ mindin template --json --kind backlog
 mindin style write --kind backlog --file backlog.md [--version 3]
 # {"path": ".vault/styles/backlog.md", "etag": "5e0d…", "version": 3}
 mindin status
-# {"configured": true, "version": "0.19.0", "backend": "s3", "source": "config", "writable": null, "signals": "on", "signals_source": "config", "signals_change": "mindin setup --signals yes|no"}
+# {"configured": true, "version": "0.20.0", "backend": "s3", "source": "config", "writable": null, "signals": "on", "signals_source": "config", "signals_change": "mindin setup --signals yes|no"}
 mindin status --probe
-# {"configured": true, "version": "0.19.0", "backend": "s3", "source": "config", "writable": true, "signals": "on", "signals_source": "config", "signals_change": "mindin setup --signals yes|no"}
+# {"configured": true, "version": "0.20.0", "backend": "s3", "source": "config", "writable": true, "signals": "on", "signals_source": "config", "signals_change": "mindin setup --signals yes|no"}
 mindin about --json
-# {"name": "mindin", "version": "0.19.0", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "changes", "watch", "read", "write", "templates", "styles"], "former_names": ["notes-vault-mcp"]}
+# {"name": "mindin", "version": "0.20.0", "contract": 1, "capabilities": ["tasks", "claims", "log", "snapshot", "changes", "watch", "read", "write", "templates", "styles"], "former_names": ["notes-vault-mcp"]}
 ```
 
 ## task open

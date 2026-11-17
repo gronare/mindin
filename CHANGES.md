@@ -5,6 +5,12 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+
+### Fixed
+
+## 0.20.0
+
+### What's new
 - A vault keeps a style per kind of note in `.vault/styles/<kind>.md`, with the user's own `<kind>.override.md` beside it; `template`, `mindin template --kind` and `backlog_add` answer with the one that applies, and `mindin style write` writes the default.
 - `unsearched_folders` in the schema names folders search hides unless asked for, as it hides the archive.
 - Note templates are guidance: `write_file` and `backlog_add` write a note that lacks a template heading or leaves a required section empty, and answer with a warning naming what it lacks.

@@ -38,7 +38,7 @@ from mindin.hosted.accounts.layout import (
 )
 from mindin.hosted.accounts.limits import LimitReached
 from mindin.hosted.accounts.store import OPERATOR_MADE, Account, VaultNameError, scope_label
-from mindin.hosted.accounts.vaults import KINDS, NAME_MAX, PERSONAL, SHARED, Vault, Waiting, vault_resource_url
+from mindin.hosted.accounts.vaults import KINDS, NAME_MAX, PERSONAL, SHARED, Vault, Waiting
 from mindin.hosted.config import MACHINE_KEY_PURPOSE, READ_SCOPE, WRITE_SCOPE
 from mindin.hosted.pages.html import (
     ago,
@@ -97,9 +97,6 @@ class VaultPages:
     def vault_url(self, vault: Vault, path: str = "") -> str:
         return self.local(f"/account/vaults/{vault.slug}{path}")
 
-    def mcp_url(self, vault: Vault) -> str:
-        return vault_resource_url(self.browser.config, vault.slug)
-
     def storage(self, vault: Vault) -> VaultBackend:
         return self.vaults.backend_factory(vault.id)[0]
 
@@ -131,7 +128,7 @@ class VaultPages:
             f'<div class="name">{esc(vault.name)} {chips}</div>'
             '<span class="go" aria-hidden="true">›</span>'
             f'<div class="facts">{esc(facts)}</div>'
-            f'<div class="where">…/mcp?vault={esc(vault.slug)}</div></a>'
+            f'<div class="where">Address {esc(vault.slug)}</div></a>'
         )
 
     def render_list(self, account: Account, notice: str = "", status_code: int = 200) -> Response:
@@ -189,11 +186,16 @@ pick another.</p></div>
         backend = self.storage(vault)
         schema = provision.stored(backend, SCHEMA_KEY)
         facts = facts_of(backend.list_all())
-        lead = " · ".join(["Personal", layout_title(schema), counted(facts.notes, "note"), size_label(facts.size)])
+        rest = " · ".join([layout_title(schema), counted(facts.notes, "note"), size_label(facts.size)])
+        lead = f"Address <code>{esc(vault.slug)}</code> · {esc(rest)}"
+        default = self.store.default_vault(account.id)
+        chips = '<span class="chip">Only you</span>'
+        if default is not None and default.id == vault.id:
+            chips += ' <span class="chip role">Default</span>'
         name = esc(vault.name)
         body = f"""<div><div class="breadcrumb"><a href="{esc(self.local("/account"))}">Vaults</a> › {name}</div>
-<div class="head"><div><h1>{name}</h1><p class="lead">{esc(lead)}</p></div>
-<span class="chip">Personal</span></div></div>
+<div class="head"><div><h1>{name}</h1><p class="lead">{lead}</p>{self.rename_box(account, vault, csrf)}</div>
+<div>{chips}</div></div></div>
 {notice}{broken_box(schema)}{self.layout_box(vault, csrf, schema)}
 {self.connect_section(account, vault, csrf)}
 {self.default_box(account, vault, csrf)}
@@ -214,20 +216,41 @@ path is replaced.</p>
 </div>"""
         return self.browser.app(vault.name, body, status_code=status_code)
 
+    def rename_box(self, account: Account, vault: Vault, csrf: str) -> str:
+        if vault.account_id != account.id:
+            return ""
+        return f"""<details><summary class="btn secondary small">Rename</summary>
+{form_head(csrf, self.vault_url(vault, "/rename"), ' class="row"')}
+<label class="field">New name, the address stays <code>{esc(vault.slug)}</code>
+<input type="text" name="name" value="{esc(vault.name)}" maxlength="{NAME_MAX}" required></label>
+<button class="btn" type="submit">Rename</button></form></details>"""
+
+    async def rename(self, request: Request) -> Response:
+        found = await self.owned(request)
+        if isinstance(found, Response):
+            return found
+        account, csrf, vault, form = found
+        try:
+            self.store.rename_vault(vault.id, name=form.get("name", ""))
+        except VaultNameError as exc:
+            notice = error_box(str(exc))
+            return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, 400))
+        return RedirectResponse(self.vault_url(vault), status_code=303)
+
     def added(self, account: Account, vault: Vault, csrf: str) -> str:
         return "".join(section(account, vault, csrf) for section in self.sections)
 
     def connect_section(self, account: Account, vault: Vault, csrf: str, heading: str = "Connections and keys") -> str:
         public = self.browser.config.public_url.rstrip("/")
-        login_line = f"mindin login {public} --vault {vault.slug}"
-        name = esc(vault.name)
-        return f"""<div class="stack"><h2>Connect</h2><div class="cols">
+        setup_line = f"mindin setup --server {public}"
+        return f"""<div class="stack"><h2>Connect</h2><p class="small muted">You pick the vault when you sign in.</p>
+<div class="cols">
 <div class="box"><b>claude.ai, Claude Desktop and mobile</b>
-<p class="small muted">Add a custom connector with this address. Name it after the vault, for example
-<i>Vault · {name}</i>.</p>{copy_field("mcp-url", self.mcp_url(vault))}</div>
+<p class="small muted">Add a custom connector with this address.</p>
+{copy_field("mcp-url", self.browser.config.resource_url)}</div>
 <div class="box"><b>Claude Code, Codex, Cursor</b>
-<p class="small muted">Sign this computer in to the vault. A repo can point at another of your vaults with
-<code>mindin vault use</code>.</p>{copy_field("cli-login", login_line)}</div>
+<p class="small muted">Set this computer up; the sign-in asks which vault. A repo can point at another of your vaults
+with <code>mindin vault use</code>.</p>{copy_field("cli-setup", setup_line)}</div>
 <div class="box"><b>Obsidian (Remotely Save)</b>
 <p class="small muted">WebDAV with your email as the username and a key from this vault as the password. The key
 decides which vault opens.</p>{copy_field("dav-url", self.browser.config.dav_url)}</div>
@@ -312,7 +335,6 @@ vault.</p>
         self, csrf: str, name: str = "", preset: str = "", error: str = "", status_code: int = 200, kind: str = ""
     ) -> Response:
         shared = kind == SHARED
-        base = vault_resource_url(self.browser.config, "")
         body = f"""<div><div class="breadcrumb"><a href="{esc(self.local("/account"))}">Vaults</a> › New vault</div>
 <h1>New vault</h1></div>
 {error_box(error)}
@@ -320,7 +342,7 @@ vault.</p>
 <label class="field" for="vault-name">Name
 <input id="vault-name" type="text" name="name" value="{esc(name)}" maxlength="{NAME_MAX}" required autofocus>
 <span class="small muted">Address:
-<code data-slug-from="vault-name" data-base="{esc(base)}">{esc(base)}…</code></span>
+<code data-slug-from="vault-name" data-base="">…</code></span>
 </label>
 <fieldset class="choice"><legend>Kind</legend>
 <label class="option"><input type="radio" name="kind" value="personal" required{"" if shared else " checked"}>
@@ -517,6 +539,7 @@ references. Every change is kept with who made it.</span></label>
             Route(base + "/layout", endpoint=limited(self.pick_layout), methods=["POST"]),
             Route(base + "/keys", endpoint=limited(self.make_key), methods=["POST"]),
             Route(base + "/default", endpoint=limited(self.make_default), methods=["POST"]),
+            Route(base + "/rename", endpoint=limited(self.rename), methods=["POST"]),
             Route(base + "/keys/revoke", endpoint=limited(self.revoke_key), methods=["POST"]),
             Route(base + "/connections/disconnect", endpoint=limited(self.disconnect), methods=["POST"]),
             Route(base + "/export", endpoint=self.export, methods=["GET"]),

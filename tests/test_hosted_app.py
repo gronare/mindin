@@ -167,7 +167,7 @@ async def test_an_invited_address_signs_in_and_becomes_active(site: Hosted):
         vault_page = await http.get("/account/vaults/notes")
     assert page.status_code == 200
     assert "ann@example.com" in page.text
-    assert f"{BASE}/mcp?vault=notes" in vault_page.text
+    assert f"{BASE}/mcp<" in vault_page.text
     assert "<script>" not in page.text + vault_page.text, "scripts load from this server, never inline"
     account = site.store.account("ann@example.com")
     assert account is not None and account.status == "active" and account.sub

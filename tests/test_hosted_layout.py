@@ -96,10 +96,10 @@ async def test_a_new_vault_gets_the_layout_picked_with_its_name(site: Hosted, va
         page = await http.get(made.headers["location"])
         taken = await http.post("/account/vaults", data={"csrf": csrf, "name": "orchard notes", "preset": "para"})
     assert offered == ["default", "para", "simple", "journal", "custom"]
-    assert 'data-slug-from="vault-name"' in form.text and 'data-base="http://localhost/mcp?vault="' in form.text
+    assert 'data-slug-from="vault-name" data-base=""' in form.text
     assert unnamed.status_code == 400 and "Give the vault a name." in unnamed.text
     assert made.status_code == 303 and made.headers["location"] == "/account/vaults/orchardnotes"
-    assert "Simple layout" in page.text and "http://localhost/mcp?vault=orchardnotes" in page.text
+    assert "Simple layout" in page.text and "Address <code>orchardnotes</code>" in page.text
     assert taken.status_code == 303 and taken.headers["location"] == "/account/vaults/orchardnotes2"
     backend = vaults.backend_factory(site.vault_of("ann@example.com", "orchardnotes"))[0]
     assert provision.current_preset(backend) == "simple"

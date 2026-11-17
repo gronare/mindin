@@ -380,12 +380,43 @@ async def test_the_vault_list_shows_each_vault_with_its_address(site: Hosted):
         async with other:
             foreign = await other.get("/account/vaults/workshop")
     assert listed.text.index("Orchard") < listed.text.index("Workshop")
-    assert "…/mcp?vault=orchard" in listed.text and "…/mcp?vault=workshop" in listed.text
+    assert "Address orchard" in listed.text and "Address workshop" in listed.text
     assert "2 notes" in listed.text and "1 key," in listed.text
-    assert f"{BASE}/mcp?vault=workshop" in page.text
-    assert "mindin login http://localhost --vault workshop" in page.text
     assert f"{BASE}/dav/" in page.text
     assert foreign.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_the_connect_card_gives_the_plain_address_and_the_sign_in_picks_the_vault(site: Hosted):
+    http = await two_vaults(site)
+    async with http:
+        page = await http.get("/account/vaults/workshop")
+    assert "?vault=" not in page.text
+    assert f'id="mcp-url">{BASE}/mcp<' in page.text and "You pick the vault when you sign in." in page.text
+    assert "mindin setup --server http://localhost" in page.text and "mindin login http" not in page.text
+
+
+@pytest.mark.anyio
+async def test_renaming_a_vault_changes_its_name_and_keeps_its_address(site: Hosted):
+    http = await two_vaults(site)
+    async with http:
+        page = await http.get("/account/vaults/workshop")
+        renamed = await http.post(
+            "/account/vaults/workshop/rename", data={"csrf": csrf_of(page.text), "name": "Wood Shop"}
+        )
+        shown = await http.get("/account/vaults/workshop")
+        key = site.key_for("ann@example.com", vault="workshop")
+        read = await call_tool(http, key, "read_file", {"path": "Areas/here.md"})
+    assert "<h1>Workshop</h1>" in page.text and "Rename</summary>" in page.text
+    assert renamed.status_code == 303 and renamed.headers["location"] == "/account/vaults/workshop"
+    assert (
+        "<h1>Wood Shop</h1>" in shown.text
+        and "Address <code>workshop</code> · built-in layout · 2 notes · " in shown.text
+    )
+    assert '<span class="chip">Only you</span>' in shown.text and ">Personal</span>" not in shown.text
+    vault = site.store.vault_at(site.store.account("ann@example.com").id, "workshop")
+    assert vault is not None and vault.name == "Wood Shop"
+    assert "Oil the bed" in text_of(read)
 
 
 @pytest.mark.anyio

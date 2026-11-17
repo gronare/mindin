@@ -39,3 +39,10 @@ def test_the_cli_never_writes_the_override(place: Place, tmp_path: Path, capsys)
     assert main(["template", "--json", "--kind", "backlog"]) == 0
     shown = json.loads(capsys.readouterr().out)
     assert (shown["style"], shown["style_source"]) == (OVERRIDE, "override")
+
+
+def test_the_cli_reads_a_style_with_its_etag_locally_and_on_a_server(place: Place, capsys):  # noqa: F811
+    place.write(".vault/styles/backlog.override.md", OVERRIDE)
+    assert main(["read", "--json", ".vault/styles/backlog.override.md"]) == 0
+    read = json.loads(capsys.readouterr().out)
+    assert read["text"] == OVERRIDE and read["etag"]

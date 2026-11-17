@@ -209,7 +209,8 @@ class LocalClient:
         return style_written(notes.write_style(self.vault, styles.default_key(kind), text), text)
 
     def read_stored(self, path: str) -> dict:
-        text, version = self.vault.backend.get(notes.note_key(path, readable=True))
+        key = path if styles.style_key(path) is not None else notes.note_key(path, readable=True)
+        text, version = self.vault.backend.get(key)
         return {"text": text, "etag": version}
 
     def write_note(self, path: str, content: str, etag: str | None) -> dict:

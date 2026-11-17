@@ -5,7 +5,7 @@ import time
 import unicodedata
 
 from mindin import note_templates, styles
-from mindin.backends import MUST_NOT_EXIST, VersionConflict
+from mindin.backends import MUST_NOT_EXIST, VaultBackend, VaultError, VersionConflict
 from mindin.frontmatter import dump
 from mindin.index import Note, stem_of
 from mindin.notes import (
@@ -30,6 +30,13 @@ STYLE_KIND = "backlog"
 def styled(style: styles.Style | None) -> str:
     found = styles.guidance(style)
     return f"\n\n{found}" if found else ""
+
+
+def filed_style(backend: VaultBackend) -> str:
+    try:
+        return styled(styles.style_for(backend, STYLE_KIND))
+    except VaultError as error:
+        return f"\n\nThe {STYLE_KIND} style could not be read ({error}); the note is filed without it."
 
 
 def priority_rank(value: str) -> int:

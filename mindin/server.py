@@ -338,7 +338,7 @@ def build_server(
                 "Filed: "
                 + backlog.backlog_add(vault, title, area, line, priority=priority, source=source, sections=sections)
                 + backlog.sections_warning(vault, sections)
-                + backlog.styled(style_for(vault.backend, backlog.STYLE_KIND))
+                + backlog.filed_style(vault.backend)
             ),
             write=True,
             expected=(*EXPECTED_FAILURES, ValueError),

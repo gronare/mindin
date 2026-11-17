@@ -10,6 +10,7 @@ from test_templates import opened
 from test_unsearched_folders import files, put
 
 from mindin import notes, styles
+from mindin.backends import StorageError
 from mindin.backends.local import LocalBackend
 from mindin.server import build_server
 from mindin.vault import SubjectVaults, Vault
@@ -155,6 +156,25 @@ async def test_backlog_add_answers_with_the_backlog_style(vault: Vault, tmp_path
         "Filed: Projects/orchard-rake.md\n\nStyle for backlog notes, from the default:"
     )
     assert styled.content[0].text.endswith("One line saying what and why.\n")
+
+
+@pytest.mark.anyio
+async def test_backlog_add_files_once_when_the_style_cannot_be_read(vault: Vault, tmp_path: Path, monkeypatch):
+    stored = vault.backend.get
+
+    def failing(key: str):
+        if key.startswith(".vault/styles/"):
+            raise StorageError("the bucket timed out")
+        return stored(key)
+
+    monkeypatch.setattr(vault.backend, "get", failing)
+    async with Client(build_server(vault)) as client:
+        filed = await client.call_tool("backlog_add", {"title": "Saw", "area": "orchard", "line": "A new saw."})
+    assert not filed.is_error
+    assert filed.content[0].text == (
+        "Filed: Projects/orchard-saw.md\n\nThe backlog style could not be read (the bucket timed out); "
+        "the note is filed without it."
+    )
 
 
 def test_each_subject_vault_keeps_its_own_styles(vaults: SubjectVaults):

@@ -156,6 +156,6 @@ def write_default(backend: VaultBackend, kind: str, text: str, expected_etag: st
 
 def write_refusal(key: str) -> str:
     return (
-        f"{key} is the user's own override: mindin never writes it. Edit it as a file, in Obsidian, on disk or "
-        "over WebDAV; write the default without .override"
+        f"{key} is the user's own override: mindin never writes it. Edit it as a file on disk or over WebDAV; "
+        "write the default without .override"
     )

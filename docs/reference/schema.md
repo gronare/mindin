@@ -173,7 +173,7 @@ A vault made before templates holds its layout's earlier `task.sections` in `.va
 A style is markdown guidance for how a kind of note reads, kept in the vault as a file per kind:
 
 - `.vault/styles/<kind>.md`, the default, which a tool on top of the vault writes with `mindin style write` or `write_file`;
-- `.vault/styles/<kind>.override.md`, the user's own, edited as a file in Obsidian, on disk or over WebDAV. When it exists it applies in place of the default, and mindin never writes it.
+- `.vault/styles/<kind>.override.md`, the user's own, edited as a file on disk or over WebDAV, since Obsidian does not show the `.vault` folder. When it exists it applies in place of the default, and mindin never writes it.
 
 The kind is the file name and any word: `backlog`, `task`, `decision`. A style is guidance, never a check: nothing refuses a write because of it. The `template` tool and `mindin template --kind` answer the style that applies, and `backlog_add` answers with the `backlog` style. The default's first line may stamp its version as `<!-- style-version: N -->`, after a byte-order mark, blank lines or frontmatter if it has them. A write replaces the stored default only with a newer version: the same version leaves it as it is, an older one is refused, and a stored default without a stamp is never replaced. Each vault keeps its own styles, also on a server, and a vault without `.vault/styles/` works as before.
 

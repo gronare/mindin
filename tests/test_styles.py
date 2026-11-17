@@ -104,8 +104,10 @@ def test_a_stamp_after_a_bom_blank_lines_or_frontmatter_is_found(vault: Vault, t
 
 def test_the_override_is_never_written(vault: Vault, tmp_path: Path):
     path = put(tmp_path, ".vault/styles/backlog.override.md", OVERRIDE)
-    with pytest.raises(styles.StyleRefused, match="the user's own override: mindin never writes it"):
+    with pytest.raises(styles.StyleRefused, match="the user's own override: mindin never writes it") as refused:
         notes.write(vault, ".vault/styles/backlog.override.md", DEFAULT)
+    assert "Obsidian" not in str(refused.value), "Obsidian does not show the .vault dot-folder"
+    assert "on disk or over WebDAV" in str(refused.value)
     assert path.read_text(encoding="utf-8") == OVERRIDE
     answer = notes.write(vault, ".vault/styles/backlog.md", DEFAULT)
     assert answer.endswith("The user's override .vault/styles/backlog.override.md applies in place of it.")

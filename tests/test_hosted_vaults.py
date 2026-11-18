@@ -506,6 +506,23 @@ async def test_a_device_login_can_make_a_new_vault(site: Hosted, vaults: Subject
 
 
 @pytest.mark.anyio
+async def test_a_double_submitted_device_approval_with_a_new_vault_makes_one_vault(site: Hosted):
+    member = await two_vaults(site)
+    async with site.browser() as machine, member:
+        device = await start(machine)
+        page = await member.get("/device", params={"user_code": device["user_code"]})
+        form = {"csrf": csrf_of(page.text), "user_code": device["user_code"], "action": "approve", "vault": "new"}
+        unnamed = await member.post("/device", data={**form, "new_name": " "})
+        answers = await asyncio.gather(*(member.post("/device", data={**form, "new_name": "Shed"}) for _ in range(2)))
+        granted = (await poll(site, machine, device)).json()
+    assert unnamed.status_code == 200 and "Give the vault a name." in unnamed.text
+    assert sorted(answer.status_code for answer in answers) == [200, 400]
+    account = site.store.account("ann@example.com")
+    assert [vault.slug for vault in site.store.vaults(account.id)] == ["orchard", "workshop", "shed"]
+    assert granted["vault"] == "shed"
+
+
+@pytest.mark.anyio
 async def test_a_device_login_for_someone_elses_vault_is_refused(site: Hosted):
     await two_vaults(site)
     bo = await site.member("bo@example.com", sub="sub-bo")

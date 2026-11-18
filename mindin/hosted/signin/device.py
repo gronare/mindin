@@ -26,6 +26,7 @@ CLI_CLIENT_NAME = "A command-line tool"
 DEVICE_TTL = 600
 DEVICE_INTERVAL = 5
 SLOW_DOWN_STEP = 5
+APPROVING = "approving"
 USER_CODE_ALPHABET = "BCDFGHJKLMNPQRSTVWXZ"
 USER_CODE_LENGTH = 8
 
@@ -136,7 +137,7 @@ class DeviceFlow:
             self.store.update_device(row["device_hash"], last_poll_at=moment, interval=row["interval"] + SLOW_DOWN_STEP)
             return oauth_error("slow_down", f"poll at most every {row['interval'] + SLOW_DOWN_STEP} seconds")
         self.store.update_device(row["device_hash"], last_poll_at=moment)
-        if row["status"] == "pending":
+        if row["status"] in ("pending", APPROVING):
             return oauth_error("authorization_pending", "waiting for the user to approve the code")
         consumed = self.store.drop_device(row["device_hash"])
         if row["status"] != "approved" or not consumed:
@@ -262,17 +263,26 @@ class DeviceFlow:
         if action == "lookup":
             return await anyio.to_thread.run_sync(self.confirm, row, account, csrf)
         if action == "deny":
-            self.store.update_device(row["device_hash"], status="denied", account_id=account.id)
+            if not self.store.claim_device(row["device_hash"], "denied"):
+                return self.entry(csrf, error="That code is unknown or has expired.", status_code=400)
+            self.store.update_device(row["device_hash"], account_id=account.id)
             return page("Denied", "The device gets no key. You can close this page.")
         if action != "approve":
             return await anyio.to_thread.run_sync(self.confirm, row, account, csrf)
+        if not self.store.claim_device(row["device_hash"], APPROVING):
+            return self.entry(csrf, error="That code is unknown or has expired.", status_code=400)
         requested, vaults = self.vault_choice(row, account)
         picked, name = str(form.get("vault") or ""), str(form.get("new_name") or "")
-        if requested:
-            vault: Vault | str = next((vault for vault in vaults if vault.slug == picked), CHOOSE_VAULT)
-        else:
-            vault = await anyio.to_thread.run_sync(self.browser.pick_vault, account, vaults, picked, name)
+        try:
+            if requested:
+                vault: Vault | str = next((vault for vault in vaults if vault.slug == picked), CHOOSE_VAULT)
+            else:
+                vault = await anyio.to_thread.run_sync(self.browser.pick_vault, account, vaults, picked, name)
+        except Exception:
+            self.store.update_device(row["device_hash"], status="pending")
+            raise
         if isinstance(vault, str):
+            self.store.update_device(row["device_hash"], status="pending")
             return await anyio.to_thread.run_sync(self.confirm, row, account, csrf, vault, form)
         scopes = [READ_SCOPE]
         if form.get("access") == "write" and WRITE_SCOPE in row["scopes"].split():

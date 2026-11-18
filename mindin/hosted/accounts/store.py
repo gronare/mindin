@@ -775,6 +775,15 @@ class HostedStore:
                 f"UPDATE devices SET {assignments} WHERE device_hash = ?", (*fields.values(), device_hash)
             )
 
+    def claim_device(self, device_hash: str, status: str) -> bool:
+        with self.connect() as connection:
+            return (
+                connection.execute(
+                    "UPDATE devices SET status = ? WHERE device_hash = ? AND status = 'pending'", (status, device_hash)
+                ).rowcount
+                > 0
+            )
+
     def drop_device(self, device_hash: str) -> bool:
         with self.connect() as connection:
             return connection.execute("DELETE FROM devices WHERE device_hash = ?", (device_hash,)).rowcount > 0

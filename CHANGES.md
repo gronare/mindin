@@ -10,7 +10,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 ### Fixed
 - A first sign-in succeeds when storage fails, and the next sign-in or the vault page sets up Built-in.
 - Approving a sign-in works when one vault cannot be read, showing only its address.
-- Approving twice with A new vault makes one vault, and a failed approval leaves none behind.
+- Approving a sign-in or a device twice with A new vault makes one vault, and a failed approval leaves none behind.
 - The new-vault address preview shows the address the vault gets, such as personal2 when personal is taken.
 - `mindin setup --json` signs in again when the server refuses the stored key.
 - `mindin setup --json` takes a terminal on stdin as no to the move instead of waiting.

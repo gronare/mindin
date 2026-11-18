@@ -422,6 +422,10 @@ class HostedStore:
         found = self.vaults(account_id)
         return found[0] if found else None
 
+    def taken_slugs(self, account_id: str) -> set[str]:
+        with self.connect() as connection:
+            return taken_slugs(connection, [account_id])
+
     def create_vault(self, account_id: str, name: str, slug: str | None = None, kind: str = PERSONAL) -> Vault:
         cleaned = clean_name(name)
         if not cleaned:
@@ -654,9 +658,21 @@ class HostedStore:
             ).fetchone()
         return json.loads(row["document"]) if row else None
 
-    def drop_request(self, request_id: str) -> None:
+    def take_request(self, request_id: str, ttl: int) -> tuple[dict[str, Any], int] | None:
         with self.connect() as connection:
-            connection.execute("DELETE FROM requests WHERE id = ?", (request_id,))
+            row = connection.execute(
+                "DELETE FROM requests WHERE id = ? RETURNING document, created_at", (request_id,)
+            ).fetchone()
+        if row is None or row["created_at"] < self.now() - ttl:
+            return None
+        return json.loads(row["document"]), row["created_at"]
+
+    def put_request_back(self, request_id: str, payload: dict[str, Any], created_at: int) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO requests(id, created_at, document) VALUES(?, ?, ?)",
+                (request_id, created_at, json.dumps(payload)),
+            )
 
     def save_code(self, code: str, expires_at: float, payload: dict[str, Any]) -> None:
         with self.connect() as connection:

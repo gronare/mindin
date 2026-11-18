@@ -18,7 +18,7 @@ from starlette.types import ASGIApp
 
 from mindin.hosted.accounts.reach import ALSO_REACHES
 from mindin.hosted.accounts.store import SESSION_TTL, Account, HostedStore, VaultNameError, digest
-from mindin.hosted.accounts.vaults import NAME_MAX, Vault, slugify
+from mindin.hosted.accounts.vaults import NAME_MAX, RESERVED_SLUGS, Vault, free_slug
 from mindin.hosted.config import READ_SCOPE, WRITE_SCOPE, AuthConfig
 from mindin.hosted.pages.html import error_box, esc, hidden_field
 from mindin.hosted.pages.templates import APP_PAGE, APP_SCRIPT, PAGE, PAGE_HEADERS, stamp
@@ -110,18 +110,26 @@ def vault_option(offer: Offered, checked: bool, default: Vault | None) -> str:
     )
 
 
-def new_vault_option(checked: bool, name: str) -> str:
+def address_preview(field: str, name: str, taken: set[str]) -> str:
+    known = " ".join(sorted(taken | RESERVED_SLUGS))
+    slug = free_slug(taken, name)
+    return f'<code data-slug-from="{field}" data-base="" data-taken="{esc(known)}">{esc(slug)}</code>'
+
+
+def new_vault_option(checked: bool, name: str, taken: set[str]) -> str:
     tick = " checked" if checked else ""
     return f"""<label class="pick"><input type="radio" name="vault" value="{NEW_VAULT}" id="vault-new"{tick}>
 <b>A new vault</b></label>
 <label class="pick sub" for="new-vault-name">Name
 <input type="text" id="new-vault-name" name="new_name" value="{esc(name)}" maxlength="{NAME_MAX}"
  data-picks="vault-new">
-<span>Address: <code data-slug-from="new-vault-name" data-base="">{esc(slugify(name) or "…")}</code></span>
+<span>Address: {address_preview("new-vault-name", name, taken)}</span>
 <span>Made now with the Built-in layout kebbie works with.</span></label>"""
 
 
-def main_vault_choice(offers: list[Offered], default: Vault | None, picked: str = "", name: str = "") -> str:
+def main_vault_choice(
+    offers: list[Offered], default: Vault | None, picked: str = "", name: str = "", taken: set[str] | None = None
+) -> str:
     vaults = [offer.vault for offer in offers]
     alone = len(offers) == 1 and offers[0].empty
     chosen = picked if picked == NEW_VAULT and not alone else ""
@@ -130,7 +138,7 @@ def main_vault_choice(offers: list[Offered], default: Vault | None, picked: str 
     if not chosen:
         chosen = default.slug if default is not None and default in vaults else vaults[0].slug
     radios = "".join(vault_option(offer, offer.vault.slug == chosen, default) for offer in offers)
-    added = "" if alone else new_vault_option(chosen == NEW_VAULT, name)
+    added = "" if alone else new_vault_option(chosen == NEW_VAULT, name, taken or set())
     return f"<fieldset><legend>Which vault does this machine use?</legend>{radios}{added}</fieldset>"
 
 
@@ -325,13 +333,21 @@ class Browser:
             self.shelf.welcome(account_id)
 
     def offers(self, vaults: list[Vault]) -> list[Offered]:
-        if self.shelf is None:
-            return [Offered(vault, f"Address {vault.slug}") for vault in vaults]
-        return [self.shelf.offered(vault) for vault in vaults]
+        return [self.offer(vault) for vault in vaults]
+
+    def offer(self, vault: Vault) -> Offered:
+        if self.shelf is not None:
+            try:
+                return self.shelf.offered(vault)
+            except Exception:
+                logger.exception("vault %s could not be described on the approval page", vault.id)
+        return Offered(vault, f"Address {vault.slug}")
 
     def vault_choice(self, account: Account, vaults: list[Vault], picked: str = "", name: str = "") -> str:
         script = f'<script src="{esc(self.local("/account/page.js"))}" defer></script>'
-        return main_vault_choice(self.offers(vaults), self.store.default_vault(account.id), picked, name) + script
+        taken = self.store.taken_slugs(account.id)
+        choice = main_vault_choice(self.offers(vaults), self.store.default_vault(account.id), picked, name, taken)
+        return choice + script
 
     def pick_vault(self, account: Account, vaults: list[Vault], picked: str, name: str) -> Vault | str:
         if picked == NEW_VAULT and self.shelf is not None:
@@ -419,13 +435,21 @@ class Browser:
         if session is None or not session[0].active or not self.csrf_ok(form.get("csrf"), session[1]):
             return page("Not signed in", "Open the link from the client again.", status_code=403)
         account, _ = session
+        claimed = self.store.take_request(request_id, REQUEST_TTL)
+        if claimed is None:
+            return self.expired()
+        pending, created_at = claimed
         approved = form.get("decision") == "approve"
-        vault = await self.approved_vault(account, pending, form) if approved else None
+        try:
+            vault = await self.approved_vault(account, pending, form) if approved else None
+        except Exception:
+            self.store.put_request_back(request_id, pending, created_at)
+            raise
         if isinstance(vault, str):
+            self.store.put_request_back(request_id, pending, created_at)
             return await anyio.to_thread.run_sync(
                 self.render_consent, request_id, pending, account, session[1], vault, form
             )
-        self.store.drop_request(request_id)
         if vault is None:
             target = construct_redirect_uri(
                 pending["redirect_uri"],

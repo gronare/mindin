@@ -56,7 +56,7 @@ from mindin.hosted.pages.html import (
     table,
 )
 from mindin.hosted.pages.shared import SharedPages
-from mindin.hosted.pages.web import Browser, Offered, app_script
+from mindin.hosted.pages.web import Browser, Offered, address_preview, app_script
 from mindin.hosted.signin.email import SmtpFactory
 from mindin.presets import CUSTOM_PRESET, OFFERED, PRESETS, STARTING_POINTS
 from mindin.schema import Capability, Schema, broken_schema_lines, capabilities, schema_from_text
@@ -111,15 +111,26 @@ class VaultPages:
         backend = self.storage(vault)
         entries = backend.list_all()
         facts = facts_of(entries)
-        welcome = any(entry.key == provision.WELCOME_KEY for entry in entries)
-        layout = layout_title(provision.stored(backend, SCHEMA_KEY))
+        keys = {entry.key for entry in entries}
+        welcome = provision.WELCOME_KEY in keys
+        layout = layout_title(provision.stored(backend, SCHEMA_KEY) if SCHEMA_KEY in keys else None)
         line = " · ".join([f"Address {vault.slug}", layout, counted(facts.notes, "note")])
         return Offered(vault, line, facts.notes - welcome == 0)
 
     def make(self, account: Account, name: str) -> Vault:
         vault = self.store.create_vault(account.id, name)
-        provision_vault(self.sealed, vault, BUILT_IN, self.vaults.dav_url)
+        try:
+            provision_vault(self.sealed, vault, BUILT_IN, self.vaults.dav_url)
+        except Exception:
+            self.unmake(vault)
+            raise
         return vault
+
+    def unmake(self, vault: Vault) -> None:
+        try:
+            erase_vault(self.vaults, self.sealed, vault)
+        except Exception:
+            logger.exception("vault %s, made for an approval that failed, was not removed", vault.id)
 
     def welcome(self, account_id: str) -> None:
         vault = self.store.first_vault(account_id)
@@ -364,7 +375,14 @@ vault.</p>
         return await anyio.to_thread.run_sync(lambda: self.render_vault(account, csrf, vault, notice, status))
 
     def render_new(
-        self, csrf: str, name: str = "", preset: str = "", error: str = "", status_code: int = 200, kind: str = ""
+        self,
+        account: Account,
+        csrf: str,
+        name: str = "",
+        preset: str = "",
+        error: str = "",
+        status_code: int = 200,
+        kind: str = "",
     ) -> Response:
         shared = kind == SHARED
         body = f"""<div><div class="breadcrumb"><a href="{esc(self.local("/account"))}">Vaults</a> › New vault</div>
@@ -374,7 +392,7 @@ vault.</p>
 <label class="field" for="vault-name">Name
 <input id="vault-name" type="text" name="name" value="{esc(name)}" maxlength="{NAME_MAX}" required autofocus>
 <span class="small muted">Address:
-<code data-slug-from="vault-name" data-base="">…</code></span>
+{address_preview("vault-name", name, self.store.taken_slugs(account.id))}</span>
 </label>
 <fieldset class="choice"><legend>Kind</legend>
 <label class="option"><input type="radio" name="kind" value="personal" required{"" if shared else " checked"}>
@@ -405,7 +423,7 @@ references. Every change is kept with who made it.</span></label>
         session = await self.session(request, "/account/vaults/new")
         if isinstance(session, Response):
             return session
-        return self.render_new(session[1])
+        return self.render_new(session[0], session[1])
 
     def not_found(self) -> Response:
         return self.browser.app(
@@ -449,13 +467,13 @@ references. Every change is kept with who made it.</span></label>
         account, csrf, form = submitted
         name, preset, kind = form.get("name", ""), form.get("preset", ""), form.get("kind", PERSONAL)
         if kind not in KINDS:
-            return self.render_new(csrf, name, preset, "Pick personal or shared.", status_code=400)
+            return self.render_new(account, csrf, name, preset, "Pick personal or shared.", status_code=400)
         if kind == PERSONAL and preset not in OFFERED:
-            return self.render_new(csrf, name, error="Pick one of the layouts.", status_code=400, kind=kind)
+            return self.render_new(account, csrf, name, error="Pick one of the layouts.", status_code=400, kind=kind)
         try:
             vault = self.store.create_vault(account.id, name, kind=kind)
         except VaultNameError as exc:
-            return self.render_new(csrf, name, preset, str(exc), status_code=400, kind=kind)
+            return self.render_new(account, csrf, name, preset, str(exc), status_code=400, kind=kind)
         await anyio.to_thread.run_sync(provision_vault, self.sealed, vault, preset, self.vaults.dav_url)
         return RedirectResponse(self.vault_url(vault), status_code=303)
 

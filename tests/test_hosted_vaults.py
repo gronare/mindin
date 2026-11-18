@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import shutil
@@ -26,6 +27,7 @@ from test_hosted_app import authorize, consent, register
 from test_signin_device import decide, poll, start
 
 from mindin import provision
+from mindin.backends import StorageError
 from mindin.backends.factory import make_subject_backend
 from mindin.backends.local import LocalBackend
 from mindin.backends.sealed import SealedBackend, Unreadable, new_data_key
@@ -33,8 +35,10 @@ from mindin.cli import main
 from mindin.hosted.accounts.access import SupportAccess, ask_for_support
 from mindin.hosted.accounts.keys import Keyring, MasterKey, SealedVaults, VaultKeys
 from mindin.hosted.accounts.store import HostedStore, digest
+from mindin.hosted.accounts.vaults import Vault
 from mindin.hosted.database import SqliteDatabase
-from mindin.hosted.pages.web import RECENT_SIGN_IN
+from mindin.hosted.pages import vaults as vault_pages
+from mindin.hosted.pages.web import RECENT_SIGN_IN, Offered, new_vault_option
 from mindin.hosted.schema import STEPS, STORE_TABLES
 from mindin.vault import SubjectVaults
 
@@ -396,6 +400,84 @@ async def test_approving_with_a_new_vault_makes_it_in_the_built_in_layout_and_bi
     backend = vaults.backend_factory(made.id)[0]
     assert provision.current_preset(backend) == "default"
     assert "Areas/bed.md" in {entry.key for entry in backend.list_all()}
+
+
+async def approval(http: httpx2.AsyncClient) -> tuple[str, httpx2.Response]:
+    client = await register(http)
+    _, started = await authorize(http, client["client_id"])
+    request_id = query(started.headers["location"])["request"]
+    return request_id, await http.get("/login", params={"request": request_id})
+
+
+@pytest.mark.anyio
+async def test_a_vault_that_cannot_be_read_shows_only_its_address_on_the_approval_page(
+    site: Hosted, monkeypatch: pytest.MonkeyPatch
+):
+    http = await two_vaults(site)
+    real = vault_pages.VaultPages.offered
+
+    def failing(self: vault_pages.VaultPages, vault: Vault) -> Offered:
+        if vault.slug == "workshop":
+            raise StorageError("bucket down")
+        return real(self, vault)
+
+    monkeypatch.setattr(vault_pages.VaultPages, "offered", failing)
+    async with http:
+        _, page = await approval(http)
+    assert page.status_code == 200
+    assert "<b>Workshop</b><span>Address workshop</span>" in page.text and "Address orchard · " in page.text
+
+
+@pytest.mark.anyio
+async def test_a_double_submitted_approval_with_a_new_vault_makes_one_vault(site: Hosted):
+    http = await two_vaults(site)
+    async with http:
+        request_id, page = await approval(http)
+        form = {"request": request_id, "csrf": csrf_of(page.text), "vault": "new", "new_name": "Shed"}
+        answers = await asyncio.gather(*(http.post("/login", data={**form, "decision": "approve"}) for _ in range(2)))
+    assert sorted(answer.status_code for answer in answers) == [302, 400]
+    assert "Nothing to approve" in next(answer.text for answer in answers if answer.status_code == 400)
+    account = site.store.account("ann@example.com")
+    assert [vault.slug for vault in site.store.vaults(account.id)] == ["orchard", "workshop", "shed"]
+
+
+@pytest.mark.anyio
+async def test_an_approval_whose_new_vault_fails_leaves_no_vault_and_can_be_approved_again(
+    site: Hosted, monkeypatch: pytest.MonkeyPatch
+):
+    http = await two_vaults(site)
+    real = vault_pages.provision_vault
+
+    def failing(*args: object) -> None:
+        raise StorageError("bucket down")
+
+    async with http:
+        request_id, page = await approval(http)
+        form = {"request": request_id, "csrf": csrf_of(page.text), "vault": "new", "new_name": "Shed"}
+        monkeypatch.setattr(vault_pages, "provision_vault", failing)
+        with pytest.raises(StorageError):
+            await http.post("/login", data={**form, "decision": "approve"})
+        monkeypatch.setattr(vault_pages, "provision_vault", real)
+        account = site.store.account("ann@example.com")
+        left = [vault.slug for vault in site.store.vaults(account.id)]
+        again = await http.post("/login", data={**form, "decision": "approve"})
+    assert left == ["orchard", "workshop"]
+    assert again.status_code == 302 and site.store.vault_at(account.id, "shed") is not None
+
+
+def test_the_new_vault_address_preview_skips_the_slugs_the_account_has():
+    shown = new_vault_option(True, "Personal", {"personal", "work"})
+    assert 'data-taken="new personal work">personal2</code>' in shown
+
+
+@pytest.mark.anyio
+async def test_the_approval_and_new_vault_pages_know_the_taken_addresses(site: Hosted):
+    http = await two_vaults(site)
+    async with http:
+        _, page = await approval(http)
+        made = await http.get("/account/vaults/new")
+    assert 'data-taken="new orchard workshop">vault</code>' in page.text
+    assert 'data-slug-from="vault-name" data-base="" data-taken="new orchard workshop"' in made.text
 
 
 @pytest.mark.anyio

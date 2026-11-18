@@ -277,7 +277,13 @@ document.querySelectorAll("[data-slug-from]").forEach(function (target) {
   function show() {
     var slug = field.value.normalize("NFKD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase()
       .replace(/[^a-z0-9]+/g, "").replace(/^[0-9]+/, "").slice(0, 32);
-    target.textContent = target.dataset.base + (slug || "vault");
+    var taken = (target.dataset.taken || "").split(" ");
+    var stem = slug || "vault", candidate = stem, number = 1;
+    while (taken.indexOf(candidate) !== -1) {
+      number += 1;
+      candidate = stem.slice(0, 32 - String(number).length) + number;
+    }
+    target.textContent = target.dataset.base + candidate;
   }
   field.addEventListener("input", show);
   show();

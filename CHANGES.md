@@ -5,6 +5,12 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+
+### Fixed
+
+## 0.21.1
+
+### What's new
 - Approving a connector's sign-in preselects read, and mindin login and kebbie setup still preselect read and write.
 
 ### Fixed

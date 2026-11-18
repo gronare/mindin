@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import sys
+import traceback
 from collections.abc import Callable
 from typing import TextIO
 
@@ -39,12 +40,14 @@ def told(exc: BaseException) -> str:
     return " ".join(str(exc).split()).removeprefix("mindin: ") or type(exc).__name__
 
 
-def about(url: str, slug: str | None) -> dict:
-    """The vault's layout and note count, as far as the server shows them; empty when it does not answer."""
+def about(url: str, slug: str | None) -> dict | None:
+    """The layout and note count the server shows: empty when it does not answer, None when it refuses the key."""
     try:
         side = move.open_side(Place({"kind": "server", "url": url, "vault": slug or ""}))
         files = side.listing().files
         schema = side.read(SCHEMA_KEY).decode("utf-8") if SCHEMA_KEY in files else None
+    except move.KeyRefused:
+        return None
     except (move.MoveError, VaultError, OSError, httpx2.HTTPError, UnicodeDecodeError):
         return {}
     notes = sum(1 for key in files if key.endswith(".md") and not key.startswith("."))
@@ -54,6 +57,8 @@ def about(url: str, slug: str | None) -> dict:
 def signed_in(url: str, args: argparse.Namespace, emit: Emit) -> tuple[str | None, dict] | None:
     slug, entry = credentials.chosen(url)
     already = entry is not None and (not args.vault or args.vault == slug)
+    shown = about(url, slug) if already else None
+    already = shown is not None
     if not already:
 
         def show(device: dict) -> None:
@@ -74,6 +79,7 @@ def signed_in(url: str, args: argparse.Namespace, emit: Emit) -> tuple[str | Non
             emit("error", kind="unreachable", message=told(exc), errno=errno_of(exc))
             return None
         slug = entry["vault"] or None
+        shown = about(url, slug)
     assert entry is not None
     emit(
         "signed_in",
@@ -82,7 +88,7 @@ def signed_in(url: str, args: argparse.Namespace, emit: Emit) -> tuple[str | Non
         vault_name=entry.get("vault_name") or "",
         access=login.access_words(entry.get("scope", "")),
         already=already,
-        **about(url, slug),
+        **(shown or {}),
     )
     return slug, entry
 
@@ -113,7 +119,7 @@ def run(args: argparse.Namespace, emit: Emit, answers: TextIO) -> int:
     if found is not None:
         previous, count = found
         emit("move", files=count, source=move.describe(previous))
-        moving = answers.readline().strip().lower() in YES
+        moving = not answers.isatty() and answers.readline().strip().lower() in YES
         if moving and moved(previous, Place({**place.vault, "vault": slug or ""}), emit) != 0:
             return 1
         if moving:
@@ -127,7 +133,7 @@ def run(args: argparse.Namespace, emit: Emit, answers: TextIO) -> int:
 
 
 def command(args: argparse.Namespace, out: TextIO | None = None, answers: TextIO | None = None) -> int:
-    """One JSON object a line on stdout, the move answered by a line on stdin, the rest on stderr."""
+    """One JSON object a line on stdout, the move answered by a stdin line (a terminal is no), the rest on stderr."""
     emit = emitter(out or sys.stdout)
     with contextlib.redirect_stdout(sys.stderr):
         try:
@@ -135,3 +141,7 @@ def command(args: argparse.Namespace, out: TextIO | None = None, answers: TextIO
         except ConfigError as exc:
             emit("error", kind="config", message=told(exc))
             return 2
+        except Exception as exc:
+            traceback.print_exc()
+            emit("error", kind="internal", message=told(exc))
+            return 1

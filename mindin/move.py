@@ -40,6 +40,10 @@ class MoveError(VaultError):
     pass
 
 
+class KeyRefused(MoveError):
+    pass
+
+
 @dataclass
 class Listing:
     files: dict[str, int] = field(default_factory=dict)
@@ -117,7 +121,7 @@ class DavSide:
         except httpx2.HTTPError as exc:
             raise MoveError(f"cannot reach {self.url}: {exc}") from exc
         if response.status_code == 401:
-            raise MoveError(f"{self.url} refused this machine's key; sign in again with `mindin login {self.url}`")
+            raise KeyRefused(f"{self.url} refused this machine's key; sign in again with `mindin login {self.url}`")
         return response
 
     def at(self, key: str) -> str:

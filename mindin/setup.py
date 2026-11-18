@@ -71,7 +71,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--json",
         action="store_true",
-        help="with --server: one JSON line per event for a program that shows the sign-in; asks nothing",
+        help="with --server: one JSON line per event for a program that shows the sign-in;"
+        " after a move event it reads one answer line on stdin (a terminal counts as no)",
     )
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import tempfile
 import zipfile
 from collections.abc import Callable, Iterator
@@ -64,6 +65,7 @@ if TYPE_CHECKING:
     from mindin.hosted.pages.account import SelfDeletion
     from mindin.vault import SubjectVaults
 
+logger = logging.getLogger(__name__)
 KIND_OF_PURPOSE = {MACHINE_KEY_PURPOSE: ("Computer", "Sign out")}
 EMPTY_START = "empty"
 SUPPORTED = (
@@ -123,6 +125,15 @@ class VaultPages:
         vault = self.store.first_vault(account_id)
         if vault is not None:
             provision_first(self.sealed, vault, self.vaults.dav_url)
+
+    def first_layout(self, account: Account, vault: Vault, backend: VaultBackend) -> str | None:
+        if vault.account_id != account.id:
+            return None
+        try:
+            self.welcome(account.id)
+        except Exception:
+            logger.exception("the first vault of %s was not provisioned on its page", account.id)
+        return provision.stored(backend, SCHEMA_KEY)
 
     def summary_line(self, vault: Vault, facts: VaultFacts) -> str:
         keys = self.store.keys(vault.account_id, vault.id)
@@ -205,7 +216,7 @@ pick another.</p></div>
         if vault.shared:
             return self.shared.render(account, csrf, vault, notice, status_code)
         backend = self.storage(vault)
-        schema = provision.stored(backend, SCHEMA_KEY)
+        schema = provision.stored(backend, SCHEMA_KEY) or self.first_layout(account, vault, backend)
         facts = facts_of(backend.list_all())
         rest = " · ".join([layout_title(schema), counted(facts.notes, "note"), size_label(facts.size)])
         lead = f"Address <code>{esc(vault.slug)}</code> · {esc(rest)}"

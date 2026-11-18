@@ -7,6 +7,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 ### What's new
 
 ### Fixed
+- A first sign-in succeeds when storage fails, and the next sign-in or the vault page sets up Built-in.
 
 ## 0.21.0
 

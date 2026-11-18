@@ -79,7 +79,7 @@ class OidcSignIn:
             label=identity.email,
             name=identity.name,
         )
-        return self.login.complete(request, proof, resumed["next"], resumed["link"])
+        return await self.login.complete(request, proof, resumed["next"], resumed["link"])
 
     def routes(self, prefix: str) -> list[BaseRoute]:
         return [

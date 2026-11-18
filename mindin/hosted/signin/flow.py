@@ -5,6 +5,7 @@ import secrets
 from collections.abc import Callable
 from typing import Any, Protocol
 
+import anyio
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 from starlette.routing import BaseRoute, Route
@@ -90,14 +91,17 @@ class Login:
             return page("Not signed in", "Open your account page again.", status_code=403)
         return session[0].id
 
-    def complete(self, request: Request, proof: Proof, next_url: str, link_account: str = "") -> Response:
+    async def complete(self, request: Request, proof: Proof, next_url: str, link_account: str = "") -> Response:
         if link_account:
             return self.attach(request, proof, link_account)
-        outcome = self.identities.sign_in(proof, self.config.registration)
+        outcome = await self.sign_in(proof)
         if outcome.account is None or not outcome.account.active:
             return self.refused(proof, outcome)
         response = RedirectResponse(self.next_of(next_url), status_code=303, headers={"Cache-Control": "no-store"})
         return self.browser.start_session(request, response, outcome.account)
+
+    async def sign_in(self, proof: Proof) -> Outcome:
+        return await anyio.to_thread.run_sync(self.identities.sign_in, proof, self.config.registration)
 
     def attach(self, request: Request, proof: Proof, account_id: str) -> Response:
         session = self.browser.signed_in(request)

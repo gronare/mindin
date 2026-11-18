@@ -139,7 +139,7 @@ class EmailSignIn:
         document, _ = taken
         email = document["email"]
         proof = Proof(method="email", subject=email, emails=(email,), label=email)
-        return self.login.complete(request, proof, document["next"])
+        return await self.login.complete(request, proof, document["next"])
 
     def routes(self, prefix: str) -> list[BaseRoute]:
         return [

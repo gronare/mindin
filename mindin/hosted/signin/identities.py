@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 import threading
 from collections.abc import Callable
@@ -71,6 +72,7 @@ def addresses(emails: tuple[str, ...]) -> tuple[str, ...]:
 
 
 SIGNING_IN = threading.Lock()
+logger = logging.getLogger(__name__)
 
 
 class Identities:
@@ -79,12 +81,20 @@ class Identities:
         self.welcome = welcome
 
     def sign_in(self, proof: Proof, registration: Registration) -> Outcome:
-        # Sign-ins run on the event loop and in worker threads: two first ones of an identity must not both register it.
+        # Sign-ins run in worker threads: two first ones of an identity must not both register it.
         with SIGNING_IN:
             outcome = self._sign_in(proof, registration)
-        if outcome.fresh and outcome.account is not None and outcome.account.active and self.welcome is not None:
-            self.welcome(outcome.account.id)
+        if outcome.account is not None and outcome.account.active:
+            self.greet(outcome.account.id)
         return outcome
+
+    def greet(self, account_id: str) -> None:
+        if self.welcome is None:
+            return
+        try:
+            self.welcome(account_id)
+        except Exception:
+            logger.exception("the first vault of %s was not provisioned; its next sign-in tries again", account_id)
 
     def _sign_in(self, proof: Proof, registration: Registration) -> Outcome:
         emails = addresses(proof.emails)

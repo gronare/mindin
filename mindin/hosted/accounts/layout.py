@@ -58,7 +58,7 @@ def provision_vault(sealed: SealedVaults, vault: Vault, preset: str, dav_url: st
 
 def provision_first(sealed: SealedVaults, vault: Vault, dav_url: str) -> None:
     backend, _ = sealed.for_vault(vault.id)
-    if not vault.shared and provision.is_empty(backend):
+    if not vault.shared and provision.is_empty(backend) and provision.stored(backend, SCHEMA_KEY) is None:
         provision.initialize(backend, preset=BUILT_IN, welcome={"DAV_URL": dav_url})
 
 

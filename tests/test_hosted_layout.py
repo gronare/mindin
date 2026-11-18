@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import re
+import threading
 from pathlib import Path
 
 import httpx2
@@ -9,7 +10,8 @@ import pytest
 from hosted_support import NOTE_BODY, Hosted, call_tool, csrf_of, hosted, text_of
 
 from mindin import provision
-from mindin.backends import SCHEMA_KEY
+from mindin.backends import SCHEMA_KEY, StorageError
+from mindin.hosted.pages import vaults as vault_pages
 from mindin.vault import SubjectVaults
 
 
@@ -89,6 +91,65 @@ async def test_a_new_accounts_first_vault_is_personal_in_the_built_in_layout(sit
     assert "no layout yet" not in page.text and "Pick a layout" not in page.text
     backend = vaults.backend_factory(vault.id)[0]
     assert provision.current_preset(backend) == "default" and "Welcome.md" in {entry.key for entry in backend.list()}
+
+
+def failing_first_vault(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+    on_main: list[bool] = []
+
+    def failing(*args: object) -> None:
+        on_main.append(threading.current_thread() is threading.main_thread())
+        raise StorageError("bucket down")
+
+    monkeypatch.setattr(vault_pages, "provision_first", failing)
+    return on_main
+
+
+@pytest.mark.anyio
+async def test_a_first_vault_that_fails_to_provision_still_signs_in_and_its_page_provisions_it(
+    site: Hosted, vaults: SubjectVaults, monkeypatch: pytest.MonkeyPatch
+):
+    real = vault_pages.provision_first
+    on_main = failing_first_vault(monkeypatch)
+    http = await site.member("ann@example.com", sub="sub-ann")
+    backend = vaults.backend_factory(site.vault_of("ann@example.com"))[0]
+    left_empty = backend.list_all()
+    monkeypatch.setattr(vault_pages, "provision_first", real)
+    async with http:
+        page = await http.get("/account/vaults/personal")
+    assert on_main == [False] and left_empty == []
+    assert "Address <code>personal</code> · built-in layout · 1 note" in page.text
+    assert provision.current_preset(backend) == "default"
+
+
+@pytest.mark.anyio
+async def test_the_next_sign_in_provisions_a_first_vault_left_empty(
+    site: Hosted, vaults: SubjectVaults, monkeypatch: pytest.MonkeyPatch
+):
+    real = vault_pages.provision_first
+    failing_first_vault(monkeypatch)
+    await site.member("ann@example.com", sub="sub-ann")
+    monkeypatch.setattr(vault_pages, "provision_first", real)
+    async with site.browser() as http:
+        again = await site.sign_in(http, "ann@example.com", "sub-ann")
+    backend = vaults.backend_factory(site.vault_of("ann@example.com"))[0]
+    assert again.status_code == 303 and provision.current_preset(backend) == "default"
+
+
+@pytest.mark.anyio
+async def test_a_first_vault_with_notes_but_no_layout_is_never_provisioned(
+    site: Hosted, vaults: SubjectVaults, monkeypatch: pytest.MonkeyPatch
+):
+    real = vault_pages.provision_first
+    failing_first_vault(monkeypatch)
+    http = await site.member("ann@example.com", sub="sub-ann")
+    backend = vaults.backend_factory(site.vault_of("ann@example.com"))[0]
+    backend.put("Areas/mine.md", NOTE_BODY)
+    monkeypatch.setattr(vault_pages, "provision_first", real)
+    async with http, site.browser() as other:
+        page = await http.get("/account/vaults/personal")
+        again = await site.sign_in(other, "ann@example.com", "sub-ann")
+    assert again.status_code == 303 and "no layout yet" in page.text
+    assert {entry.key for entry in backend.list_all()} == {"Areas/mine.md"}
 
 
 @pytest.mark.anyio

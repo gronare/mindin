@@ -106,7 +106,7 @@ class ForwardedSignIn:
             return None
         if forwarded is None:
             return None
-        return self.login.complete(request, forwarded.proof, next_url)
+        return await self.login.complete(request, forwarded.proof, next_url)
 
     def button(self, next_url: str) -> str:
         return (

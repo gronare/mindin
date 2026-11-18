@@ -199,7 +199,7 @@ class PasskeySignIn:
             logger.info("passkey sign-in refused: %s", exc)
             return refusal("The passkey did not verify.", 403)
         self.login.identities.passkey_used(credential_id, verified.new_sign_count)
-        outcome = self.login.identities.sign_in(Proof("passkey", credential_id), self.login.config.registration)
+        outcome = await self.login.sign_in(Proof("passkey", credential_id))
         if outcome.account is None or not outcome.account.active:
             return refusal("This account is suspended.", 403)
         response = JSONResponse({"redirect": document["next"]}, headers=NO_STORE)

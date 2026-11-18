@@ -95,7 +95,7 @@ class GithubSignIn:
         except (GithubError, httpx2.HTTPError, ValueError) as exc:
             logger.warning("github sign-in: %s", exc)
             return page("Sign-in failed", "GitHub did not confirm the sign-in.", status_code=502)
-        return self.login.complete(request, proof, resumed["next"], resumed["link"])
+        return await self.login.complete(request, proof, resumed["next"], resumed["link"])
 
     async def proof(self, code: str, verifier: str) -> Proof:
         async with httpx2.AsyncClient(transport=self.transport, timeout=TIMEOUT, follow_redirects=False) as http:

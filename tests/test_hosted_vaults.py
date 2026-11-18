@@ -392,7 +392,7 @@ async def test_approving_with_a_new_vault_makes_it_in_the_built_in_layout_and_bi
     assert "Which vault does this machine use?" in page.text and "Address workshop · " in page.text
     assert "<b>Orchard</b> <i>your default</i>" in page.text and "A new vault" in page.text
     assert "Made now with the Built-in layout kebbie works with." in page.text
-    assert 'name="access" value="write" checked' in page.text
+    assert 'name="access" value="read" checked' in page.text and 'value="write" checked' not in page.text
     assert unnamed.status_code == 200 and "Give the vault a name." in unnamed.text
     assert approved.status_code == 302 and not written.get("isError"), text_of(written)
     made = site.store.vault_at(site.store.account("ann@example.com").id, "gardennotes")

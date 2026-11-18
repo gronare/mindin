@@ -5,6 +5,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+- Approving a connector's sign-in preselects read, and mindin login and kebbie setup still preselect read and write.
 
 ### Fixed
 - A first sign-in succeeds when storage fails, and the next sign-in or the vault page sets up Built-in.

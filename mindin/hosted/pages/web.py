@@ -384,11 +384,10 @@ class Browser:
             else ""
         )
         write_choice = (
-            '<label><input type="radio" name="access" value="write" checked> read and write</label>'
+            '<label><input type="radio" name="access" value="write"> read and write</label>'
             if WRITE_SCOPE in pending["scopes"]
             else ""
         )
-        read_checked = "" if write_choice else " checked"
         requested = pending.get("requested_vault")
         bound = None if requested is None else self.store.vault_at(account.id, requested)
         if requested is not None and bound is None:
@@ -415,7 +414,7 @@ class Browser:
 <input type="hidden" name="csrf" value="{esc(csrf)}">
 {vault_field}
 <fieldset><legend>Grant this client</legend>
-<label><input type="radio" name="access" value="read"{read_checked}> read</label>
+<label><input type="radio" name="access" value="read" checked> read</label>
 {write_choice}
 </fieldset>
 <button type="submit" name="decision" value="approve">Approve</button>

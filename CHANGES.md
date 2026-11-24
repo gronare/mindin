@@ -5,6 +5,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+- `close` and `mindin task close` keep the evidence that the work landed as the note's last line.
 
 ### Fixed
 

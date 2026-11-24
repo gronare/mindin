@@ -127,3 +127,25 @@ def test_a_style_holding_a_secret_is_refused_as_a_note_would_be(tmp_path: Path):
     assert notes.write(vault, ".vault/styles/backlog.md", "<!-- style-version: 1 -->\nOne line.\n").startswith(
         "Written:"
     )
+
+
+def test_close_refuses_evidence_the_guard_refuses_and_leaves_the_note(tmp_path: Path):
+    backend = LocalBackend(tmp_path / "vault")
+    provision.initialize(backend, preset="wiki")
+    vault = Vault(backend, load_schema(backend), index_path=tmp_path / "index.sqlite")
+    notes.write(vault, "Guides/settling-payouts.md", GUIDE)
+    before = backend.get("Guides/settling-payouts.md")
+    with pytest.raises(notes.ValidationError, match="a card number"):
+        notes.close(vault, "Guides/settling-payouts.md", evidence=f"charged {CARD}")
+    assert backend.get("Guides/settling-payouts.md") == before
+
+
+def test_close_with_evidence_refuses_a_note_that_already_breaks_the_guard(tmp_path: Path):
+    backend = LocalBackend(tmp_path / "vault")
+    provision.initialize(backend, preset="wiki")
+    vault = Vault(backend, load_schema(backend), index_path=tmp_path / "index.sqlite")
+    backend.put("Guides/settling-payouts.md", GUIDE + f"\nKey: {AWS_KEY}\n")
+    vault.index.sync(force=True)
+    with pytest.raises(notes.ValidationError, match="an AWS access key"):
+        notes.close(vault, "Guides/settling-payouts.md", evidence="landed as abc1234")
+    assert notes.close(vault, "Guides/settling-payouts.md")

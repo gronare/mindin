@@ -166,6 +166,11 @@ def test_task_close_moves_the_note_to_the_archive(configured: Path, worktree: Pa
     assert note(configured, closed["path"])[0]["status"] == "complete"
 
 
+def test_task_close_keeps_the_evidence_in_the_note(configured: Path, capsys):
+    closed = run(capsys, "task", "close", "Projects/orchard-fresh.md", "--evidence", "abc1234 on main")
+    assert note(configured, closed["path"])[1].rstrip().endswith(": abc1234 on main")
+
+
 def test_task_backlog_parks_with_a_medium_priority(configured: Path, capsys):
     assert run(capsys, "task", "backlog", "Projects/orchard-fresh.md") == {"path": "Projects/orchard-fresh.md"}
     frontmatter, _ = note(configured, "Projects/orchard-fresh.md")

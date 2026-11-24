@@ -328,7 +328,14 @@ def park_stale(vault: Vault) -> list[str]:
     return parked
 
 
-def close(vault: Vault, path: str, merged_into: str | None = None, status: str | None = None) -> str:
+def _with_evidence(body: str, evidence: str | None) -> str:
+    line = " ".join((evidence or "").split())
+    return f"{body.rstrip()}\n\nClosed {today()}: {line}\n" if line else body
+
+
+def close(
+    vault: Vault, path: str, merged_into: str | None = None, status: str | None = None, evidence: str | None = None
+) -> str:
     path = note_key(path)
     lost: frozenset[str] = frozenset()
     for _ in range(REWRITE_RETRIES + 1):
@@ -345,7 +352,9 @@ def close(vault: Vault, path: str, merged_into: str | None = None, status: str |
         destination = path if archived else free_key(vault, archive, path.rsplit("/", 1)[-1], lost)
         stamped = _with_dates(frontmatter)
         require_valid(vault, stamped, destination, "cannot be closed into a valid note")
-        out = dump(stamped, body)
+        out = dump(stamped, _with_evidence(body, evidence))
+        if evidence:
+            require_clean(vault, destination, out)
         try:
             version = vault.backend.put(destination, out, expected_version=read_version if archived else MUST_NOT_EXIST)
         except VersionConflict:

@@ -304,14 +304,18 @@ def build_server(
         name="close",
         description=(
             "WRITE — finishes a note: sets status complete (or superseded with superseded_by when "
-            "merged_into is given) and moves it into the archive. Run it in the same pass as the last "
-            "commit of the work; a note left open is what makes the vault drift."
+            "merged_into is given) and moves it into the archive. Run it in the same turn the work lands, "
+            "with evidence: the commit shas on the default branch or the log line that records it, written "
+            "into the note as its last line. A note left open is what makes the vault drift."
         ),
     )
-    def close_tool(path: str, merged_into: str | None = None, status: str | None = None) -> str:
-        return run(
-            lambda vault: f"Closed: {notes.close(vault, path, merged_into=merged_into, status=status)}", write=True
-        )
+    def close_tool(
+        path: str, merged_into: str | None = None, status: str | None = None, evidence: str | None = None
+    ) -> str:
+        def closed(vault: Vault) -> str:
+            return f"Closed: {notes.close(vault, path, merged_into=merged_into, status=status, evidence=evidence)}"
+
+        return run(closed, write=True)
 
     @server.tool(
         name="backlog_add",

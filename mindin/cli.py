@@ -822,6 +822,7 @@ def build_parser() -> argparse.ArgumentParser:
     check.set_defaults(func=json_command("task_check"))
     closing = task_sub.add_parser("close", help="set status complete and move the note to the archive")
     closing.add_argument("path")
+    closing.add_argument("--evidence", help="what shows the work landed (shas on main, the log line), kept in the note")
     closing.set_defaults(func=json_command("task_close"))
     parking = task_sub.add_parser("backlog", help="put the note back in the backlog")
     parking.add_argument("path")

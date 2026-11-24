@@ -225,7 +225,7 @@ class LocalClient:
         return {"missing": tasks.missing_sections(self.synced(), args.path, tasks.needed(args.need))}
 
     def task_close(self, args: Any) -> dict:
-        return {"path": notes.close(self.synced(), args.path)}
+        return {"path": notes.close(self.synced(), args.path, evidence=args.evidence)}
 
     def task_backlog(self, args: Any) -> dict:
         notes.set_status(self.synced(), args.path, notes.BACKLOG_STATUS, priority=args.priority)
@@ -464,7 +464,9 @@ class RemoteClient:
         return {"missing": tasks.missing_in(schema, self.read(notes.note_key(args.path)), need)}
 
     def task_close(self, args: Any) -> dict:
-        return {"path": self.tool_text("close", path=args.path).removeprefix("Closed: ").strip()}
+        evidence = args.evidence
+        extra = {"evidence": evidence} if evidence else {}
+        return {"path": self.tool_text("close", path=args.path, **extra).removeprefix("Closed: ").strip()}
 
     def task_backlog(self, args: Any) -> dict:
         self.tool_text("set_status", path=args.path, status=notes.BACKLOG_STATUS, priority=args.priority)

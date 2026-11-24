@@ -9,7 +9,7 @@ mindin task open --note Projects/myapp-idea.md --cwd ~/wt/wt1.myapp
 # {"path": "Projects/myapp-idea.md", "created": false, "repo": "myapp", "area": "myapp"}
 mindin task check Projects/myapp-fix-login.md [--need background,goal,source]
 # {"missing": ["goal", "source"]}
-mindin task close Projects/myapp-fix-login.md        # {"path": "Archive/myapp-fix-login.md"}
+mindin task close Projects/myapp-fix-login.md [--evidence "a1b2c3d on main"]   # {"path": "Archive/myapp-fix-login.md"}
 mindin task backlog Projects/myapp-fix-login.md --priority medium   # {"path": "Projects/…"}
 mindin task claim Projects/myapp-idea.md --machine mac --task fix-login --repo myapp [--force]
 # {"path": "Projects/myapp-idea.md", "claimed": true, "claim": {"machine": "mac", "task": "fix-login", "repo": "myapp", "since": "2026-10-23T09:12:00Z"}, "replaced": null}

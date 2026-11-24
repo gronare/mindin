@@ -153,6 +153,18 @@ def test_close_accepts_an_explicit_status(vault: Vault):
     assert body_of(vault, destination)[0]["status"] == "draft"
 
 
+def test_close_writes_the_evidence_as_the_notes_last_line(vault: Vault):
+    destination = notes.close(vault, "Projects/orchard-fresh.md", evidence="landed as abc1234\non main")
+    _, body = body_of(vault, destination)
+    assert body.rstrip().splitlines()[-1] == f"Closed {date.today().isoformat()}: landed as abc1234 on main"
+
+
+def test_close_without_evidence_keeps_the_body(vault: Vault):
+    _, before = body_of(vault, "Projects/orchard-fresh.md")
+    _, after = body_of(vault, notes.close(vault, "Projects/orchard-fresh.md"))
+    assert after == before
+
+
 def test_close_suffixes_a_name_the_archive_already_holds(vault: Vault):
     notes.close(vault, "Projects/orchard-fresh.md")
     notes.write(vault, "Projects/orchard-fresh.md", VALID)

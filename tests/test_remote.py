@@ -309,9 +309,10 @@ def test_task_open_check_and_close_through_the_server(remote: Served, tmp_path: 
     assert again["path"] == "Projects/orchard-prune-the-grove-2.md"
     parked = run_json(capsys, "task", "backlog", again["path"], "--priority", "low")
     assert note_on_server(remote, parked["path"])[0]["status"] == "backlog"
-    closed = run_json(capsys, "task", "close", opened["path"])
+    closed = run_json(capsys, "task", "close", opened["path"], "--evidence", "abc1234 on main")
     assert closed["path"].startswith("Archive/")
-    assert note_on_server(remote, closed["path"])[0]["status"] == "complete"
+    frontmatter, body = note_on_server(remote, closed["path"])
+    assert frontmatter["status"] == "complete" and body.rstrip().endswith(": abc1234 on main")
 
 
 def test_changelog_writes_the_period_page_with_local_commits(remote: Served, tmp_path: Path, capsys):

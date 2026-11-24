@@ -66,7 +66,7 @@ class VaultClient(Protocol):
     def asked_prompts(self) -> AskedPrompts: ...
     def changelog(self, repo: str, period: str, repo_path: Path | None, write: bool) -> str: ...
     def write_changelogs(self, period: str | None) -> list[str]: ...
-    def lint(self, write: str | None, park: bool) -> tuple[str, lint.Findings]: ...
+    def lint(self, write: str | None, park: bool, close_done: bool = False) -> tuple[str, lint.Findings]: ...
     def stale_after_days(self) -> int: ...
     def schema(self) -> Schema: ...
     def backlog_view(self, area: str | None, priority: str | None) -> dict | None: ...
@@ -171,10 +171,10 @@ class LocalClient:
     def write_changelogs(self, period: str | None) -> list[str]:
         return changelog.write_all(self.synced(), periods=[period] if period else None)
 
-    def lint(self, write: str | None, park: bool) -> tuple[str, lint.Findings]:
+    def lint(self, write: str | None, park: bool, close_done: bool = False) -> tuple[str, lint.Findings]:
         self.vault.index.sync(force=True)
         self._synced = True
-        findings = lint.lint_findings(self.vault, write=write, park=park)
+        findings = lint.lint_findings(self.vault, write=write, park=park, close_done=close_done)
         return findings.render(), findings
 
     def stale_after_days(self) -> int:
@@ -404,8 +404,12 @@ class RemoteClient:
         periods = [period] if period else changelog.periods_due(date.today())
         return self.write_pages(self.state.live_repos(), periods)
 
-    def lint(self, write: str | None, park: bool) -> tuple[str, lint.Findings]:
-        text = self.tool_text("lint_and_park", write=write, park=park) if write or park else self.tool_text("lint")
+    def lint(self, write: str | None, park: bool, close_done: bool = False) -> tuple[str, lint.Findings]:
+        extra = {"close_done": True} if close_done else {}
+        if write or park or close_done:
+            text = self.tool_text("lint_and_park", write=write, park=park, **extra)
+        else:
+            text = self.tool_text("lint")
         return text, lint.Findings.parse(text)
 
     def stale_after_days(self) -> int:

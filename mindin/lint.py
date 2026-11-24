@@ -4,7 +4,7 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from mindin import note_templates
+from mindin import note_templates, sweep
 from mindin.backends import SCHEMA_KEY, NotFound
 from mindin.frontmatter import FrontmatterError, dump, parse, validate
 from mindin.index import Note
@@ -145,11 +145,16 @@ def lint(vault: Vault) -> Findings:
     return findings
 
 
-def lint_findings(vault: Vault, write: str | None = None, park: bool = False) -> Findings:
+def lint_findings(vault: Vault, write: str | None = None, park: bool = False, close_done: bool = False) -> Findings:
     if write:
         note_key(write)
+    closed, uncertain = sweep.close_done(vault) if close_done else ([], [])
     parked = park_stale(vault) if park else []
     findings = lint(vault)
+    for verdict in closed:
+        findings.add("closed_done", f"{verdict.key}: {verdict.evidence}")
+    for verdict in uncertain:
+        findings.add("done_uncertain", f"{verdict.key}: {verdict.reason}; {verdict.evidence}")
     for key in parked:
         findings.add("parked", f"{key}: status backlog, untouched for more than {vault.schema.stale_after_days} days")
     if write:
@@ -158,8 +163,8 @@ def lint_findings(vault: Vault, write: str | None = None, park: bool = False) ->
     return findings
 
 
-def lint_and_park(vault: Vault, write: str | None = None, park: bool = False) -> str:
-    return lint_findings(vault, write=write, park=park).render()
+def lint_and_park(vault: Vault, write: str | None = None, park: bool = False, close_done: bool = False) -> str:
+    return lint_findings(vault, write=write, park=park, close_done=close_done).render()
 
 
 def lint_note_text(findings: Findings) -> str:

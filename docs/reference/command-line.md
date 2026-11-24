@@ -35,7 +35,7 @@ mindin search "bokning" --limit 5       # the same ranking, from a shell
 mindin context [--path ~/projects/myapp] # what a session in this repo starts with
 mindin read Projects/myapp-idea.md [--body] [--raw] [--json]
 mindin write Projects/myapp-idea.md [--etag ETAG] < note.md
-mindin lint [--kind orphans] [--write Log/lint.md] [--park-stale]
+mindin lint [--kind orphans] [--write Log/lint.md] [--close-done] [--park-stale]
 mindin schema check [schema.yml] [--json]  # the schema's problems and what its layout supports
 mindin backlog [--area myapp] [--priority high] [--paths] [--all]
 mindin template [--kind backlog] [--json]  # a kind's template and style
@@ -128,9 +128,9 @@ In a pipe, a script or a hook, and with `--plain`, every command prints plain li
 
 ## lint
 
-`lint` reads every note and reports `broken_frontmatter`, `missing_required` (per field), `invalid_field`, `missing_area`, `unknown_tags` (only with a strict vocabulary), `unresolved_links`, `orphans` (no inbound wikilink; log and archive ignored), `stale_active`, `done_not_closed`, `archive_status_mismatch`, `duplicate_stems`, `superseded_target_missing` and `off_template` (an open note that differs from its kind's [template](schema.md#note-templates), with what it lacks; information, since a template is guidance).
+`lint` reads every note and reports `broken_frontmatter`, `missing_required` (per field), `invalid_field`, `missing_area`, `unknown_tags` (only with a strict vocabulary), `unresolved_links`, `orphans` (no inbound wikilink; log and archive ignored), `stale_active`, `done_not_closed`, `archive_status_mismatch`, `duplicate_stems`, `superseded_target_missing`, `off_template` (an open note that differs from its kind's [template](schema.md#note-templates), with what it lacks; information, since a template is guidance), and with `--close-done` also `closed_done` and `done_uncertain`.
 
-`--write <path>` also keeps the report as a note. `--park-stale` parks stale task notes; see [Run lint every week](../how-to/weekly-lint.md).
+`--write <path>` also keeps the report as a note. `--close-done` closes task notes a repo log line shows landed and `--park-stale` parks stale task notes; see [Run lint every week](../how-to/weekly-lint.md).
 
 ## changelog
 

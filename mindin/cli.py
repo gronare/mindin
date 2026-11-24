@@ -169,7 +169,7 @@ def command_lint(args: argparse.Namespace) -> int:
         return 2
     term = terminal(args.plain)
     with open_client() as client:
-        text, findings = client.lint(args.write, bool(args.park_stale))
+        text, findings = client.lint(args.write, bool(args.park_stale), bool(args.close_done))
         if not term.pretty and not kind:
             print(text)
         else:
@@ -746,6 +746,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--park-stale",
         action="store_true",
         help="set status backlog on open task notes untouched for longer than the schema's stale_after_days",
+    )
+    lint.add_argument(
+        "--close-done",
+        action="store_true",
+        help="close open task notes a repo log line shows landed, with that line as evidence; list the unsure ones",
     )
     lint.add_argument("--kind", help="list the findings of one kind, e.g. orphans or unresolved-links")
     add_plain(lint)

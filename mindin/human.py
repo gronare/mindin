@@ -55,6 +55,8 @@ LINT_KINDS = {
     "duplicate_stems": ("duplicate names", "two notes share a file name"),
     "off_template": ("off template", "an open note differs from its kind's template, which is guidance"),
     "parked": ("parked", "moved to the backlog by --park-stale"),
+    "closed_done": ("closed as done", "closed by --close-done, a repo log line shows the work landed"),
+    "done_uncertain": ("maybe done", "a repo log line names it, too unsure for --close-done to close it"),
 }
 ENTRY_RE = re.compile(r"^(?P<head>.+?)(?P<sep>: | -> )(?P<rest>.*)$")
 LOG_LINE_RE = re.compile(r"^-?\s*\[(?P<day>\d{4}-\d{2}-\d{2})\]\s*(?P<text>.*)$")

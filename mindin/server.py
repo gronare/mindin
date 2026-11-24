@@ -434,12 +434,13 @@ def build_server(
             name="lint_and_park",
             description=(
                 "WRITE — the weekly lint for a scheduled job: parks stale open task notes in the backlog when park "
-                "is set, and writes the findings as the note at write when given; answers the findings."
+                "is set, closes open task notes a repo log line shows landed when close_done is set, and writes "
+                "the findings as the note at write when given; answers the findings."
             ),
         )
-        def lint_and_park_tool(write: str | None = None, park: bool = False) -> str:
+        def lint_and_park_tool(write: str | None = None, park: bool = False, close_done: bool = False) -> str:
             return run(
-                lambda vault: lint.lint_and_park(vault, write=write, park=park),
+                lambda vault: lint.lint_and_park(vault, write=write, park=park, close_done=close_done),
                 force=True,
                 write=True,
                 shared_refuses="lint_and_park",

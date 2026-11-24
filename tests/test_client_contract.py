@@ -195,6 +195,23 @@ def test_the_weekly_lint_writes_and_parks_as_the_vault_does(
     assert parse(place.read("Projects/workshop-stale.md"))[0]["status"] == "backlog"
 
 
+def test_lint_close_done_closes_landed_notes_as_the_vault_does(
+    place: Place, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+):
+    stem = "orchard-prune"
+    head = "---\ntitle: Prune\ndate: 2026-09-01\nupdated: 2026-09-01\ntags: [orchard]\nstatus: backlog\n"
+    place.write(f"Projects/{stem}.md", head + 'kind: task\narea: "[[orchard]]"\nsource: branch prune\n---\n\nCut.\n')
+    log = place.read("Log/orchard-log.md").rstrip() + "\n- [2026-09-03] prune: Cut | commits: 9f1e2d3 | [[orchard]]\n"
+    place.write("Log/orchard-log.md", log)
+    copy = shutil.copytree(place.folder, tmp_path / "before-close")
+    expected = lint.lint_findings(reference(copy, monkeypatch, tmp_path), close_done=True).render()
+    assert main(["lint", "--close-done"]) == 0
+    assert capsys.readouterr().out == expected + "\n"
+    assert "## closed_done (1)" in expected
+    closed = parse(place.read(f"Archive/{stem}.md"))
+    assert closed[0]["status"] == "complete" and "prune: Cut" in closed[1].rstrip().splitlines()[-1]
+
+
 def without_stamps(snapshot: dict) -> dict:
     kept = {key: value for key, value in snapshot.items() if key not in ("etag", "synced_at")}
     kept["notes"] = [{key: value for key, value in row.items() if key != "mtime"} for row in snapshot["notes"]]

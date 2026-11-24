@@ -9,7 +9,7 @@ A vault stays useful when finished work leaves the active set, deferred work is 
 
 ## Stale notes
 
-An open task note untouched for longer than `stale_after_days` is stale. `context` lists stale notes under `triage` with the three ways to settle each. `lint --park-stale` parks them in the backlog, so `active` means touched within the window; see [Run lint every week](../how-to/weekly-lint.md).
+An open task note untouched for longer than `stale_after_days` is stale. `context` lists stale notes under `triage` with the three ways to settle each. `lint --park-stale` parks them in the backlog, so `active` means touched within the window, and `lint --close-done` closes the ones a repo log line shows landed; see [Run lint every week](../how-to/weekly-lint.md).
 
 ## Claims
 

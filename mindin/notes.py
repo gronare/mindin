@@ -334,13 +334,20 @@ def _with_evidence(body: str, evidence: str | None) -> str:
 
 
 def close(
-    vault: Vault, path: str, merged_into: str | None = None, status: str | None = None, evidence: str | None = None
+    vault: Vault,
+    path: str,
+    merged_into: str | None = None,
+    status: str | None = None,
+    evidence: str | None = None,
+    unclaimed: bool = False,
 ) -> str:
     path = note_key(path)
     lost: frozenset[str] = frozenset()
     for _ in range(REWRITE_RETRIES + 1):
         text, read_version = fetch(vault, path)
         frontmatter, body = parse(text)
+        if unclaimed and CLAIM_KEY in frontmatter:
+            raise ValidationError(f"{path} is held by kebbie ({CLAIM_KEY} in its frontmatter); left open")
         if merged_into:
             frontmatter["status"] = "superseded"
             frontmatter["superseded_by"] = f"[[{stem_of(merged_into)}]]"

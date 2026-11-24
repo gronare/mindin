@@ -7,11 +7,12 @@ description: How to work with the `vault` MCP server (mindin) as persistent memo
 
 The vault is a folder of markdown notes (an Obsidian vault) reached through the `vault` MCP server. The server's own instructions describe the folders, the frontmatter contract and the tag vocabulary of *this* vault; read them, they win over this skill.
 
-## The three moments
+## The four moments
 
 1. **Session start.** The `session-start` hook already printed a context bundle: the system notes for the code you are in, open task notes, reference notes, and the last log lines for the repo. If it did not (no hook, another cwd), call `context` with the path you work in. Read the system note before touching code. When the bundle lists commits newer than a system note, the note may be stale: trust the code, fix the note in the same pass.
 2. **Before the first edit.** The system note for the subsystem must exist and describe today's state. If it is missing, write it (folder of kind `system`, `kind: system`, a `path` list, a `summary`). Write a task note (folder of kind `task`) only when the work spans sessions or needs a decision record; it must carry `area: "[[<system note>]]"`.
-3. **Session end.** Update the system note with what changed, then call `log_append` with the repo, one line, the commit shas and the area. The `stop` hook keeps you going while the vault is behind; see below. Close finished task notes with `close` (optionally `merged_into` the system note).
+3. **Session end.** Update the system note with what changed, then call `log_append` with the repo, one line (starting with `done [[stem]]` when a task note's work landed this session), the commit shas and the area. The `stop` hook keeps you going while the vault is behind; see below.
+4. **Work landed.** The turn the work a task note describes lands (its commits are on the default branch, or it is done in production), `close` the note with `evidence` (those shas, or the log line), optionally `merged_into` the system note that absorbed it. What is still left becomes a new note through `backlog_add`. The vault bookkeeping stays out of your reply.
 
 ## When the Stop hook says `vault`
 
@@ -19,9 +20,9 @@ The `stop` hook's whole message is `vault`: this session left the vault behind. 
 
 - **Messages.** The user's messages since your last vault write: save each decision, deferral or idea in them (a task note, a line in its system or task note, `backlog_add`).
 - **Commits.** In a git repo, the commits made in this checkout in the last 24 hours (`git log --oneline --since='24 hours ago'`, kept to those `git reflog` shows were committed here, whoever the author) whose short sha appears nowhere in the repo log (`read_file` the whole log; `context` shows only its last lines): `log_append` with the repo, the branch, one line and those shas.
-- **Stale notes.** Task notes you read or wrote this session that `context` lists under `triage`: `close` each one that is done; `append_file` a dated line saying what is still open to the rest.
+- **Stale notes.** Task notes you read or wrote this session that `context` lists under `triage`: `close` each one that is done, with its `evidence`; `append_file` a dated line saying what is still open to the rest.
 
-With nothing to save, stop again; the hook asks once. Your reply to the user names what you saved, in one line, or says nothing about the vault.
+With nothing to save, stop again; the hook asks once. Your reply to the user says nothing about the vault.
 
 ## Where the notes are
 
@@ -43,7 +44,7 @@ With nothing to save, stop again; the hook asks once. Your reply to the user nam
 ## Triage at session start
 
 - `context` lists open task notes older than the schema's stale window under `triage`. Settle each before new work: `close` when the work is done, `append_file` a dated line saying what is still open when it is still moving, `set_status(path, "backlog", priority)` to park it. The session that created a note is gone; the session that meets it owns it.
-- The weekly `lint --park-stale` parks what no session met, so `active` always means touched within the window.
+- The weekly `lint --close-done --park-stale` closes the notes a repo log line starts with `done [[stem]]` or names by their branch and parks what no session met, so `active` always means touched within the window.
 
 ## Backlog
 

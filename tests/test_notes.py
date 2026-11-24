@@ -225,7 +225,7 @@ def test_context_lists_a_stale_task_under_triage_with_the_three_ways_to_settle_i
     assert "## triage — 1 open notes older than 30 days" in text
     assert "Projects/workshop-stale.md" in text.split("## triage")[1]
     assert "Projects/workshop-stale.md" not in text.split("## triage")[0]
-    assert "close(path)" in text and 'set_status(path, "backlog", priority)' in text
+    assert "close(path, evidence=" in text and 'set_status(path, "backlog", priority)' in text
 
 
 def test_set_status_parks_and_revives_a_note(vault: Vault, vault_dir: Path):

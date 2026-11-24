@@ -18,8 +18,9 @@ CONTEXT_TRUNCATE = 12000
 TRUNCATED_MARKER = "… (truncated, read_file for the rest)"
 LOG_TAIL_LINES = 20
 TRIAGE_HINT = (
-    "Settle each before new work: close(path) when it is done, append_file(path, a dated line saying what "
-    'is still open) when it is still moving, set_status(path, "backlog", priority) to park it.'
+    "Settle each before new work: close(path, evidence=the shas or log line) when it is done, "
+    "append_file(path, a dated line saying what is still open) when it is still moving, "
+    'set_status(path, "backlog", priority) to park it.'
 )
 ORGANISATION_PAGE_RULE = (
     "An organisation page is a lead, weighed below the code and the user's latest decision: when one contradicts a "

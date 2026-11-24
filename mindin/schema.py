@@ -807,16 +807,20 @@ def instructions(schema: Schema) -> str:
         else "\n- area, when set, is a wikilink to the system note, shaped [[stem]]"
     )
     log_step = (
-        "4. At the end of a session, `log_append` one line per repo with the commits it produced."
+        "4. At the end of a session, `log_append` one line per repo with the commits it produced; the line\n"
+        "   starts with `done [[stem]]` when the work of that task note landed this session."
         if schema.log_folder
         else "4. This layout keeps no repo log: `log_append` is off until the schema names a log folder."
     )
     close_step = (
-        "5. When work is finished, `close` the note — it moves to the archive and sets the status. A note\n"
-        "   left open is what makes the vault drift."
+        "5. The turn the work lands (commits on the default branch, or done in production), `close` the note\n"
+        "   with `evidence` (the shas or the log line) — it moves to the archive and sets the status. What is\n"
+        "   left becomes a new backlog note. A note left open is what makes the vault drift."
         if schema.archive_folder
-        else "5. When work is finished, `close` the note — it sets the status; this layout has no archive, so\n"
-        "   the note stays where it is. A note left open is what makes the vault drift."
+        else "5. The turn the work lands (commits on the default branch, or done in production), `close` the note\n"
+        "   with `evidence` (the shas or the log line) — it sets the status; this layout has no archive, so the\n"
+        "   note stays where it is. What is left becomes a new backlog note. A note left open is what makes the\n"
+        "   vault drift."
     )
     backlog_step = (
         "6. The moment something is deferred, in so many words or in passing, `backlog_add` it in the same\n"

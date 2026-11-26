@@ -9,7 +9,7 @@ A note is a markdown file with frontmatter. The built-in layout has five folders
 | `Areas/` | system | 3.0 | One living note per system. Current state only. The hubs of the graph. |
 | `Resources/` | reference | 2.0 | Traps, how-tos and decisions with their reasons. |
 | `Projects/` | task | 1.0 | Open work spanning sessions, and the backlog. Closed with `close`. |
-| `Log/` | log | 1.0 | One append-only log per repo, plus period pages. |
+| `Log/` | log | 1.0 | One append-only log per repo, plus period pages. Search weighs a log note 0.4 of this. |
 | `Archive/` | archive | 0.3 | History. Searched only on request. |
 
 Every note must satisfy the frontmatter contract: required fields, legal statuses and kinds, folders that must link an area, and an optional tag vocabulary. [The schema file](../reference/schema.md) lists the contract and every setting.

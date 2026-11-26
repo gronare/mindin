@@ -522,3 +522,66 @@ async def test_the_search_tool_says_it_finds_by_meaning_only_when_it_does(vault:
         plain.close()
     assert "by meaning" not in description
     assert text.startswith("0 of 0")
+
+
+MONTH_LOG = (
+    "---\ntitle: infra oktober\ndate: 2026-10-01\nupdated: 2026-10-01\ntags: [log]\nstatus: active\nkind: log\n"
+    'area: "[[auth]]"\n---\n- {body}\n'
+)
+JOURNAL_SCHEMA = "folders:\n  Journal: { kind: log, weight: 1.0, description: Month pages. }\n"
+
+
+def ranked_with_log(
+    root: Path,
+    tmp_path: Path,
+    fake: FakeEmbedder,
+    body: str,
+    query: str,
+    notes: dict[str, str] | None = None,
+    log: str = "Log/infra-2026-10.md",
+):
+    for key, text in {log: MONTH_LOG.format(body=body), **(notes or {})}.items():
+        (root / key).parent.mkdir(parents=True, exist_ok=True)
+        (root / key).write_text(text, encoding="utf-8")
+    opened = open_with(root, tmp_path / "index.sqlite", fake)
+    try:
+        return search(opened.index, opened.schema, query).rows
+    finally:
+        opened.close()
+
+
+def position(rows, key: str) -> int:
+    return [row.note.key for row in rows].index(key)
+
+
+@pytest.mark.parametrize(
+    ("notes", "log"),
+    [({}, "Log/infra-2026-10.md"), ({".vault/schema.yml": JOURNAL_SCHEMA}, "Journal/infra-2026-10.md")],
+)
+def test_a_task_note_ranks_above_a_month_log_with_the_same_word(
+    root: Path, tmp_path: Path, fake: FakeEmbedder, notes: dict[str, str], log: str
+):
+    body = "säkerhetskopia säkerhetskopia säkerhetskopia klar"
+    rows = ranked_with_log(root, tmp_path, fake, body, "säkerhetskopia", notes, log)
+    assert position(rows, "Projects/backup-plan.md") < position(rows, log)
+
+
+def test_a_task_note_ranks_above_a_month_log_that_means_the_same(root: Path, tmp_path: Path, fake: FakeEmbedder):
+    task = (
+        "---\ntitle: Klientbyte\ndate: 2026-10-01\nupdated: 2026-10-01\ntags: []\nstatus: active\nkind: task\n"
+        'area: "[[auth]]"\n---\nbyt login för klienten\n'
+    )
+    rows = ranked_with_log(root, tmp_path, fake, "oauth token login", "inloggning", {"Projects/client-login.md": task})
+    assert rows[position(rows, "Log/infra-2026-10.md")].by_meaning
+    assert rows[position(rows, "Projects/client-login.md")].by_meaning
+    assert position(rows, "Projects/client-login.md") < position(rows, "Log/infra-2026-10.md")
+
+
+def test_a_task_note_found_by_meaning_ranks_above_a_log_with_the_word(root: Path, tmp_path: Path, fake: FakeEmbedder):
+    task = (
+        "---\ntitle: Klientbyte\ndate: 2026-10-01\nupdated: 2026-10-01\ntags: []\nstatus: active\nkind: task\n"
+        'area: "[[auth]]"\n---\noauth token login\n'
+    )
+    rows = ranked_with_log(root, tmp_path, fake, "inloggning klar", "inloggning", {"Projects/client-login.md": task})
+    assert rows[position(rows, "Projects/client-login.md")].by_meaning
+    assert position(rows, "Projects/client-login.md") < position(rows, "Log/infra-2026-10.md")

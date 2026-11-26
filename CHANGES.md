@@ -5,6 +5,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 ## Unreleased
 
 ### What's new
+- `search` ranks task, system and reference notes above log pages that use the same words or mean the same.
 - `close` and `mindin task close` keep the evidence that the work landed as the note's last line.
 - `mindin lint --close-done` closes task notes a repo log line marks done or the push line of their branch shows landed, and lists the unsure ones.
 - The vault-workflow skill closes a task note with its evidence in the turn its work lands.

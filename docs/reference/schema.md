@@ -49,7 +49,7 @@ folders:
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `kind` | `reference` | `system`, `reference`, `task`, `log` or `archive`: which tools write there. |
-| `weight` | `1.0` | How much a note in the folder weighs in search, 0 or more. |
+| `weight` | `1.0` | How much a note in the folder weighs in search, 0 or more. A folder of kind `log` counts 0.4 of it. |
 | `searched` | `true` | `false` hides the folder from search unless asked for. |
 | `description` | | The folder's line in the server's instructions. |
 | `kinds` | | The note kinds the folder takes, such as `[howto]`; a note of another kind is refused. |

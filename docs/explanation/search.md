@@ -2,7 +2,7 @@
 
 ## By words
 
-Ranking is BM25 with folder weights, recency decay and a status factor, so the living system note outranks a two-year-old archived note on the same words.
+Ranking is BM25 with folder weights, recency decay and a status factor, so the living system note outranks a two-year-old archived note on the same words. A note in a folder of kind `log` weighs 0.4 of its folder's weight, by words and by meaning, so a long month log that mentions everything ranks below the task or system note about the subject.
 
 The index folds diacritics, stems every word in the vault's languages with Snowball (`äppelpressar` finds `äppelpressen`, `pressing` finds `presses`), and expands the schema's synonyms (`bokning` finds `booking`). A stemmed-only match weighs `stemmed_weight` (0.5), so the exact form ranks first.
 

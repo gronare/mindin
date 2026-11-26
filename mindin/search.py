@@ -23,6 +23,7 @@ CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 FUSION_K = 10
 MEANING_WEIGHT = 0.8
 MEANING_ROWS = 20
+LOG_FACTOR = 0.4
 
 
 class QueryError(ValueError):
@@ -177,8 +178,14 @@ def status_factor(status: str) -> float:
     return STATUS_FACTORS.get(status, 1.0)
 
 
+def log_factor(schema: Schema, folder: str) -> float:
+    found = schema.folders.get(folder)
+    return LOG_FACTOR if found is not None and found.kind == "log" else 1.0
+
+
 def score_of(note: Note, base: float, schema: Schema, now: float) -> float:
-    weight = schema.folder_weight(schema.folder_of(note.key))
+    folder = schema.folder_of(note.key)
+    weight = schema.folder_weight(folder) * log_factor(schema, folder)
     recency = recency_factor(age_days(note, now), schema.recency_half_life_days)
     return base * weight * recency * status_factor(note.status)
 
@@ -300,7 +307,7 @@ def _meaning_rows(index: Index, query: str) -> list[Row]:
     return found
 
 
-def _fused(lexical: list[Row], meaning: list[Row], term_count: int) -> list[Row]:
+def _fused(lexical: list[Row], meaning: list[Row], term_count: int, schema: Schema) -> list[Row]:
     fused: dict[str, float] = {}
     rows: dict[str, Row] = {}
     for rank, row in enumerate(lexical, 1):
@@ -315,6 +322,8 @@ def _fused(lexical: list[Row], meaning: list[Row], term_count: int) -> list[Row]
         else:
             row.by_meaning = True
             rows[key] = row
+    for key in fused:
+        fused[key] *= log_factor(schema, schema.folder_of(key))
     return sorted(rows.values(), key=lambda row: (-fused[row.note.key], row.note.key))
 
 
@@ -374,7 +383,7 @@ def search(
     visible.sort(key=lambda row: (-row.terms, -row.score, row.note.key))
     close = sorted(shown(meaning, counted=False), key=lambda row: (-row.score, row.note.key))[:MEANING_ROWS]
     if close:
-        visible = _fused(visible, close, len(terms_of(query)) if partial else 0)
+        visible = _fused(visible, close, len(terms_of(query)) if partial else 0, schema)
     visible = [row for row in pinned if wanted(row.note)] + visible
     if partial and any(row.terms for row in visible):
         result.term_count = len(terms_of(query))

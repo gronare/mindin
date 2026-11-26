@@ -26,12 +26,14 @@ def task(
     status: str = "active",
     day: str = "2026-09-01",
     updated: str | None = None,
+    path: str | None = "~/projects/orchard",
 ) -> str:
     key = f"Projects/{stem}.md"
     head = (
         f"---\ntitle: {stem}\ndate: {day}\nupdated: {updated or day}\ntags: [orchard]\nstatus: {status}\nkind: task\n"
     )
-    head += 'area: "[[orchard]]"\n' + (f"source: {source}\n" if source else "") + "---\n\n"
+    head += 'area: "[[orchard]]"\n' + (f"source: {source}\n" if source else "") + (f"path: {path}\n" if path else "")
+    head += "---\n\n"
     (vault_dir / key).write_text(head + body, encoding="utf-8")
     return key
 
@@ -216,12 +218,12 @@ def test_a_note_close_refuses_is_listed_and_the_sweep_goes_on(vault: Vault, vaul
     schema.write_text(schema.read_text(encoding="utf-8") + "bundle:\n  guard:\n    secrets: true\n", encoding="utf-8")
     vault = open_vault()
     secret = "export DEPLOY_TOKEN=Zx81kQp0vLm2Rt7sYw4N\n"
-    leaky = task(vault_dir, "orchard-graft", secret, source="branch graft")
+    leaky = task(vault_dir, "orchard-graft", secret, source="branch graft-rows")
     task(vault_dir, "orchard-prune", "Cut.\n", source="branch prune-grove")
     log(
         vault,
         vault_dir,
-        "- [2026-09-03] graft: Grafted | commits: 1a2b3c4 | [[orchard]]",
+        "- [2026-09-03] graft-rows: Grafted | commits: 1a2b3c4 | [[orchard]]",
         "- [2026-09-03] prune-grove: Cut | commits: 9f1e2d3 | [[orchard]]",
     )
     closed, uncertain = swept(vault)
@@ -241,12 +243,12 @@ def test_a_period_page_is_not_evidence(vault: Vault, vault_dir: Path):
 
 def test_lint_close_done_reports_closed_and_unsure_notes(vault: Vault, vault_dir: Path, capsys):
     task(vault_dir, "orchard-prune", "Cut.\n", source="branch prune-grove")
-    task(vault_dir, "orchard-graft", "- [ ] Which rootstock?\n", source="branch graft")
+    task(vault_dir, "orchard-graft", "- [ ] Which rootstock?\n", source="branch graft-rows")
     log(
         vault,
         vault_dir,
         "- [2026-09-03] prune-grove: Cut | commits: 9f1e2d3 | [[orchard]]",
-        "- [2026-09-03] graft: Grafted | commits: 1a2b3c4 | [[orchard]]",
+        "- [2026-09-03] graft-rows: Grafted | commits: 1a2b3c4 | [[orchard]]",
     )
     assert main(["lint", "--close-done", "--write", "Log/lint.md"]) == 0
     out = capsys.readouterr().out
@@ -255,3 +257,45 @@ def test_lint_close_done_reports_closed_and_unsure_notes(vault: Vault, vault_dir
     assert "## done_uncertain" in (vault_dir / "Log" / "lint.md").read_text(encoding="utf-8")
     with pytest.raises(NotFound):
         vault.backend.get("Projects/orchard-prune.md")
+
+
+def test_a_push_line_in_another_repos_log_leaves_the_note_alone(vault: Vault, vault_dir: Path):
+    key = task(vault_dir, "orchard-prune", "Cut.\n", source="branch prune-grove")
+    (vault_dir / "Log" / "cider-log.md").write_text(
+        LOG_HEAD + "- [2026-09-03] prune-grove: Pressed | branch: prune-grove | commits: 9f1e2d3 | [[orchard]]\n",
+        encoding="utf-8",
+    )
+    vault.index.sync(force=True)
+    assert swept(vault) == ([], {})
+    assert parse(vault.backend.get(key)[0])[0]["status"] == "active"
+
+
+def test_a_note_naming_no_repo_is_listed_not_closed_by_its_branch(vault: Vault, vault_dir: Path):
+    key = task(vault_dir, "orchard-prune", "Cut.\n", source="branch prune-grove", path=None)
+    log(vault, vault_dir, "- [2026-09-03] prune-grove: Cut | branch: prune-grove | commits: 9f1e2d3 | [[orchard]]")
+    assert swept(vault) == ([], {key: "the note names no repo, so the line with its branch may be another repo's"})
+
+
+def test_a_line_starting_with_a_one_word_branch_is_listed_not_closed(vault: Vault, vault_dir: Path):
+    key = task(vault_dir, "orchard-prune", "Cut.\n", source="branch fix")
+    log(vault, vault_dir, "- [2026-09-03] fix: typo in the grove map | commits: 9f1e2d3 | [[orchard]]")
+    reason = "the branch fix is one word, which a log line may start with for another reason"
+    assert swept(vault) == ([], {key: reason})
+
+
+def test_a_one_word_branchs_push_line_with_its_branch_field_closes_the_note(vault: Vault, vault_dir: Path):
+    task(vault_dir, "orchard-prune", "Cut.\n", source="branch fix")
+    log(vault, vault_dir, "- [2026-09-03] fix: Cut | branch: fix | commits: 9f1e2d3 | [[orchard]]")
+    assert swept(vault)[0] == ["Projects/orchard-prune.md"]
+
+
+def test_a_note_whose_path_is_a_folder_in_its_repo_closes_on_the_repos_push_line(vault: Vault, vault_dir: Path):
+    task(vault_dir, "orchard-prune", "Cut.\n", source="branch prune-grove", path="~/projects/orchard/rows/north")
+    log(vault, vault_dir, "- [2026-09-03] prune-grove: Cut | branch: prune-grove | commits: 9f1e2d3 | [[orchard]]")
+    assert swept(vault)[0] == ["Projects/orchard-prune.md"]
+
+
+def test_a_done_line_on_the_branch_closes_a_note_naming_no_repo(vault: Vault, vault_dir: Path):
+    task(vault_dir, "orchard-prune", "Cut.\n", source="branch prune-grove", path=None)
+    log(vault, vault_dir, "- [2026-09-03] done [[orchard-prune]] | branch: prune-grove | commits: - | [[orchard]]")
+    assert swept(vault)[0] == ["Projects/orchard-prune.md"]

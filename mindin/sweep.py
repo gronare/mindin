@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 
 from mindin.backends import NotFound, VersionConflict
 from mindin.index import Note
@@ -26,6 +27,7 @@ DEFAULT_BRANCHES = frozenset({"main", "master", "trunk", "develop"})
 @dataclass(frozen=True)
 class LogLine:
     key: str
+    repo: str
     day: str
     text: str
 
@@ -42,7 +44,8 @@ def _log_pattern(vault: Vault) -> re.Pattern[str] | None:
     folder = vault.schema.log_folder
     if folder is None:
         return None
-    name = re.escape(vault.schema.log_file_format).replace(re.escape("{repo}"), ".+")
+    name = re.escape(vault.schema.log_file_format).replace(re.escape("{repo}"), "(?P<repo>.+)", 1)
+    name = name.replace(re.escape("{repo}"), "(?P=repo)")
     return re.compile(rf"^{re.escape(folder)}/{name}$")
 
 
@@ -52,12 +55,13 @@ def log_lines(vault: Vault, texts: dict[str, str]) -> list[LogLine]:
         return []
     lines = []
     for key, text in sorted(texts.items()):
-        if not pattern.match(key):
+        found = pattern.match(key)
+        if not found:
             continue
         for line in text.splitlines():
             day = LINE_DATE_RE.search(line)
             if day:
-                lines.append(LogLine(key, day.group(1), line.strip()))
+                lines.append(LogLine(key, found.group("repo").lower(), day.group(1), line.strip()))
     return lines
 
 
@@ -65,6 +69,15 @@ def _branch(note: Note) -> str | None:
     found = BRANCH_SOURCE_RE.match(note.source.strip())
     branch = found.group(1) if found else None
     return branch if branch and branch.lower() not in DEFAULT_BRANCHES else None
+
+
+def _repos(note: Note) -> set[str]:
+    folders = {part.lower() for path in note.paths for part in PurePosixPath(path).parts}
+    return {repo.lower() for repo in note.repos} | folders
+
+
+def _one_word(branch: str) -> bool:
+    return re.search(r"[-/_.]", branch) is None
 
 
 def _link(note: Note) -> str:
@@ -107,19 +120,24 @@ def _shared_shas(body: str, line: str) -> list[str]:
 
 def judge(note: Note, body: str, lines: list[LogLine]) -> Verdict | None:
     branch = _branch(note)
-    pushed, marked, mentioned, on_branch, by_sha = [], [], [], [], []
+    repos = _repos(note)
+    pushed, marked, mentioned, on_branch, by_sha, unscoped, word = [], [], [], [], [], [], []
     for order, line in enumerate(lines):
+        ours = line.repo in repos
         if _marks_done(note, line.text):
             marked.append((line.day, order, line))
-        elif branch and _pushed(branch, line.text):
-            pushed.append((line.day, order, line))
+        elif branch and ours and _pushed(branch, line.text):
+            loose = _one_word(branch) and _branch_field(line.text) is None
+            (word if loose else pushed).append((line.day, order, line))
         elif _names_note(note, line.text):
             mentioned.append((line.day, order, line))
-        elif branch and _on_branch(branch, line.text):
+        elif branch and ours and _on_branch(branch, line.text):
             on_branch.append((line.day, order, line))
+        elif branch and not repos and (_pushed(branch, line.text) or _on_branch(branch, line.text)):
+            unscoped.append((line.day, order, line))
         elif _shared_shas(body, line.text):
             by_sha.append((line.day, order, line))
-    found = pushed + marked or mentioned or on_branch or by_sha
+    found = pushed + marked or mentioned or unscoped or word or on_branch or by_sha
     if not found:
         return None
     newest = max(found)
@@ -132,6 +150,12 @@ def judge(note: Note, body: str, lines: list[LogLine]) -> Verdict | None:
         return Verdict(note.key, evidence, False, f"the note changed on {updated}, after the log line")
     if found is mentioned:
         return Verdict(note.key, evidence, False, "the log line names the note without marking it done")
+    if found is unscoped:
+        reason = "the note names no repo, so the line with its branch may be another repo's"
+        return Verdict(note.key, evidence, False, reason)
+    if found is word:
+        reason = f"the branch {branch} is one word, which a log line may start with for another reason"
+        return Verdict(note.key, evidence, False, reason)
     if found is on_branch:
         reason = "the log line names the branch its commits were made on, not a push of it"
         return Verdict(note.key, evidence, False, reason)

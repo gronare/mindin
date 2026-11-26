@@ -6,7 +6,7 @@ What each mindin release brings, one line per change, as you would tell someone 
 
 ### What's new
 - `close` and `mindin task close` keep the evidence that the work landed as the note's last line.
-- `mindin lint --close-done` closes task notes a repo log line marks done or names by branch, and lists the unsure ones.
+- `mindin lint --close-done` closes task notes a repo log line marks done or the push line of their branch shows landed, and lists the unsure ones.
 - The vault-workflow skill closes a task note with its evidence in the turn its work lands.
 
 ### Fixed

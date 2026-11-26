@@ -44,7 +44,7 @@ With nothing to save, stop again; the hook asks once. Your reply to the user say
 ## Triage at session start
 
 - `context` lists open task notes older than the schema's stale window under `triage`. Settle each before new work: `close` when the work is done, `append_file` a dated line saying what is still open when it is still moving, `set_status(path, "backlog", priority)` to park it. The session that created a note is gone; the session that meets it owns it.
-- The weekly `lint --close-done --park-stale` closes the notes a repo log line starts with `done [[stem]]` or names by their branch and parks what no session met, so `active` always means touched within the window.
+- The weekly `lint --close-done --park-stale` closes the notes a repo log line starts with `done [[stem]]` or whose branch's push line (`<branch>: …`) is in the log and parks what no session met, so `active` always means touched within the window.
 
 ## Backlog
 

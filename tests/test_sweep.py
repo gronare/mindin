@@ -106,10 +106,46 @@ def test_a_later_line_naming_the_note_keeps_a_done_note_open(vault: Vault, vault
     assert swept(vault) == ([], {key: "a later log line names the note without marking it done"})
 
 
-def test_a_note_whose_branch_is_the_lines_branch_field_is_closed(vault: Vault, vault_dir: Path):
+def test_a_session_line_on_the_notes_branch_is_listed_not_closed(vault: Vault, vault_dir: Path):
+    key = task(vault_dir, "orchard-prune", "Cut.\n", source="branch prune-grove")
+    log(vault, vault_dir, "- [2026-09-01] Cut the low branches | branch: prune-grove | commits: 9f1e2d3 | [[orchard]]")
+    reason = "the log line names the branch its commits were made on, not a push of it"
+    assert swept(vault) == ([], {key: reason})
+    assert parse(vault.backend.get(key)[0])[0]["status"] == "active"
+
+
+def test_a_push_line_with_its_branch_field_closes_the_note(vault: Vault, vault_dir: Path):
     task(vault_dir, "orchard-prune", "Cut.\n", source="branch prune-grove")
-    log(vault, vault_dir, "- [2026-09-03] Cut the low branches | branch: prune-grove | commits: 9f1e2d3 | [[orchard]]")
+    log(vault, vault_dir, "- [2026-09-03] prune-grove: Cut | branch: prune-grove | commits: 9f1e2d3 | [[orchard]]")
     assert swept(vault)[0] == ["Projects/orchard-prune.md"]
+
+
+def test_a_done_line_written_on_the_notes_branch_closes_the_note(vault: Vault, vault_dir: Path):
+    task(vault_dir, "orchard-prune", "Cut.\n", source="branch prune-grove")
+    log(
+        vault,
+        vault_dir,
+        "- [2026-09-03] prune-grove: Cut | branch: prune-grove | commits: 9f1e2d3 | [[orchard]]",
+        "- [2026-09-03] done [[orchard-prune]] | branch: prune-grove | commits: - | [[orchard]]",
+    )
+    assert swept(vault)[0] == ["Projects/orchard-prune.md"]
+
+
+def test_a_line_starting_with_the_branch_written_on_another_branch_is_not_a_push(vault: Vault, vault_dir: Path):
+    task(vault_dir, "orchard-prune", "Cut.\n", source="branch prune-grove")
+    log(vault, vault_dir, "- [2026-09-03] prune-grove: still cutting | branch: main | commits: 9f1e2d3 | [[orchard]]")
+    assert swept(vault) == ([], {})
+
+
+def test_work_on_the_branch_after_its_push_keeps_the_note_open(vault: Vault, vault_dir: Path):
+    key = task(vault_dir, "orchard-prune", "Cut.\n", source="branch prune-grove")
+    log(
+        vault,
+        vault_dir,
+        "- [2026-09-03] prune-grove: Cut | branch: prune-grove | commits: 9f1e2d3 | [[orchard]]",
+        "- [2026-09-03] Second pass | branch: prune-grove | commits: 4e5f6a7 | [[orchard]]",
+    )
+    assert swept(vault) == ([], {key: "a later log line shows work on the branch after the push"})
 
 
 def test_a_note_whose_commit_alone_is_in_the_log_is_listed_not_closed(vault: Vault, vault_dir: Path):

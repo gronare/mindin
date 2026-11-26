@@ -19,6 +19,7 @@ NOT_LANDED_RE = re.compile(
     re.IGNORECASE,
 )
 AREA_FIELD_RE = re.compile(r"\s*\|\s*\[\[[^\]]*\]\]\s*$")
+BRANCH_FIELD_RE = re.compile(r"\|\s*branch:\s*(\S+)\s*\|")
 DEFAULT_BRANCHES = frozenset({"main", "master", "trunk", "develop"})
 
 
@@ -86,8 +87,17 @@ def _marks_done(note: Note, line: str) -> bool:
     return re.match(rf"done {_link(note)}(?![^\s:;,.|])", _entry(line), re.IGNORECASE) is not None
 
 
-def _names_branch(branch: str, line: str) -> bool:
-    return _entry(line).startswith(f"{branch}:") or f"branch: {branch} |" in line
+def _branch_field(line: str) -> str | None:
+    found = BRANCH_FIELD_RE.search(line)
+    return found.group(1) if found and found.group(1) != "-" else None
+
+
+def _pushed(branch: str, line: str) -> bool:
+    return _entry(line).startswith(f"{branch}:") and _branch_field(line) in (None, branch)
+
+
+def _on_branch(branch: str, line: str) -> bool:
+    return _branch_field(line) == branch
 
 
 def _shared_shas(body: str, line: str) -> list[str]:
@@ -97,17 +107,19 @@ def _shared_shas(body: str, line: str) -> list[str]:
 
 def judge(note: Note, body: str, lines: list[LogLine]) -> Verdict | None:
     branch = _branch(note)
-    by_branch, marked, mentioned, by_sha = [], [], [], []
+    pushed, marked, mentioned, on_branch, by_sha = [], [], [], [], []
     for order, line in enumerate(lines):
-        if branch and _names_branch(branch, line.text):
-            by_branch.append((line.day, order, line))
-        elif _marks_done(note, line.text):
+        if _marks_done(note, line.text):
             marked.append((line.day, order, line))
+        elif branch and _pushed(branch, line.text):
+            pushed.append((line.day, order, line))
         elif _names_note(note, line.text):
             mentioned.append((line.day, order, line))
+        elif branch and _on_branch(branch, line.text):
+            on_branch.append((line.day, order, line))
         elif _shared_shas(body, line.text):
             by_sha.append((line.day, order, line))
-    found = by_branch + marked or mentioned or by_sha
+    found = pushed + marked or mentioned or on_branch or by_sha
     if not found:
         return None
     newest = max(found)
@@ -120,12 +132,19 @@ def judge(note: Note, body: str, lines: list[LogLine]) -> Verdict | None:
         return Verdict(note.key, evidence, False, f"the note changed on {updated}, after the log line")
     if found is mentioned:
         return Verdict(note.key, evidence, False, "the log line names the note without marking it done")
+    if found is on_branch:
+        reason = "the log line names the branch its commits were made on, not a push of it"
+        return Verdict(note.key, evidence, False, reason)
     if found is by_sha:
         return Verdict(note.key, evidence, False, "only a commit the note mentions is in the log, not the note itself")
     later = [entry for entry in mentioned if entry > newest]
     if later:
         evidence = f"{max(later)[2].key}: {max(later)[2].text}"
         return Verdict(note.key, evidence, False, "a later log line names the note without marking it done")
+    later = [entry for entry in on_branch if entry > newest]
+    if later:
+        evidence = f"{max(later)[2].key}: {max(later)[2].text}"
+        return Verdict(note.key, evidence, False, "a later log line shows work on the branch after the push")
     if NOT_LANDED_RE.search(last.text):
         return Verdict(note.key, evidence, False, "the log line says the work has not landed")
     if OPEN_CHECKBOX_RE.search(body):

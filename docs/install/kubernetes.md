@@ -29,7 +29,7 @@ Set the new release's image and apply the Deployment. The server brings the acco
 ```yaml
       initContainers:
         - name: migrate
-          image: ghcr.io/gronare/mindin:v0.21.1
+          image: ghcr.io/gronare/mindin:v0.22.0
           args: ["migrate"]
           envFrom:
             - secretRef:
